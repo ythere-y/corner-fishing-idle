@@ -11,8 +11,9 @@ class_name SpotData
 
 const SPOTS := {
 	"river_bend": {
-		"name": "新手河湾",
-		"desc": "最初的那方静水，缓流绕过雪岸。从白条到国宝鲟，什么都可能上钩——新手友好的全能钓点。",
+		# 【修改】name/desc 改为"背包客旅程手记"叙事（v2：补上国家标注——中国，出发起点）；unlock/tags/event_pool/数值等原样保留，玩法零改动。
+		"name": "第1站 · 中国 · 家门口河湾",
+		"desc": "出发头一天就耍赖，没走远——先在家门口这条河边扎营，试试新钓竿手感。白条到国宝鲟都爱来凑热闹，新手全能款，图一个热身。",
 		"unlock": {},  # 默认解锁
 		"habitat_tags": ["river"],
 		"event_pool": ["fish_run", "lucky_current", "morning_fog", "drift_crate"],
@@ -29,8 +30,9 @@ const SPOTS := {
 		},
 	},
 	"still_lake": {
-		"name": "静水湖泊",
-		"desc": "水草丰茂的冬日湖湾，掠食者潜伏在乱石与树根间。鲈、鳜、黑鱼、狗鱼当家，偶有巨鲟与欧鲶。",
+		# 【修改】name/desc 改写（v2：补上国家标注——中国，国内热身第二站）
+		"name": "第2站 · 中国 · 冬泊湖",
+		"desc": "沿河一路往上，撞进一片被水草和乱石护着的冷湖。鲈、鳜、黑鱼、狗鱼在这儿称王，偶尔冒出条巨鲟或欧鲶，看得人倒吸一口气。",
 		"unlock": {"kind": "catches", "n": 80},
 		"habitat_tags": ["lake"],
 		"event_pool": ["fish_run", "morning_fog", "cold_front", "lucky_current"],
@@ -41,8 +43,9 @@ const SPOTS := {
 		"luck_bonus": 0,
 	},
 	"coast_pier": {
-		"name": "海岸码头",
-		"desc": "海风咸涩，浪拍木桩，小灯在栈桥尽头摇。海鲈、鲷、带鱼、石斑、马鲛轮番登场，深处藏着金枪与旗鱼。",
+		# 【修改】name/desc 改写（v2：定为「国家路线」，本站落地菲律宾）
+		"name": "第5站 · 菲律宾 · 出海码头",
+		"desc": "第一次出国，落地就直奔渔港——空气里都是咸腥味。海鲈、鲷、带鱼、石斑、马鲛轮番上钩，栈桥灯下听当地船家吹牛说深处藏着金枪与旗鱼——留了个心愿单。",
 		"unlock": {"kind": "catches", "n": 300},
 		"habitat_tags": ["coast"],
 		"event_pool": ["fish_run", "tide_in", "drift_crate", "protected_release"],
@@ -54,8 +57,9 @@ const SPOTS := {
 	},
 	# —— v3 新增专属钓点（背景图待补：缺图自动回退河湾主图，不崩；见 docs/fish-expansion-plan.md）——
 	"mountain_stream": {
-		"name": "山涧溪流",
-		"desc": "雪线下的清冷急流，水透得见石。柳根、白甲在浅濑成群，深潭里藏着茴鱼、石爬鮡，与极危的川陕哲罗鲑。",
+		# 【修改】name/desc 改写（v2：补上国家标注——中国，川藏线高原溪谷）
+		"name": "第3站 · 中国 · 雪线溪谷",
+		"desc": "背包换成登山包，一路爬到雪线以下。溪水凛冷透亮，柳根、白甲挤在浅滩，深潭里藏着茴鱼、石爬鮡，还有极危的川陕哲罗鲑——运气好才见得着。",
 		"unlock": {"kind": "catches", "n": 180},
 		"habitat_tags": ["stream", "cold"],
 		"event_pool": ["fish_run", "cold_front", "lucky_current", "morning_fog"],
@@ -66,8 +70,9 @@ const SPOTS := {
 		"luck_bonus": 0,
 	},
 	"deep_sea": {
-		"name": "远海深渊",
-		"desc": "离岸百里的深蓝，灯火打不到底。发光的小鱼成片游过，鮟鱇举着灯笼，更深处是月鱼与大王乌贼的领地。",
+		# 【修改】name/desc 改写（v2：本站落地新西兰，深海船钓胜地）
+		"name": "第7站 · 新西兰 · 租船出深海",
+		"desc": "飞到新西兰，把钓竿换成配重更狠的家伙，跟当地船家凑了张船票直奔深蓝。灯火照不到底，鮟鱇提着灯笼路过，更深处是月鱼和大王乌贼的地盘——胆子被撑大了不少。",
 		"unlock": {"kind": "catches", "n": 600},
 		"habitat_tags": ["deep"],
 		"event_pool": ["fish_run", "tide_in", "drift_crate", "protected_release"],
@@ -79,8 +84,9 @@ const SPOTS := {
 	},
 	# —— v3 第二波生态钓点（背景图待补：缺图回退河湾主图，不崩；见 docs/fish-expansion-plan.md）——
 	"urban_pond": {
-		"name": "城市野塘",
-		"desc": "桥洞下、护栏边的一汪绿水，浮着落叶与零碎倒影。食蚊鱼、清道夫、巴西龟，偶尔有人放生的招财，咬钩飞快、个个皮实。",
+		# 【修改】name/desc 改写（v2：补上国家标注——中国，出境前最后补给站）
+		"name": "第4站 · 中国 · 下山进城",
+		"desc": "翻下雪线，一脚踩回人间烟火——桥洞下、护栏边的一汪绿水，浮着落叶与零碎倒影。食蚊鱼、清道夫、巴西龟，偶尔有人放生的招财，咬钩飞快、个个皮实，歇脚补给刚好，出境前最后补一波给养。",
 		"unlock": {"kind": "catches", "n": 250},
 		"habitat_tags": ["urban"],
 		"event_pool": ["fish_run", "drift_crate", "lucky_current", "protected_release"],
@@ -91,8 +97,9 @@ const SPOTS := {
 		"luck_bonus": 0,
 	},
 	"estuary": {
-		"name": "河口红树林",
-		"desc": "咸淡交汇的潮间带，红树根盘错节。弹涂鱼在泥滩上跳，射水鱼打落虫子，深处藏着大海鲢与极危的黄唇鱼。",
+		# 【修改】name/desc 改写（v2：本站落地马来西亚）
+		"name": "第6站 · 马来西亚 · 红树滩",
+		"desc": "跨境南下，扎进咸淡水交汇的红树林。弹涂鱼在泥滩上蹦、射水鱼打水花猎虫，深处据说有大海鲢和极危的黄唇鱼——蹲了三天只为看它一眼。",
 		"unlock": {"kind": "catches", "n": 450},
 		"habitat_tags": ["brackish"],
 		"event_pool": ["fish_run", "tide_in", "drift_crate", "protected_release"],
@@ -103,8 +110,9 @@ const SPOTS := {
 		"luck_bonus": 0,
 	},
 	"coral_reef": {
-		"name": "热带珊瑚礁",
-		"desc": "暖透的浅海花园，珊瑚丛里游满了缤纷的小鱼。小丑鱼、神仙鱼、鹦哥轮番亮相，礁缘巡着苏眉与蝠鲼。",
+		# 【修改】name/desc 改写（v2：本站落地澳大利亚大堡礁）
+		"name": "第8站 · 澳大利亚 · 潜进珊瑚园",
+		"desc": "从深海折返，一路开到大堡礁，扎进暖透的浅海花园。小丑鱼、神仙鱼、鹦哥在珊瑚丛里晃来晃去，礁缘偶尔巡过苏眉和蝠鲼——鱼篓被塞得五颜六色。",
 		"unlock": {"kind": "catches", "n": 800},
 		"habitat_tags": ["reef"],
 		"event_pool": ["fish_run", "tide_in", "drift_crate", "protected_release"],
@@ -115,8 +123,9 @@ const SPOTS := {
 		"luck_bonus": 0,
 	},
 	"polar_lake": {
-		"name": "极地冰湖",
-		"desc": "冰层下透着幽蓝，凿开一个洞便是入口。北极红点鲑、白鲑在冷水里聚，深处沉着活了几百年的格陵兰睡鲨与巨鳇。",
+		# 【修改】name/desc 改写（v2：本站落地冰岛）
+		"name": "第9站 · 冰岛 · 凿冰入极地",
+		"desc": "一路往冷门方向绕到冰岛，冰层下透着幽蓝，凿开一个洞就是入口。北极红点鲑、白鲑挤在冷水里，深处沉着活了几百年的格陵兰睡鲨和巨鳇——手都冻僵了还想多等一条。",
 		"unlock": {"kind": "catches", "n": 1200},
 		"habitat_tags": ["polar"],
 		"event_pool": ["fish_run", "cold_front", "morning_fog"],
@@ -127,8 +136,9 @@ const SPOTS := {
 		"luck_bonus": 1,      # 但个个是大物
 	},
 	"cavern_pool": {
-		"name": "古潭溶洞",
-		"desc": "钟乳低垂，水黑得照不见底。退了色的盲鱼贴壁游动，潭底藏着多鳍鱼、肺鱼这些活化石，与传说中的大鲵。",
+		# 【修改】name/desc 改写（v2：本站落地斯洛文尼亚——波斯托伊纳洞穴同款地貌）
+		"name": "第10站 · 斯洛文尼亚 · 溶洞尽头",
+		"desc": "路线走到最偏的一段，跑去斯洛文尼亚，跟着向导摸进钟乳石垂落的暗河。退色的盲鱼贴着壁游，潭底藏着多鳍鱼、肺鱼这些活化石，据说更深处还有传说中的大鲵——手记先写到这儿，下一段等信号恢复。",
 		"unlock": {"kind": "species", "n": 110},
 		"habitat_tags": ["cavern"],
 		"event_pool": ["fish_run", "morning_fog", "drift_crate"],

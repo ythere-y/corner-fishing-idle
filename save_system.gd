@@ -9,6 +9,8 @@ class_name SaveSystem
 ## v11 陪伴向：dex 第 6 元 fd(首捕日期，水族箱纪录卡用)；专注奖励 focus_min/rt/rd/pend；
 ##     桌面宠物 pet_steals。旧档默认 fd=""、专注/宠物计数 0（display 复用为水族箱，无损）。
 ## v12 第四成长线：lure(诱饵/窝料下标，决定稀有变体偏置 vbias)。旧档默认 0=无窝料（与基线一致，无损）。
+## 【修改】v13 背包客人设：character(选择的角色 id，"jim"/"ganie")、chosen_character(是否已选过)。
+##     旧档默认 chosen_character=true（老玩家不重新弹选人页），character 默认 CharacterData.DEFAULT_CHARACTER，无损迁移。
 
 const OFFLINE_CAP := 8.0 * 3600.0
 
@@ -24,7 +26,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 12,
+		"ver": 13,   # 【修改】12→13：新增背包客角色字段
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"bag_level": g.bag_level,
@@ -50,6 +52,9 @@ static func collect(g) -> Dictionary:
 		"paper_grain": g.paper_grain,   # 水彩纸纹偏好（旧档无 → 载入默认开）
 		"focus": g.focus_mode,
 		"seen_intro": g.seen_intro,
+		# —— 【新增】v13 背包客人设 ——
+		"character": g.player_character,
+		"chosen_character": g.chosen_character,
 		# —— v8 多钓点 ——
 		"spot": g.current_spot,
 		"unlocked": g.unlocked_spots,
@@ -201,6 +206,12 @@ static func apply(g, data: Dictionary) -> void:
 	g._set_ui_scale(float(data.get("ui_scale", 1.0)))   # 校验 + 应用窗口缩放，旧档默认 1.0
 	g._set_paper_grain(bool(data.get("paper_grain", true)))   # 水彩纸纹偏好，旧档默认开
 	g.seen_intro = bool(data.get("seen_intro", true))  # 有存档=老玩家，默认已看过引导
+	# 【新增】v13 背包客人设迁移：旧档无该字段 → 视为"老玩家早就出发了"，不重新弹选人页；
+	# character 缺省落到 CharacterData.DEFAULT_CHARACTER（仅影响文案称呼，不影响数值）。
+	g.chosen_character = bool(data.get("chosen_character", true))
+	g.player_character = str(data.get("character", CharacterData.DEFAULT_CHARACTER))
+	if not CharacterData.has(g.player_character):
+		g.player_character = CharacterData.DEFAULT_CHARACTER
 	if bool(data.get("focus", false)):
 		g._set_focus(true)
 	# —— v11 陪伴向（旧档无 → 全部归零，无损迁移）——

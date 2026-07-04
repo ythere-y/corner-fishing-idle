@@ -82,6 +82,7 @@ var _panel: Control = null
 var _panel_kind := ""
 var _panel_view_sig := ""    # 当前面板「视图签名」（kind+页签+详情鱼…）；同签名重建时保留滚动位置，避免挂机上鱼把长列表弹回顶部
 var _detail_fish := ""       # 当前「鱼种详情卡」显示的鱼 id
+var _story_step := 0         # 【新增】开场故事动画当前播放到第几页（story 面板用）
 var _opacity := 1.0
 var paper_grain := true          # 水彩纸纹层开关（视觉偏好；真值在 main，经 _set_paper_grain 应用到 painter）
 const FPS_OPTIONS := [30, 60, 90, 120]   # 设置里可选的帧率上限
@@ -100,6 +101,9 @@ var _rz_start_pos := Vector2i.ZERO    # 起拖时窗口位置
 var _rz_start_size := Vector2i.ZERO   # 起拖时窗口尺寸
 var focus_mode := false          # 专注/安静模式：停小动物事件 + 抑制飘字 + 轻微变暗
 var seen_intro := false          # 是否看过首次引导
+# 【新增】背包客人设：先看开场故事动画，再选角色（Jim/Ganie），选完才进入 intro 引导。
+var chosen_character := false    # 是否已选过角色（老档默认 true，不重新弹）
+var player_character := CharacterData.DEFAULT_CHARACTER  # 当前选择的角色 id
 var order_chip: Button = null   # HUD 上的每日订单进度小字（可点开订单页）
 var spot_chip: Button = null    # HUD 上的当前钓点·事件小字（可点开钓点页）
 
@@ -216,7 +220,11 @@ func _ready() -> void:
 	_unlocks_inited = true
 	_started = true
 	Audio.set_ambience_scene(current_spot, day_phase)
-	if not seen_intro and lifetime_catches == 0 and DisplayServer.get_name() != "headless":
+	# 【修改】首启顺序：先讲背包客的故事(story) → 选角色(character) → 再进原有 tips 引导(intro)。
+	# 老档 chosen_character 默认 true（迁移兜底），不会被拉回选人页；只有全新档会走这条新链路。
+	if not chosen_character and lifetime_catches == 0 and DisplayServer.get_name() != "headless":
+		_open_panel("story")  # 【新增】全新玩家：先看开场世界观动画
+	elif not seen_intro and lifetime_catches == 0 and DisplayServer.get_name() != "headless":
 		_open_panel("intro")  # 全新玩家首启引导（无头测试不弹）
 	elif not _offline_report.is_empty():
 		_open_panel("offline")
@@ -2309,6 +2317,7 @@ func _new_save() -> void:
 	# 全状态复位为默认（空字典 → apply 内每个 .get(key, default) 取默认）
 	SaveSystem.apply(self, {})
 	seen_intro = false        # 全新档：重看引导
+	chosen_character = false  # 【新增】全新档：重新走"看故事→选角色"流程
 	# 复位瞬态运行状态（镜像 _ready 载入后的初始化）
 	_offline_report = {}
 	_pending_offline = ""
@@ -2333,4 +2342,4 @@ func _new_save() -> void:
 	_close_panel()            # 关掉设置页
 	_toast("已开启新存档 · 进度已清空", 2.6, DT.GOLD)
 	if lifetime_catches == 0 and DisplayServer.get_name() != "headless":
-		_open_panel("intro")  # 全新玩家引导
+		_open_panel("story")  # 【修改】全新档重新开局：同样先看开场故事，而不是直接跳 intro

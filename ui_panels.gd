@@ -27,7 +27,9 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 	# 重建面板时保持「全窗可交互」穿透不变——不要切回羽化椭圆。
 	# 否则透明窗会被裁成椭圆一帧 → 点任意按钮都闪一下、露出场景羽化弧边。
 	close_panel(g, true)
-	var titles := {"catch": "垂钓手册", "rod": "鱼竿 · 升级", "set": "设置", "offline": "离线小结", "intro": "欢迎来到角落垂钓"}
+	# 【修改】新增 story / character 两个开场专用面板标题（背包客人设开场流程）；intro 标题随新项目名调整。
+	var titles := {"catch": "垂钓手册", "rod": "鱼竿 · 升级", "set": "设置", "offline": "离线小结",
+		"intro": "欢迎来到背包钓鱼手记", "story": "在开始之前……", "character": "这次是谁在路上？"}
 	var title_str := str(titles.get(kind, ""))
 	if kind == "fishdetail":
 		title_str = FishData.display_name(str(g._detail_fish)) + " · 详情"
@@ -35,7 +37,9 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 		title_str = _section_name(g._catch_tab)   # 带框 sheet 标题=区名（CD）
 	var card := make_card(g, title_str)
 	# 沉浸模式恢复拖拽位置；带框 sheet 固定锚位不恢复。
-	if g.display_mode == "immersive" and kind != "offline" and kind != "intro" and g._panel_saved_pos != null:
+	# 【修改】story/character 同样是开场引导性质的固定面板，不恢复上次拖拽位置。
+	if g.display_mode == "immersive" and kind != "offline" and kind != "intro" \
+			and kind != "story" and kind != "character" and g._panel_saved_pos != null:
 		card.position = clamp_panel_position(g, g._panel_saved_pos, card.custom_minimum_size)
 	var v: VBoxContainer = card.get_node("M/V")
 	match kind:
@@ -44,6 +48,8 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 		"set": fill_settings(g, v)
 		"offline": fill_offline_report(g, v)
 		"intro": fill_intro(g, v)
+		"story": fill_story(g, v)          # 【新增】开场世界观动画
+		"character": fill_character(g, v)  # 【新增】选择背包客角色
 		"fishdetail": fill_fish_detail(g, v)
 	g.ui_root.add_child(card)
 	g._panel = card
@@ -2425,14 +2431,137 @@ static func _test_fish_picker(g: CornerFishing, col: VBoxContainer) -> void:
 	qv_row.add_child(give)
 
 
+## 【新增】开场世界观动画：讲完故事再决定谁出发。逐页播、可跳过。
+## g._story_step 记住播到第几页；点「下一句」重建面板翻下一页，最后一页直达选人页。
+static func fill_story(g: CornerFishing, v: VBoxContainer) -> void:
+	var pages := [
+		"有个朋友，最近总是不在工位上。",
+		"倒不是摸鱼——是真的人不在。年假攒够那天，他/她把电脑一合，说走就走，一头扎进了地图里。",
+		"行李不多：一根鱼竿，一顶帐篷，剩下全靠现场发挥。路线也没规划，走到哪儿钓到哪儿。",
+		"从家门口那道再普通不过的河湾，一路钓到深海、钓到珊瑚礁、钓到没手机信号的溶洞——地图有多大，鱼篓就有多杂。",
+		"他/她说好了：每到一个新地方，随手钓的第一条像样的鱼，都「云」寄一份记录回来给你看看。",
+		"你不用出门，也不用一直盯着——桌角这方小水塘，就是那份「远程连线」。他/她在外面钓，这边替你把日子撑住。",
+		"故事讲完了。出发前，先定一件正事——这一趟，派谁去？",
+	]
+	var idx: int = clampi(g._story_step, 0, pages.size() - 1)
+	var body := Label.new()
+	body.text = pages[idx]
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size = Vector2(380, 0)
+	body.add_theme_font_size_override("font_size", DT.FS_BODY)
+	body.add_theme_color_override("font_color", DT.TEXT_ON_GLASS)
+	v.add_child(body)
+	var gap := Control.new()
+	gap.custom_minimum_size = Vector2(0, 6)
+	v.add_child(gap)
+	# 页码点：走了几步一眼看到，纯装饰不可点。
+	var dots := HBoxContainer.new()
+	dots.alignment = BoxContainer.ALIGNMENT_CENTER
+	dots.add_theme_constant_override("separation", 6)
+	for i in pages.size():
+		var d := PanelContainer.new()
+		d.custom_minimum_size = Vector2(6, 6)
+		var dsb := StyleBoxFlat.new()
+		dsb.set_corner_radius_all(3)
+		dsb.bg_color = DT.GOLD if i == idx else DT.GLASS_ROW
+		d.add_theme_stylebox_override("panel", dsb)
+		dots.add_child(d)
+	v.add_child(dots)
+	var gap2 := Control.new()
+	gap2.custom_minimum_size = Vector2(0, 6)
+	v.add_child(gap2)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	if idx < pages.size() - 1:
+		var skip := Button.new()
+		skip.text = "跳过"
+		skip.custom_minimum_size = Vector2(0, 36)
+		skip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		apply_button_skin(skip, false)
+		skip.pressed.connect(func() -> void:
+			g._story_step = pages.size() - 1
+			g._open_panel("story"))
+		row.add_child(skip)
+		var next := Button.new()
+		next.text = "下一句"
+		next.custom_minimum_size = Vector2(0, 36)
+		next.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		apply_button_skin(next, true)
+		next.pressed.connect(func() -> void:
+			g._story_step += 1
+			g._open_panel("story"))
+		row.add_child(next)
+	else:
+		var go := Button.new()
+		go.text = "开始选人"
+		go.custom_minimum_size = Vector2(0, 36)
+		go.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		apply_button_skin(go, true)
+		go.pressed.connect(func() -> void:
+			g._open_panel("character"))
+		row.add_child(go)
+	v.add_child(row)
+
+
+## 【新增】选背包客：Jim / Ganie 二选一，纯人设文案，不影响任何数值。
+static func fill_character(g: CornerFishing, v: VBoxContainer) -> void:
+	var hint := Label.new()
+	hint.text = "选好了就出发——往后收到的「路上消息」都会是这位的口气。"
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.custom_minimum_size = Vector2(380, 0)
+	hint.add_theme_font_size_override("font_size", DT.FS_SM)
+	hint.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	v.add_child(hint)
+	var gap := Control.new()
+	gap.custom_minimum_size = Vector2(0, 4)
+	v.add_child(gap)
+	for cid in ["jim", "ganie"]:
+		var c := CharacterData.get_character(cid)
+		var card := PanelContainer.new()
+		card.add_theme_stylebox_override("panel", paper_style(0.9))
+		var mg := MarginContainer.new()
+		for s in ["left", "top", "right", "bottom"]:
+			mg.add_theme_constant_override("margin_" + s, 10)
+		card.add_child(mg)
+		var cv := VBoxContainer.new()
+		cv.add_theme_constant_override("separation", 4)
+		mg.add_child(cv)
+		var nm := Label.new()
+		nm.text = "%s · %s" % [str(c.get("name", "")), str(c.get("tag", ""))]
+		nm.add_theme_font_size_override("font_size", DT.FS_HEAD)
+		nm.add_theme_color_override("font_color", DT.INK)
+		cv.add_child(nm)
+		var bl := Label.new()
+		bl.text = str(c.get("blurb", ""))
+		bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		bl.custom_minimum_size = Vector2(340, 0)
+		bl.add_theme_font_size_override("font_size", DT.FS_XS)
+		bl.add_theme_color_override("font_color", DT.INK_SOFT)
+		cv.add_child(bl)
+		var pick := Button.new()
+		pick.text = "就 %s 了，出发！" % str(c.get("name", ""))
+		pick.focus_mode = Control.FOCUS_NONE
+		pick.custom_minimum_size = Vector2(0, 34)
+		apply_button_skin(pick, true)
+		pick.pressed.connect(func() -> void:
+			g.player_character = cid
+			g.chosen_character = true
+			g._save()
+			g._story_step = 0
+			g._open_panel("intro"))
+		cv.add_child(pick)
+		v.add_child(card)
+
+
 static func fill_intro(g: CornerFishing, v: VBoxContainer) -> void:
+	var who := CharacterData.display_name(g.player_character)
 	var tips := [
-		"· 浮标会自动钓鱼，钓到的鱼进「鱼篓」。",
-		"· 点右下角 🐟 鱼篓：卖鱼换金币，还能看图鉴 / 订单 / 成就 / 统计。",
-		"· 点 🎣 鱼竿：升级鱼竿(稀有度)、鱼饵(星级)、鱼钩(双钩)、诱饵(稀有变体)。",
-		"· 点 ⚙ 设置：调音量、专注模式、退出。",
-		"· 按住场景空白处，可把窗口拖到屏幕任意角落。",
-		"· 留意金色「收鱼郎」和蓝色「鱼汛」——限时高收益时刻！",
+		"· 浮标是自动的——%s 把竿子往这儿一插，剩下的交给手气。" % who,
+		"· 钓到的鱼自动进「鱼篓」，右下角 🐟 点开能卖钱、翻图鉴、看订单 / 成就。",
+		"· 🎣 鱼竿页管装备升级：鱼竿(稀有度) / 鱼饵(星级) / 鱼钩(双钩) / 诱饵(稀有变体)。",
+		"· ⚙ 设置里能调音量、开专注模式，或者重新出发（新开一局）。",
+		"· 按住场景空白处能把这方小水塘拖到桌面任意角落，随手一放。",
+		"· 撞上金色「收鱼郎」或蓝色「鱼汛」记得多留意——限时加成，错过了下次再等。",
 	]
 	for t in tips:
 		var l := Label.new()
@@ -2446,7 +2575,7 @@ static func fill_intro(g: CornerFishing, v: VBoxContainer) -> void:
 	gap.custom_minimum_size = Vector2(0, 8)
 	v.add_child(gap)
 	var btn := Button.new()
-	btn.text = "开始钓鱼"
+	btn.text = "好，开始钓"
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.custom_minimum_size = Vector2(0, 36)
 	apply_button_skin(btn, true)

@@ -1,147 +1,185 @@
-# Corner Fishing Idle - Art Direction
+# 背包钓鱼手记 · Art Direction（旅行手账风格方向）
+
+<!-- 【修改】原文档标题「Corner Fishing Idle - Art Direction」→ 按背包客世界观整体重写，项目定名「背包钓鱼手记」。
+     保留原文档的图层拆分 / Priority 分批思路（美术资源生产流程不推翻），
+     核心变化：从「单一冬季场景」→「10 个旅程站点各自的地域调色板」+「统一的手账装订感」外框。
+     旧英文版内容见 git 历史（本次整篇替换，不做逐段 diff）。 -->
 
 ## Goal
 
-The game should feel like a calm desktop ornament growing out of the lower-right corner of the screen: a small winter fishing scene that blends into the user's wallpaper, stays readable at a glance, and never feels like a normal rectangular game window.
+游戏本体仍是贴在桌面角落的挂机钓鱼挂件，但美术叙事从"一个固定的冬季钓鱼场景"，
+改造成"翻开一本旅行手账，每一页是背包客走过的一个站点"。核心视觉诉求：
 
-The visual reference supplied by the product owner is not a loose style moodboard. It is the expected production-quality bar: polished painterly detail, finished environment art, refined atmosphere, readable small character and UI, and desktop-wallpaper-level integration.
+- 整体框架统一（同一本"手账"的装订感、纸张质感、UI 语言），
+- 但每翻到一个新钓点（= 手账的一页），色彩基调、光线、氛围元素完全切换到当地风情。
+- 桌面挂件的原有硬性要求不变：逐像素透明、羽化边缘、鼠标穿透、右下角构图重心、
+  不喧宾夺主、不抢注意力——这是"不打扰的陪伴"这条产品支柱，任何风格改造都不能违背它。
+
+参考基调依旧是"潜水员戴夫"式的年轻、明亮、有生活气，而不是严肃写实的自然纪录片风格；
+同时要避开卡通贴纸感——手账本身的质感（纸纹、做旧、贴纸/邮票/手写字）才是这次风格升级的关键词。
 
 ## Visual Target
 
-- Mood: quiet, cozy, cold winter morning, soft and unintrusive.
-- Style: painterly 2D illustration with light realism. Avoid pixel art, hard cartoon outlines, and glossy mobile-game effects.
-- Quality bar: final assets should match premium illustrated desktop-widget art. Do not ship vector-like placeholders, rough procedural drawings, or simplified mock assets as production art.
-- Composition: most visual weight sits in the lower-right corner. The upper and left areas should remain mostly transparent or softly faded.
-- Edge treatment: the scene must dissolve into transparency through fog, mist, snow haze, or soft alpha feathering. No hard rectangular edges.
-- Desktop fit: the scene should work over arbitrary wallpapers. Keep contrast controlled and avoid large opaque blocks.
+- Mood：轻松、松弛、带点"在路上"的疲惫和惊喜感，不是冷清孤独，也不是喧闹打卡风。
+- Style：水彩/水粉插画 + 手账拼贴元素（纸张肌理、小贴纸、手写体标注、邮戳角标）。
+  避免像素风、硬边卡通描线、廉价手游特效。
+- Quality bar：与原版一致——最终资源要达到"精修插画级桌面挂件"的水准，不接受矢量占位图/糙稿/简化 mock。
+- Composition：视觉重心仍在右下角；左上区域保持透明/柔化渐隐。
+- Edge treatment：边缘依旧靠雾气/雪雾/水汽/羽化 alpha 溶解，不用硬直矩形边。
+- 手账统一元素（跨所有站点复用，形成"系列感"）：
+  - 页角小邮戳/图钉贴纸，标注"第 N 站"编号（对应 `spot_data.gd` 的 name 字段）。
+  - 淡淡的纸纹/做旧边缘叠加在场景外圈，暗示"这是一页手账，不是一个游戏窗口"。
+  - 统一的手写体英文小字体做点缀（地名/日期戳），衬线中文标题继续用 `assets/fonts/` 里的
+    Noto Serif SC，呼应原有"衬线展示声音"UI 规范。
 
-## Scene Elements
+## Scene Elements（按 10 个旅程站点分述）
 
-Primary elements:
+每个站点对应 `spot_data.gd` 里的一个 `bg_key`，缺图时依旧回退到 `river_bend` 主图（不崩，与原规则一致）。
+背包客角色（Jim / Ganie，二选一后台切换素材，非玩法差异）在每一站的姿态/装备略有变化，
+但都遵循"小而可读的剪影，不做精细肖像"的原则。
 
-- Snow mountain in the far background.
-- Pine forest silhouettes and sparse winter vegetation.
-- A narrow river or frozen-blue water surface.
-- Snowy rocks and riverbank in the foreground.
-- A seated fisher character facing left or slightly left-front.
-- Fishing rod, fishing line, and bobber.
-- A small lantern, tackle box, bucket, or backpack near the fisher.
-- Three small round UI buttons near the bottom-right edge.
+### 第1站 · 中国 · 家门口河湾 `river_bend`（新手热身，基调：温和春日）
 
-Optional seasonal details:
+- 元素：普通河湾、河岸杂草、简易折叠椅、刚拆封的新钓竿、背包还很鼓（东西没扔）。
+- 调色板：`#8FAE7A`（河岸草绿）`#BFD9C8`（浅水绿）`#F0E4C4`（暖沙黄）`#D6A85D`（点睛暖色，延续原方案的暖金 accent）。
+- 氛围：清晨薄雾、河面细碎波光，整体明快不压抑——这是"刚出发"的轻松感。
 
-- Thin drifting mist above the water.
-- Very small snow particles.
-- Subtle warm glow from the lantern.
-- Small ripples around the bobber.
+### 第2站 · 中国 · 冬泊湖 `still_lake`（基调：冷湖静谧）
+
+- 元素：水草丛、乱石堆、结霜芦苇、湖面倒影。
+- 调色板：`#5C7A82`（冷湖蓝绿）`#A9B8B2`（雾灰绿）`#3F4D45`（深松绿）`#E8DFC8`（霜白点缀）。
+- 氛围：延续原版"安静克制的冷调"，作为整本手账里"最像原始版本"的一页，起过渡作用。
+
+### 第3站 · 中国 · 雪线溪谷 `mountain_stream`（基调：高山寒溯）
+
+- 元素：登山包换装、雪线以下的碎石溪滩、松林、冰冷透亮的溪水。
+- 调色板：`#9AA8AE`（远山蓝灰，沿用原版雪山色）`#EEE8DC`（雪白）`#476F78`（溪水深青）`#58675E`（松林墨绿）。
+- 氛围：延续原版冬季雪山质感，是整本手账里"最冷"的一页之一。
+
+### 第4站 · 中国 · 下山进城 `urban_pond`（基调：市井烟火）
+
+- 元素：桥洞、护栏、落叶浮水、远处霓虹/路灯虚化背景、随手放着的行李箱。
+- 调色板：`#6B6F63`（水泥灰绿）`#C7B78A`（落叶黄褐）`#D6A85D`（路灯暖黄，串联全篇 accent 色）`#4B4E50`（夜幕深灰）。
+- 氛围：从雪山落回人间，整体色温转暖、构图更"接地气"，作为节奏上的松一口气。
+
+### 第5站 · 菲律宾 · 出海码头 `coast_pier`（基调：海风咸味的明快）
+
+- 元素：栈桥木栏、渔灯、缆绳、远处货轮虚影。
+- 调色板：`#3E7C8C`（海蓝）`#F2E2B8`（沙滩暖白）`#E08A4C`（日落橙，新增本站专属 accent）`#2E4A55`（深海蓝灰）。
+- 氛围：明亮、有盐味的海风感，是"启程去更远地方"的转折点。
+
+### 第6站 · 马来西亚 · 红树滩 `estuary`（基调：湿热咸淡水交汇）
+
+- 元素：红树根系、泥滩、弹涂鱼跳跃剪影、远处渡船。
+- 调色板：`#5A6B4E`（红树暗绿）`#8C7A5A`（泥滩棕）`#C9A24B`（潮汐金）`#2F4A3D`（深绿荫）。
+- 氛围：湿润、闷热但生机勃勃，色彩比码头站更沉、更"野"。
+
+### 第7站 · 新西兰 · 租船出深海 `deep_sea`（基调：深蓝未知）
+
+- 元素：出海配重钓具、船舷剪影、深海发光生物暗示。
+- 调色板：`#0E2A3D`（深海墨蓝）`#123B52`（次深蓝）`#3FA7C4`（鮟鱇灯光青）`#D6A85D`（暖金对比色，呼应发光生物）。
+- 氛围：整本手账里最暗、最神秘的一页，靠局部发光元素（鮟鱇灯笼）打破沉暗。
+
+### 第8站 · 澳大利亚 · 潜进珊瑚园 `coral_reef`（基调：暖色缤纷）
+
+- 元素：珊瑚丛、潜水镜、五彩鱼群剪影。
+- 调色板：`#FF8C69`（珊瑚橙）`#3FC1C9`（礁湖青）`#FFD166`（暖黄）`#E85D75`（珊瑚粉）——本次唯一允许高饱和度的一页，作为整本手账的视觉高潮。
+- 氛围：明艳、松弛，与深海站形成强对比，翻页时给人"豁然开朗"的惊喜。
+
+### 第9站 · 冰岛 · 凿冰入极地 `polar_lake`（基调：极地幽蓝）
+
+- 元素：冰层裂缝、凿冰工具、极光暗示（远景，克制不抢戏）。
+- 调色板：`#2C3E50`（极夜蓝）`#8FC1D6`（冰层幽蓝）`#EAF2F5`（雪白高光）`#D6A85D`（暖金灯火，唯一暖色救场）。
+- 氛围：全篇最冷冽的一页，暖金灯火点缀强调"手都冻僵了还想多等一条"的执念感。
+
+### 第10站 · 斯洛文尼亚 · 溶洞尽头 `cavern_pool`（基调：暗河终章）
+
+- 元素：钟乳石、向导手电光柱、暗河水面反光。
+- 调色板：`#1B1D24`（洞穴墨黑）`#3A4750`（湿岩灰蓝）`#C9A24B`（手电暖光，全篇 accent 色收尾呼应）`#5B7065`（苔藻绿）。
+- 氛围：安静、悬念感强，作为手记"写到这儿，下一段等信号恢复"的收尾页，留白感要重。
 
 ## Canvas And Placement
 
-Current Godot window target:
+沿用原版窗口/透明规则，未变：
 
-- Window size: 520 x 400.
-- Main illustrated scene area: roughly the lower-right 260 x 180 px.
-- Interactive area should stay near the visible scene and UI buttons.
-- Top and left margins should remain transparent or near-transparent.
+- 窗口尺寸、主画面锚定右下角、左上角透明渐隐——与原文档一致，此次不调整工程结构参数。
+- 每个站点独立一套背景资源（`spot_<key>_<phase>.png`），缺图统一回退 `river_bend` 主图，不崩溃。
 
-Recommended master image:
+## Layering Strategy（保留原图层拆分，按站点复制一套）
 
-- `corner_scene_winter_base.png`
-- Size: 520 x 400 px.
-- Format: PNG with alpha.
-- Main art anchored to bottom-right.
-- Transparent/feathered fade toward top-left.
-- Current final source reference: `assets/art/source/corner_scene_winter_final_source.png`.
-- Current Godot-ready final image: `assets/art/background/corner_scene_winter_final_520x400.png`.
+原版按"背景/水面/前景/角色/道具/UI"拆图层的思路不变，每个站点各自产出一套：
 
-## Layering Strategy
+- `background_<key>.png`：该站远景（山/城市天际线/礁石/洞顶等，按站点替换）。
+- `water_base_<key>.png` + `water_highlight_overlay_<key>.png`：水面与高光叠层。
+- `foreground_<key>.png`：前景细节（岸边杂物、珊瑚、冰层裂缝等）。
+- `fisher_idle_<character>_<key>.png`：背包客角色在该站的静置姿态（`character` = jim/ganie）。
+- `rod.png` / `bobber_idle.png` / `bobber_bite.png`：钓具类资源全局复用，不随站点变化。
+- `stamp_<key>.png`：**新增**——手账风格的站点角标贴纸（编号+站名，页角展示）。
 
-Use separate assets instead of baking everything into one image when animation or interaction is expected.
+## Palette 总表（跨站点速查）
 
-Suggested layers:
+| 站点 | 关键色 1 | 关键色 2 | Accent |
+|---|---|---|---|
+| 第1站 中国·家门口河湾 | `#8FAE7A` | `#BFD9C8` | `#D6A85D` |
+| 第2站 中国·冬泊湖 | `#5C7A82` | `#A9B8B2` | `#E8DFC8` |
+| 第3站 中国·雪线溪谷 | `#9AA8AE` | `#476F78` | `#EEE8DC` |
+| 第4站 中国·下山进城 | `#6B6F63` | `#C7B78A` | `#D6A85D` |
+| 第5站 菲律宾·出海码头 | `#3E7C8C` | `#F2E2B8` | `#E08A4C` |
+| 第6站 马来西亚·红树滩 | `#5A6B4E` | `#8C7A5A` | `#C9A24B` |
+| 第7站 新西兰·租船出深海 | `#0E2A3D` | `#123B52` | `#3FA7C4` |
+| 第8站 澳大利亚·潜进珊瑚园 | `#FF8C69` | `#3FC1C9` | `#FFD166` |
+| 第9站 冰岛·凿冰入极地 | `#2C3E50` | `#8FC1D6` | `#D6A85D` |
+| 第10站 斯洛文尼亚·溶洞尽头 | `#1B1D24` | `#3A4750` | `#C9A24B` |
 
-- `background_mountains.png`: static distant mountains and sky haze.
-- `background_forest.png`: pine forest and far bank.
-- `water_base.png`: base water surface.
-- `water_highlight_overlay.png`: animated shimmer/ripple overlay.
-- `foreground_bank.png`: rocks, snow, grass, foreground details.
-- `fisher_idle.png`: seated fisher idle pose.
-- `fisher_pull_01.png`, `fisher_pull_02.png`: simple pull animation frames.
-- `rod.png`: rod if it needs rotation or bending.
-- `bobber_idle.png`: idle bobber.
-- `bobber_bite.png`: bite state bobber.
-- `lantern.png`: prop with optional glow layer.
-- `ui_button_fish.png`, `ui_button_rod.png`, `ui_button_coin.png`: round icon buttons.
+跨站统一色（不随站点变化，出现在 UI/边框/装订元素上）：
+纸面米黄 `#EEE8DC`、装订线深棕 `#5A4A3A`、UI 暗玻璃 `#333638` / `#4B4E50`（沿用原版 UI 暗玻璃色）。
 
-## Palette
+Avoid（跨全篇统一约束，未变）：
 
-Use a restrained winter palette with one warm accent.
+- 高饱和霓虹色（唯第8站珊瑚园例外，且仅限该站）。
+- 大块纯黑阴影。
+- 偏蓝紫的奇幻打光（除极地/深海站可少量使用青蓝光效表达"发光生物/极光"，克制使用）。
 
-Suggested colors:
+## Asset Style Rules（未变，跨全篇统一）
 
-- Snow haze: `#D8D2C4`, `#C9C2B5`, `#EEE8DC`
-- Distant mountain blue-gray: `#9AA8AE`, `#B7C1C5`
-- Pine dark green-gray: `#3F4D45`, `#58675E`
-- Water muted teal-blue: `#476F78`, `#6E9298`, `#A7B8B7`
-- Rock neutral gray: `#6E7068`, `#969486`
-- Character coat olive/khaki: `#5F6652`, `#777B62`
-- Warm lantern/UI accent: `#D6A85D`, `#F0C978`
-- UI dark glass: `#333638`, `#4B4E50`
+- 剪影在小尺寸下依然可读。
+- 细节密度适中：有质感但不噪。
+- 半透明雾气/水汽处理场景左上边缘过渡。
+- 透明 PNG 不留硬白描边。
+- 图标为主，非必要不加文字标签。
+- 圆形 UI 按钮保持"小型桌面组件"手感，不做手游按钮式设计。
+- 背包客角色保持小尺寸可读剪影，不做精细肖像。
 
-Avoid:
+## Animation Notes（未变，跨全篇统一）
 
-- Saturated neon colors.
-- Large flat pure black shadows.
-- Overly blue/purple fantasy lighting.
-- Heavy beige-only monotone.
+- 水面高光：3-6 秒低透明度循环。
+- 浮标待机：2-4px 慢速纵向移动；咬钩：快速下沉+涟漪。
+- 角色待机：呼吸/衣物轻微摆动（若拆分帧存在）。
+- 每站可选一个专属环境动效强调地域特征：河湾-芦苇轻摆／深海-发光生物脉动／
+  珊瑚园-鱼群游动／极地-极光缓慢漂移／溶洞-手电光柱轻晃。全部保持"安静"节奏，
+  不做抓眼球的强动效——这是挂机陪伴的核心气质，任何风格升级都不能破坏它。
 
-## Asset Style Rules
+## Initial Asset Batch（按站点优先级重排）
 
-- Keep silhouettes readable at small size.
-- Use soft detail density: enough texture to feel painterly, but not noisy.
-- Use semi-transparent mist to blend the left/top scene edges.
-- Avoid hard white cutouts around transparent PNGs.
-- Avoid UI labels unless necessary; icons should communicate function.
-- Round UI buttons should feel like small desktop widgets, not mobile game buttons.
-- Keep the fisher as a small readable silhouette, not a detailed portrait.
+Priority 1（先补齐叙事权重最高的 3 站——开局第1站 + 视觉高潮第8站 + 收尾第10站）：
 
-## Animation Notes
+- `background_river_bend.png` / `stamp_river_bend.png`
+- `background_coral_reef.png` / `stamp_coral_reef.png`
+- `background_cavern_pool.png` / `stamp_cavern_pool.png`
+- `fisher_idle_jim_river_bend.png` / `fisher_idle_ganie_river_bend.png`（角色选择后的开局首站，两个角色都要有）
 
-Recommended subtle loops:
+Priority 2（其余 7 站背景+角标，按 `SpotData.SPOT_ORDER` 解锁顺序补齐）：
 
-- Water shimmer: 3-6 second loop, low opacity.
-- Bobber idle: slow vertical movement, 2-4 px range.
-- Bobber bite: quick dip plus ripple.
-- Fisher idle: tiny breathing/coat movement if separate frames exist.
-- Lantern glow: slow opacity pulse.
+- `background_still_lake.png` / `background_mountain_stream.png` / `background_urban_pond.png` /
+  `background_coast_pier.png` / `background_estuary.png` / `background_deep_sea.png` /
+  `background_polar_lake.png`（各配对应 `stamp_<key>.png`）
 
-Animation should remain calm. This is an idle desktop companion, not an attention-grabbing arcade scene.
+Priority 3（细节增强，锦上添花，不阻塞首发）：
 
-## Initial Asset Batch
+- 各站专属环境动效叠层（见 Animation Notes 的每站专属动效清单）。
+- 角色的第二套姿态帧（钓上大物时的"惊喜"表情/动作，可选）。
 
-Priority 1:
-
-- `corner_scene_winter_base.png`
-- `water_highlight_overlay.png`
-- `fisher_idle.png`
-- `rod.png`
-- `bobber_idle.png`
-- `bobber_bite.png`
-- `ui_button_fish.png`
-- `ui_button_rod.png`
-- `ui_button_coin.png`
-
-Priority 2:
-
-- `foreground_bank.png`
-- `lantern.png`
-- `fisher_pull_01.png`
-- `fisher_pull_02.png`
-- `fish_common_01.png`
-- `fish_common_02.png`
-- `fish_rare_01.png`
-
-## Directory Proposal
+## Directory Proposal（未变）
 
 ```text
 assets/art/background/
@@ -149,15 +187,16 @@ assets/art/character/
 assets/art/props/
 assets/art/fish/
 assets/art/ui/
+assets/art/stamps/   # 【新增】站点角标贴纸
 assets/art/source/
 ```
 
-Source files or generation references should go in `assets/art/source/` when available. Runtime PNG files should stay in their specific category folders.
+## Implementation Notes For Godot（未变）
 
-## Implementation Notes For Godot
-
-- Use PNG assets with alpha.
-- Use nearest-neighbor only if a future style shift goes pixel-art. For the current painterly style, use normal filtering.
-- Keep large background assets premultiplied/clean-alpha safe to prevent dark fringes.
-- Preserve bottom-right anchoring when resizing the window.
-- Mouse passthrough should exclude transparent empty areas and include only the visible scene/buttons.
+- 使用带 alpha 的 PNG 资源。
+- 当前水彩风格用普通滤波（非像素风，不用 nearest-neighbor）。
+- 大尺寸背景资源保持预乘/干净 alpha，避免深色描边瑕疵。
+- 缩放窗口时保持右下角锚定。
+- 鼠标穿透排除透明空白区域，只覆盖可见场景/按钮区域。
+- 站点切换时的资源加载逻辑沿用现有 `scene_painter.gd` 的"按 bg_key 切图，缺图回退程序化"机制，
+  本次风格升级不改变该工程逻辑，仅替换/新增素材文件。

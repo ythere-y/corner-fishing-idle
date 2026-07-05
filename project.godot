@@ -1,11 +1,12 @@
 ; Engine configuration file.
-; 角落垂钓 — 桌面角落挂机钓鱼挂件
+; 【修改】原「角落垂钓」→ 最终定名「背包钓鱼手记」（Backpack & Bait，候选名单见 docs/lore_backpacker.md）
+; 背包钓鱼手记 — 背包客桌面角落挂机钓鱼挂件
 
 config_version=5
 
 [application]
 
-config/name="角落垂钓"
+config/name="背包钓鱼手记"
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 

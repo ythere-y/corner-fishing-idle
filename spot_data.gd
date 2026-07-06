@@ -73,7 +73,7 @@ const SPOTS := {
 		# 【修改】name/desc 改写（v2：本站落地新西兰，深海船钓胜地）
 		"name": "第7站 · 新西兰 · 租船出深海",
 		"desc": "飞到新西兰，把钓竿换成配重更狠的家伙，跟当地船家凑了张船票直奔深蓝。灯火照不到底，鮟鱇提着灯笼路过，更深处是月鱼和大王乌贼的地盘——胆子被撑大了不少。",
-		"unlock": {"kind": "catches", "n": 600},
+		"unlock": {"kind": "catches", "n": 3000},
 		"habitat_tags": ["deep"],
 		"event_pool": ["fish_run", "tide_in", "drift_crate", "protected_release"],
 		"bg_key": "deep_sea",
@@ -100,7 +100,9 @@ const SPOTS := {
 		# 【修改】name/desc 改写（v2：本站落地马来西亚）
 		"name": "第6站 · 马来西亚 · 红树滩",
 		"desc": "跨境南下，扎进咸淡水交汇的红树林。弹涂鱼在泥滩上蹦、射水鱼打水花猎虫，深处据说有大海鲢和极危的黄唇鱼——蹲了三天只为看它一眼。",
-		"unlock": {"kind": "catches", "n": 450},
+		# 后段(第6~10站)阈值按「过夜节拍」拉伸：约每 1~2 个 8h 离线开一站，旅程骨架铺满首周
+		# 而非首夜耗尽（数值依据 docs/balance_audit_2026-07-06.md；前 4 档保持不动护住首日密度）。
+		"unlock": {"kind": "catches", "n": 1500},
 		"habitat_tags": ["brackish"],
 		"event_pool": ["fish_run", "tide_in", "drift_crate", "protected_release"],
 		"bg_key": "estuary",
@@ -113,7 +115,7 @@ const SPOTS := {
 		# 【修改】name/desc 改写（v2：本站落地澳大利亚大堡礁）
 		"name": "第8站 · 澳大利亚 · 潜进珊瑚园",
 		"desc": "从深海折返，一路开到大堡礁，扎进暖透的浅海花园。小丑鱼、神仙鱼、鹦哥在珊瑚丛里晃来晃去，礁缘偶尔巡过苏眉和蝠鲼——鱼篓被塞得五颜六色。",
-		"unlock": {"kind": "catches", "n": 800},
+		"unlock": {"kind": "catches", "n": 6500},
 		"habitat_tags": ["reef"],
 		"event_pool": ["fish_run", "tide_in", "drift_crate", "protected_release"],
 		"bg_key": "coral_reef",
@@ -126,7 +128,7 @@ const SPOTS := {
 		# 【修改】name/desc 改写（v2：本站落地冰岛）
 		"name": "第9站 · 冰岛 · 凿冰入极地",
 		"desc": "一路往冷门方向绕到冰岛，冰层下透着幽蓝，凿开一个洞就是入口。北极红点鲑、白鲑挤在冷水里，深处沉着活了几百年的格陵兰睡鲨和巨鳇——手都冻僵了还想多等一条。",
-		"unlock": {"kind": "catches", "n": 1200},
+		"unlock": {"kind": "catches", "n": 12000},
 		"habitat_tags": ["polar"],
 		"event_pool": ["fish_run", "cold_front", "morning_fog"],
 		"bg_key": "polar_lake",
@@ -139,7 +141,7 @@ const SPOTS := {
 		# 【修改】name/desc 改写（v2：本站落地斯洛文尼亚——波斯托伊纳洞穴同款地貌）
 		"name": "第10站 · 斯洛文尼亚 · 溶洞尽头",
 		"desc": "路线走到最偏的一段，跑去斯洛文尼亚，跟着向导摸进钟乳石垂落的暗河。退色的盲鱼贴着壁游，潭底藏着多鳍鱼、肺鱼这些活化石，据说更深处还有传说中的大鲵——手记先写到这儿，下一段等信号恢复。",
-		"unlock": {"kind": "species", "n": 110},
+		"unlock": {"kind": "species", "n": 145},  # 终点站：约 2/3 图鉴（145/219）才见溶洞，守住"最后一页手记"的身份
 		"habitat_tags": ["cavern"],
 		"event_pool": ["fish_run", "morning_fog", "drift_crate"],
 		"bg_key": "cavern_pool",

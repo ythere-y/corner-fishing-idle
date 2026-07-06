@@ -1067,7 +1067,7 @@ func _check_save_v8() -> void:
 	g1._refresh_unlocks()
 	g1._switch_spot("coast_pier")
 	g1.active_event = "tide_in"
-	g1._event_buff_t = 42.0
+	g1._event_buff_t = 3600.0  # 载档会按真实离开时长衰减 buff——给足余量，避免慢机器上被衰减清零
 	g1._save()
 	g1.queue_free()
 	await process_frame
@@ -1080,8 +1080,8 @@ func _check_save_v8() -> void:
 	_assert("still_lake" in g2.unlocked_spots and "coast_pier" in g2.unlocked_spots,
 		"v8 应恢复已解锁钓点")
 	_assert("coast_pier" in g2.seen_spots, "v8 应恢复已造访钓点")
-	_assert(g2.active_event == "tide_in" and g2._event_buff_t > 0.0,
-		"v8 应恢复在场 buff 事件（仍适用当前钓点）")
+	_assert(g2.active_event == "tide_in" and g2._event_buff_t > 3000.0,
+		"v8 应恢复在场 buff 事件（仍适用当前钓点，且未被离线衰减误清）")
 	g2.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(path)
@@ -1438,6 +1438,9 @@ func _check_migration_v1() -> void:
 
 
 func _check_offline() -> void:
+	# 钉死时段：离线结算的 day_phase 在 _ready 内部取真实时钟（测试插手不到），
+	# 不钉死则出鱼池/价值系数随开发机时间漂移——本函数所有断言必须保持相位无关或钉死后再加。
+	Weather.force_phase = "day"
 	# —— 子用例 1：离线时长不足以装满 → 全部入篓，不触发折价、不直接产金币 ——
 	var short_save := {
 		"ver": 2, "coins": 0, "rod_level": 1, "bag_level": 1,
@@ -1488,6 +1491,7 @@ func _check_offline() -> void:
 	g2.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_SAVE))
+	Weather.force_phase = ""
 
 
 ## 满篓兜底核心 _absorb_overflow：留贵兑贱、上锁/订单鱼绝不被兑、折价正确。

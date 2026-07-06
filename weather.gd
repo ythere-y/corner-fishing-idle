@@ -25,8 +25,15 @@ static func phase_for_hour(h: int) -> String:
 	return "night"
 
 
+## 测试钩子：无头验证钉死时段用（"" = 不启用）。离线结算的时段在 _ready 内部取真实时钟，
+## 测试无法从外部插手——不钉死会让相关断言随开发机时间漂移成 time-of-day flaky。
+static var force_phase := ""
+
+
 ## 当前真实时段 id。
 static func current_phase() -> String:
+	if force_phase != "":
+		return force_phase
 	return phase_for_hour(int(Time.get_time_dict_from_system()["hour"]))
 
 

@@ -201,14 +201,16 @@ func _ready() -> void:
 	_apply_hud_legibility()
 	_setup_window()
 	_load_ui_layout()
+	# 载档前先定昼夜时段：离线结算按「开机时刻」的时段掷鱼池/定价（单时段简化，不跨段结算——
+	# 整窗分段切片留 P1，见 balance_audit §4）。不提前赋值则离线恒按默认白昼池，夜行限定鱼永不出。
+	day_phase = Weather.current_phase()
 	_load_save()
 	_refresh_unlocks()  # 载入期静默补登已满足解锁的钓点
 	_ensure_daily_order()
 	_ensure_weekly()
 	_ensure_competition()
 	_build_buttons()
-	# 先确定昼夜时段并喂给 painter（决定时段底图），再切钓点底图，避免开局触发 90s 慢淡入
-	day_phase = Weather.current_phase()
+	# 时段已在载档前确定，此处喂给 painter（决定时段底图），再切钓点底图，避免开局触发 90s 慢淡入
 	if painter.has_method("set_phase_tint"):
 		painter.set_phase_tint(Weather.tint(day_phase), day_phase)
 	_apply_spot_visuals()
@@ -788,7 +790,7 @@ func _process(delta: float) -> void:
 
 func _begin_wait() -> void:
 	_state = ST_WAIT
-	var w := rng.randf_range(3.5, 7.0) * maxf(0.4, 1.0 - float(rod_level - 1) * 0.06)
+	var w := rng.randf_range(3.5, 7.0) * maxf(0.4, 1.0 - float(rod_level - 1) * 0.04)
 	w *= SpotData.wait_mult(current_spot)          # 钓点常驻系数（阶段④起生效）
 	w *= Weather.wait_mult(day_phase)              # 昼夜时段（金色时段咬钩更勤）
 	if active_event != "":
@@ -1818,8 +1820,9 @@ func _check_achievements(silent := false) -> void:
 
 func _rod_cost() -> int:
 	# 陡成本曲线：让鱼竿成为真正的长期金币去向（旧 40×1.8^n 几乎零成本）。
-	# 成本增速(2.0/级) 高于产出增速(~1.25/级)，回本时间随等级递增、后期形成自然墙。
-	return int(round(200.0 * pow(2.0, rod_level - 1)))
+	# 400×1.7^n：成本增速(1.7/级) 高于产出增速(~1.1~1.25/级)，回本时间平滑递增形成减速带，
+	# 且不在等待封顶级(Lv16)附近产生回本悬崖（数值依据 docs/balance_audit_2026-07-06.md）。
+	return int(round(400.0 * pow(1.7, rod_level - 1)))
 
 
 func _try_upgrade_rod() -> void:
@@ -2169,6 +2172,13 @@ func _load_save() -> void:
 		_check_achievements(true)
 	# 离线渔获：按时长估算上鱼数，逐条入篓直到装满
 	var elapsed: float = Time.get_unix_time_from_system() - float(data.get("ts", 0))
+	# 在场事件 buff（40~110s）按真实离开时长先行衰减，过期即清——不给整段离线渔获盖增值章；
+	# 清空后 _ready 里 active_event=="" 分支会照常重排首个事件
+	if active_event != "":
+		_event_buff_t -= maxf(elapsed, 0.0)
+		if _event_buff_t <= 0.0:
+			active_event = ""
+			_event_buff_t = 0.0
 	elapsed = clampf(elapsed, 0.0, OFFLINE_CAP)
 	if elapsed > 30.0:
 		var caught := _offline_catch(elapsed)
@@ -2183,7 +2193,7 @@ func _load_save() -> void:
 ## 多出的鱼经 _absorb_overflow 折价兑成金币兜底——挂一夜回来一定有收益。
 ## 汇总成 _offline_report 供回屏小结展示。返回本次产生收益的总条数（入篓 + 兜底）。
 func _offline_catch(elapsed: float) -> int:
-	var wait_factor: float = maxf(0.4, 1.0 - float(rod_level - 1) * 0.06)
+	var wait_factor: float = maxf(0.4, 1.0 - float(rod_level - 1) * 0.04)
 	var avg_interval := 5.25 * wait_factor + 0.9
 	var est := int(elapsed / avg_interval * OFFLINE_EFFICIENCY)
 	if est <= 0:

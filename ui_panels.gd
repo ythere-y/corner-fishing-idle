@@ -1928,10 +1928,11 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 	list.add_theme_constant_override("separation", DT.SP_2)
 	sc.add_child(list)
 
-	# 鱼竿（线性升级）
+	# 鱼竿（线性升级）。等待折扣 0.04/级在 Lv16 封顶——之后升级不再更快咬钩，文案如实收敛
 	var rc := g._rod_cost()
+	var rod_gain := "咬钩更快，鱼价 +%d%%" if g.rod_level < 16 else "鱼价 +%d%%"
 	var rod := list_row("res://assets/art/equipment/rod_carbon.png", "鱼竿 Lv.%d" % g.rod_level,
-		"决定稀有度 · 越高级越易上高阶鱼，咬钩更快，鱼价 +%d%%" % int((g.rod_level - 1) * 8), true)
+		("决定稀有度 · 越高级越易上高阶鱼，" + rod_gain) % int((g.rod_level - 1) * 8), true)
 	_equip_btn(rod[1], "升级 %d" % rc, g.coins >= rc, true, g._try_upgrade_rod)
 	list.add_child(rod[0])
 

@@ -1492,9 +1492,10 @@ static func fill_fish_detail(g: CornerFishing, v: VBoxContainer) -> void:
 	vcol.add_theme_constant_override("separation", 6)
 	vmar.add_child(vcol)
 	var vtitle := Label.new()
-	vtitle.text = "变体墙　%d / %d" % [vgot, FishData.VARIANT_NAMES.size()]
+	vtitle.text = "变体墙　%d / %d　·　彩鳞 ×%d" % [vgot, FishData.VARIANT_NAMES.size(), g.scales]
 	vtitle.add_theme_font_size_override("font_size", 12)
 	vtitle.add_theme_color_override("font_color", Color(0.50, 0.47, 0.40))
+	vtitle.tooltip_text = "重复钓到已点亮的变体会折成彩鳞（斑斓1/鎏金8/七彩40）；\n彩鳞可定向点亮已收录鱼的缺失变体格"
 	vcol.add_child(vtitle)
 	var vrow := HBoxContainer.new()
 	vrow.add_theme_constant_override("separation", 6)
@@ -1522,16 +1523,30 @@ static func fill_fish_detail(g: CornerFishing, v: VBoxContainer) -> void:
 		snm.add_theme_font_size_override("font_size", 12)
 		snm.add_theme_color_override("font_color", vc.darkened(0.2) if got else Color(0.5, 0.47, 0.42, 0.6))
 		sbox.add_child(snm)
-		var sst := Label.new()
-		sst.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		sst.add_theme_font_size_override("font_size", 11)
-		if got:
-			sst.text = "已遇" if vi == 0 else "✓ ×%d" % int(FishData.VARIANT_MULTS[vi])
-			sst.add_theme_color_override("font_color", vc.darkened(0.1))
+		if got or vi == 0 or rec.is_empty():
+			var sst := Label.new()
+			sst.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			sst.add_theme_font_size_override("font_size", 11)
+			if got:
+				sst.text = "已遇" if vi == 0 else "✓ ×%d" % int(FishData.VARIANT_MULTS[vi])
+				sst.add_theme_color_override("font_color", vc.darkened(0.1))
+			else:
+				sst.text = "待捕"
+				sst.add_theme_color_override("font_color", Color(0.5, 0.47, 0.42, 0.5))
+			sbox.add_child(sst)
 		else:
-			sst.text = "待捕"
-			sst.add_theme_color_override("font_color", Color(0.5, 0.47, 0.42, 0.5))
-		sbox.add_child(sst)
+			# 已收录鱼的缺失变体格：彩鳞定向兑换入口（点亮收集位，不发鱼）
+			var rcost := FishData.scale_cost(FishData.tier_of(id))
+			var rb := Button.new()
+			rb.text = "兑 %d鳞" % rcost
+			rb.add_theme_font_size_override("font_size", 11)
+			rb.custom_minimum_size = Vector2(0, 24)
+			rb.disabled = g.scales < rcost
+			rb.tooltip_text = "花 %d 彩鳞点亮此格（现有 %d）" % [rcost, g.scales]
+			apply_button_skin(rb, false)
+			if not rb.disabled:
+				rb.pressed.connect(g._redeem_variant.bind(id, vi))
+			sbox.add_child(rb)
 		vrow.add_child(slot)
 	col.add_child(vwrap)
 
@@ -1683,8 +1698,8 @@ static func fill_dex_tab(g: CornerFishing, v: VBoxContainer) -> void:
 				vc += 1
 	var vtotal := FishData.FISH.size() * (FishData.VARIANT_NAMES.size() - 1)
 	var stat := Label.new()
-	stat.text = "收集 %d/%d　·　变体 %d/%d　·　渔获 %d" % [
-		g.dex.size(), FishData.FISH.size(), vc, vtotal, g.lifetime_catches]
+	stat.text = "收集 %d/%d　·　变体 %d/%d　·　彩鳞 ×%d　·　渔获 %d" % [
+		g.dex.size(), FishData.FISH.size(), vc, vtotal, g.scales, g.lifetime_catches]
 	stat.add_theme_font_size_override("font_size", DT.FS_XS)
 	stat.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 	v.add_child(stat)
@@ -1979,7 +1994,7 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 	_section(list, "诱饵 · 决定稀有变体几率（斑斓/鎏金/七彩，卖价 ×2/×5/×12）")
 	for i in FishData.LURES.size():
 		var lu: Dictionary = FishData.LURES[i]
-		var lsub := "%s · 变体几率 ×%.1f" % [lu.get("desc", ""), 1.0 + float(lu["vbias"])]
+		var lsub := "%s · 越稀有的花色提升越多（七彩 ×%.1f）" % [lu.get("desc", ""), 1.0 + float(lu["vbias"])]
 		var lcur := i == g.lure_level
 		var lrw := list_row("res://assets/art/equipment/tackle_box.png", str(lu["name"]), lsub, lcur)
 		if lcur:
@@ -2675,8 +2690,9 @@ static func fill_offline_report(g: CornerFishing, v: VBoxContainer) -> void:
 				break
 			var t2 := FishData.tier_of(str(c["id"]))
 			var rl := Label.new()
-			rl.text = "· %s%s%s %.2fkg" % [FishData.quality_label(int(c.get("q", 0))),
-				FishData.TIER_NAMES[t2] + "·", FishData.display_name(str(c["id"])), float(c["w"])]
+			rl.text = "· %s%s%s %.2fkg%s" % [FishData.quality_label(int(c.get("q", 0))),
+				FishData.TIER_NAMES[t2] + "·", FishData.display_name(str(c["id"])), float(c["w"]),
+				"（已兑金）" if bool(c.get("folded", false)) else ""]
 			rl.add_theme_font_size_override("font_size", 12)
 			rl.add_theme_color_override("font_color", g._ui_tier_color(t2, false))
 			v.add_child(rl)

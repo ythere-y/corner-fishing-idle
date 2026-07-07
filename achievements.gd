@@ -37,4 +37,16 @@ const LIST := [
 	# —— 陪伴向（专注奖励 / 桌面宠物）——
 	{"id": "flow_state", "name": "心流时刻", "desc": "累计专注满 120 分钟（开着它去忙别的）", "kind": "focus_minutes", "n": 120, "reward": 1500},
 	{"id": "cat_tax", "name": "猫税", "desc": "被小馋猫叼走过一条鱼", "kind": "pet_steals", "n": 1, "reward": 100},
+	# —— P1 长线成就（填平 20h→100h 成就真空，balance_audit §3.6）：图鉴断点阶梯 + 变体格 + 周赛沉淀 ——
+	{"id": "species_55", "name": "启程的手记", "desc": "图鉴收集 55 种鱼", "kind": "species", "n": 55, "reward": 1000},
+	{"id": "species_120", "name": "半本图鉴", "desc": "图鉴收集 120 种鱼", "kind": "species", "n": 120, "reward": 3000},
+	{"id": "species_165", "name": "行家眼力", "desc": "图鉴收集 165 种鱼", "kind": "species", "n": 165, "reward": 6000},
+	{"id": "species_197", "name": "最后一页之前", "desc": "图鉴收集 197 种鱼", "kind": "species", "n": 197, "reward": 10000},
+	{"id": "catch_20k", "name": "千帆过尽", "desc": "累计钓到 20,000 条鱼", "kind": "catches", "n": 20000, "reward": 0},
+	{"id": "catch_50k", "name": "与水共生", "desc": "累计钓到 50,000 条鱼", "kind": "catches", "n": 50000, "reward": 0},
+	{"id": "vgrid_100", "name": "斑斓集邮册", "desc": "点亮 100 格变体收集", "kind": "vgrid", "n": 100, "reward": 3000},
+	{"id": "vgrid_300", "name": "鳞光宝库", "desc": "点亮 300 格变体收集", "kind": "vgrid", "n": 300, "reward": 10000},
+	{"id": "vgrid_all", "name": "657 之约", "desc": "点亮全部 657 格变体收集", "kind": "vgrid", "n": 657, "reward": 30000},
+	{"id": "comp_wins_5", "name": "赛场常客", "desc": "巨物赛累计夺金 5 次", "kind": "comp_wins", "n": 5, "reward": 2000},
+	{"id": "comp_wins_25", "name": "巨物赛传奇", "desc": "巨物赛累计夺金 25 次", "kind": "comp_wins", "n": 25, "reward": 10000},
 ]

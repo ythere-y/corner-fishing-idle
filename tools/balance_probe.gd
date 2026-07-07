@@ -29,11 +29,12 @@ func _quality_mult(bait: int) -> float:
 
 
 func _variant_mult(lure: int) -> float:
-	# 变体期望倍率：E = 1 + Σ P(vi)·(1+vbias)·(mult(vi)−1)，同 FishData.roll_variant 的 scale 语义。
-	var s := 1.0 + clampf(FishData.lure_vbias(lure), 0.0, 10.0)
+	# 变体期望倍率：E = 1 + Σ P(vi)·variant_scale(vi,vbias)·(mult(vi)−1)，直读 FishData 分档杠杆。
+	var vb := FishData.lure_vbias(lure)
 	var ev := 1.0
 	for vi in range(1, FishData.VARIANT_PROBS.size()):
-		ev += float(FishData.VARIANT_PROBS[vi]) * s * (float(FishData.VARIANT_MULTS[vi]) - 1.0)
+		ev += float(FishData.VARIANT_PROBS[vi]) * FishData.variant_scale(vi, vb) \
+			* (float(FishData.VARIANT_MULTS[vi]) - 1.0)
 	return ev
 
 
@@ -114,10 +115,10 @@ func _run() -> void:
 		print("  %s 花费 %d ｜vbias %.1f ｜变体期望 ×%.3f ｜ %.0f 金/分（比上一档 +%.0f）｜边际回本 %.1f 分" % [
 			str(l["name"]), int(l["cost"]), FishData.lure_vbias(li), _variant_mult(li), gain, delta, payback])
 
-	print("=== 背包扩容 vs 离线 8h 产出（rod=3 蚯蚓）===")
-	var off8 := _income(3, 0) * 8.0 * 60.0 * 0.5
-	print("  离线 8h 估值上限 ≈ %d 金币（实际受背包格数截断）" % int(off8))
-	print("  背包容量/扩容费：20→25(100) 25→30(250) ... 50→55(25000)")
+	print("=== 背包扩容 vs 离线 12h 产出（rod=3 蚯蚓）===")
+	var off12 := _income(3, 0) * 12.0 * 60.0 * 0.5
+	print("  离线 12h 估值上限 ≈ %d 金币（图鉴 ≥145 种扩 24h；溢出按 0.5 折兑金）" % int(off12))
+	print("  背包容量/扩容费：20→25(100) 25→30(250) ... 50→55(90000)")
 
 	print("=== 全装满 vs 全裸 产出对比（含钩/变体维度）===")
 	var bare := _income(1, 0) * (1.0 + float(FishData.HOOKS[0]["double"])) * _variant_mult(0)

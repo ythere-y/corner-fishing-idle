@@ -47,6 +47,9 @@ func _run() -> void:
 	print("=== 鱼贩合约（自动贩卖）===")
 	await _check_autosell()
 
+	print("=== 彩鳞与长线成就（数值 P1）===")
+	await _check_p1_scales()
+
 	print("=== 成就系统 ===")
 	await _check_achievements_feature()
 
@@ -581,20 +584,27 @@ func _check_focus_reward() -> void:
 	g._window_focused = false
 	g._tick_focus(g.FOCUS_T1 + 1.0)
 	_assert(g.focus_pending >= 1, "失焦满 25 分钟应挂起专注奖励")
-	_assert(g.focus_reward_today == 1, "应计一次每日奖励")
+	_assert(g.focus_reward_today == 0, "P1 额度按兑现计：发放时不占每日额度")
 	_assert(g.focus_minutes_total >= 25.0, "应累计专注分钟，实际 %.1f" % g.focus_minutes_total)
-	# 下一竿强制升级（保底极品★★），并清空挂起
+	# 下一竿强制升级（保底极品★★），并清空挂起；此刻才占每日额度
 	g.inventory = []
 	g._do_catch()
 	_assert(g.focus_pending == 0, "上钩后应消费掉专注奖励")
+	_assert(g.focus_reward_today == 1, "兑现时才占每日额度（同段 T1+T2 合并算 1 次）")
 	_assert(int(g.inventory.back()["q"]) >= 2,
 		"专注奖励应保底高星（q>=2），实际 %d" % int(g.inventory.back()["q"]))
-	# 切回窗口即清零当前这段（不可连刷）
+	# 切回窗口 → 60s 宽限窗（不清零）；宽限窗外操作 → 折算保留 80%
+	g._focus_away_t = 0.0
 	g._window_focused = false
 	g._tick_focus(60.0)
 	_assert(g._focus_away_t > 0.0, "失焦应累计专注段")
+	var seg: float = g._focus_away_t
 	g._notification(g.NOTIFICATION_APPLICATION_FOCUS_IN)
-	_assert(g._focus_away_t == 0.0, "切回窗口应清零当前专注段")
+	_assert(absf(g._focus_away_t - seg) < 0.01, "切回窗口不清零专注段（宽限窗启动）")
+	_assert(g._focus_grace_t > 0.0, "回焦应开启宽限窗")
+	g._focus_grace_t = 0.0   # 快进：宽限窗过期
+	g._fold_focus_streak()   # 宽限窗外点击（_input 路径同函数）
+	_assert(absf(g._focus_away_t - seg * 0.8) < 0.01, "宽限窗外操作应折算保留 80%")
 	# 50 分钟档：保底鎏金变体（var>=2）
 	g._window_focused = false
 	g._focus_t1_done = true   # 直接验证 50 分钟档
@@ -605,7 +615,9 @@ func _check_focus_reward() -> void:
 	_assert(int(g.inventory.back().get("var", 0)) >= 2, "50 分钟奖励应保底鎏金变体（var>=2）")
 	# 每日封顶：达上限后不再发奖励
 	g.focus_reward_today = g.FOCUS_REWARD_DAILY_CAP
-	g._reset_focus_streak()
+	g._focus_away_t = 0.0
+	g._focus_t1_done = false
+	g._focus_t2_done = false
 	g._window_focused = false
 	g._tick_focus(g.FOCUS_T1 + 1.0)
 	_assert(g.focus_pending == 0, "达每日封顶后不应再发奖励")
@@ -914,7 +926,7 @@ func _check_daily_order() -> void:
 	_assert(is_instance_valid(game._panel), "订单页签应能正常打开")
 	# 多类型订单匹配
 	game.inventory = [
-		{"id": "koi", "w": 4.0, "v": 300, "q": 3},
+		{"id": "koi", "w": 4.0, "v": 300, "q": 0},
 		{"id": "crucian", "w": 0.4, "v": 5, "q": 0},
 		{"id": "carp", "w": 2.5, "v": 30, "q": 1},
 	]
@@ -924,11 +936,20 @@ func _check_daily_order() -> void:
 	game.daily_order = {"date": game._today_key(), "kind": "weight", "fish": "carp", "tier": 1, "need": 1, "minw": 2.0, "done": false}
 	var wi: Array = game._daily_order_indices()
 	_assert(wi.size() == 2, "重量订单应匹配 ≥2.0kg 的 koi+carp，实际 %d" % wi.size())
+	# 完美订单只匹配 q3（perfect 单豁免珍稀排除）
+	game.inventory.append({"id": "koi", "w": 4.0, "v": 900, "q": 3})
 	game.daily_order = {"date": game._today_key(), "kind": "perfect", "fish": "koi", "tier": 1, "need": 1, "minw": 1.0, "done": false}
 	var pi: Array = game._daily_order_indices()
 	_assert(pi.size() == 1 and int(game.inventory[pi[0]]["q"]) == 3, "完美订单应只匹配 q3")
 	_assert(game._order_short() == "完美★" and game._order_title().begins_with("收"), "订单标题/短标签应可生成")
-	print("  每日订单：生成 / 锁定跳过 / 交付 ×2.5 / 跨日刷新 / 多类型匹配 通过")
+	# 珍稀排除（P1）：非 perfect 单不自动交付 q3/鎏金+七彩变体
+	game.daily_order = {"date": game._today_key(), "kind": "species", "fish": "koi", "tier": 1, "need": 1, "minw": 1.0, "done": false}
+	var si: Array = game._daily_order_indices()
+	_assert(si.size() == 1 and int(game.inventory[si[0]].get("q", 0)) == 0,
+		"species 单应排除珍稀（★★★ 不自动交付），只留普通 koi")
+	game.inventory.append({"id": "koi", "w": 4.0, "v": 600, "q": 0, "var": 3})
+	_assert(game._daily_order_indices().size() == 1, "七彩变体不应进自动交单池")
+	print("  每日订单：生成 / 锁定跳过 / 交付 ×2.5 / 跨日刷新 / 多类型匹配 / 珍稀排除 通过")
 	game.queue_free()
 	await process_frame
 
@@ -987,7 +1008,7 @@ func _check_autosell() -> void:
 	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
 	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 14, "存档版本应为 v14")
+	_assert(int(d["ver"]) == 15, "存档版本应为 v15")
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0
@@ -1002,6 +1023,64 @@ func _check_autosell() -> void:
 	_assert(not g.auto_sell_bought and not g.auto_sell_on and g.auto_sold_n == 0 and g.auto_sold_v == 0,
 		"旧档迁移应默认未签约、计数归零")
 	print("  鱼贩合约：签约/最便宜杂鱼/六道护栏独立命中/订单done解除/开关/往返+旧档迁移 通过")
+	g.queue_free()
+	await process_frame
+
+
+## 数值 P1：重复变体折彩鳞 / 定向兑换（点亮 vmask、扣鳞、边界）/ vgrid·comp_wins 成就 / v15 往返。
+func _check_p1_scales() -> void:
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	# 首见变体不折鳞；重复按档折鳞（斑斓=1/鎏金=8/七彩=40）
+	g.dex.clear()
+	g.scales = 0
+	g._dex_record("carp", 1.0, false, false, 1)
+	_assert(g.scales == 0, "首见变体不应折鳞")
+	g._dex_record("carp", 1.0, false, false, 1)
+	_assert(g.scales == 1, "重复斑斓应折 1 彩鳞，实际 %d" % g.scales)
+	g._dex_record("carp", 1.0, false, false, 3)
+	g._dex_record("carp", 1.0, false, false, 3)
+	_assert(g.scales == 41, "重复七彩应折 40 彩鳞，实际 %d" % g.scales)
+	# 定向兑换：扣鳞 + 点亮；余额不足/已点亮不动
+	g.scales = 3
+	g._redeem_variant("carp", 2)
+	_assert((int(g.dex["carp"]["vmask"]) & (1 << 2)) == 0 and g.scales == 3, "彩鳞不足不应兑换")
+	g.scales = 4
+	g._redeem_variant("carp", 2)   # carp tier1 → 4 鳞
+	_assert((int(g.dex["carp"]["vmask"]) & (1 << 2)) != 0, "兑换应点亮鎏金位")
+	_assert(g.scales == 0, "兑换应扣 4 彩鳞，余 %d" % g.scales)
+	g.scales = 99
+	g._redeem_variant("carp", 3)   # 首见七彩时已点亮 → 不扣
+	_assert(g.scales == 99, "已点亮格不应重复扣鳞")
+	_assert(FishData.scale_cost(1) == 4 and FishData.scale_cost(4) == 8 and FishData.scale_cost(5) == 30,
+		"分层定价应为 4/8/30")
+	# vgrid 成就：34 种 ×3 位 = 102 格
+	g.dex.clear()
+	for id in FishData.FISH.keys().slice(0, 34):
+		g.dex[str(id)] = {"n": 1, "w": 1.0, "big": false, "perf": false, "vmask": 0b1110, "fd": ""}
+	_assert(g._vgrid_count() == 102, "vgrid 计数应 102，实际 %d" % g._vgrid_count())
+	g._check_achievements()
+	_assert(g.achievements_done.has("vgrid_100"), "点亮 ≥100 格应解锁 vgrid_100")
+	# comp_wins：夺金累计跨周携带 + 成就（经 main 薄壳调用，避免编译期把 main.gd 拖进 -s 时序竞争）
+	g.competition = {"week": -99, "fish": "carp", "best": 0.0, "claimed": false, "reward": 100, "wins": 4}
+	g._ensure_competition()
+	_assert(int(g.competition.get("wins", 0)) == 4, "跨周重建应携带累计夺金")
+	g.competition["wins"] = 5
+	g._check_achievements()
+	_assert(g.achievements_done.has("comp_wins_5"), "累计夺金 5 次应解锁 comp_wins_5")
+	# v15 往返：scales / yest_income / competition.wins
+	g.scales = 7
+	g.yest_income = 12345
+	var d: Dictionary = SaveSystem.collect(g)
+	g.scales = 0
+	g.yest_income = 0
+	g.competition = {}
+	SaveSystem.apply(g, d)
+	_assert(g.scales == 7 and g.yest_income == 12345 and int(g.competition.get("wins", 0)) == 5,
+		"v15 字段应随档往返（scales/yest_income/wins）")
+	print("  彩鳞折算 / 定向兑换与边界 / 分层价 / vgrid·comp_wins 成就 / v15 往返 通过")
 	g.queue_free()
 	await process_frame
 
@@ -1300,7 +1379,20 @@ func _check_variants() -> void:
 		if FishData.roll_variant(rb, 2.0) >= 1:
 			biased_v += 1
 	print("  变体出现率 bias0=%d / bias2=%d（/5万）" % [base_v, biased_v])
-	_assert(biased_v > base_v * 2, "vbias=2 应显著抬高变体出现率（杠杆生效）")
+	# P1 分档杠杆后 vbias=2 的总出现率 ≈×1.6（斑斓只吃 1/4 偏置；顶档才吃满，杠杆重心移向稀有档）
+	_assert(biased_v > int(float(base_v) * 1.4), "vbias=2 应显著抬高变体出现率（杠杆生效）")
+	# 分档差异化：偏置对七彩的抬升倍数应高于斑斓（顶级窝料的卖点是稀有档）
+	rb.seed = 11
+	var hi_base := 0
+	for i in 50000:
+		if FishData.roll_variant(rb) == 3:
+			hi_base += 1
+	rb.seed = 11
+	var hi_biased := 0
+	for i in 50000:
+		if FishData.roll_variant(rb, 2.0) == 3:
+			hi_biased += 1
+	_assert(hi_biased >= hi_base * 2, "vbias=2 对七彩档应有 ≥2 倍抬升（分档杠杆重心正确）")
 	# roll_catch 带 var 字段，且会出现变体
 	var seen := false
 	for i in 20000:

@@ -12,8 +12,8 @@ class_name SaveSystem
 ## 【修改】v13 背包客人设：character(选择的角色 id，"jim"/"ganie")、chosen_character(是否已选过)。
 ##     旧档默认 chosen_character=true（老玩家不重新弹选人页），character 默认 CharacterData.DEFAULT_CHARACTER，无损迁移。
 ## v14 鱼贩合约：autosell {b:已买断, on:开关, n/v:累计带走条数与入金}。旧档默认未购买，无损迁移。
-
-const OFFLINE_CAP := 8.0 * 3600.0
+## v15 数值 P1：scales(彩鳞——重复变体折算的定向兑换货币)、yest_income(昨日卖鱼收入——周赛/
+##     周目标奖励锚)、competition.wins(巨物赛累计夺金，跨周携带)。旧档全部默认 0，无损迁移。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -27,7 +27,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 14,   # 13→14：新增鱼贩合约（自动贩卖）字段
+		"ver": 15,   # 14→15：数值 P1（彩鳞 / 昨日收入锚 / 巨物赛累计夺金）
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"bag_level": g.bag_level,
@@ -70,6 +70,9 @@ static func collect(g) -> Dictionary:
 		# —— v14 鱼贩合约（自动贩卖）——
 		"autosell": {"b": g.auto_sell_bought, "on": g.auto_sell_on,
 			"n": g.auto_sold_n, "v": g.auto_sold_v},
+		# —— v15 数值 P1 ——
+		"scales": g.scales,            # 彩鳞（competition.wins 随 competition 整字典走）
+		"yest_income": g.yest_income,  # 昨日卖鱼收入（周赛/周目标奖励锚）
 		"ts": Time.get_unix_time_from_system(),
 	}
 	if DisplayServer.get_name() != "headless":
@@ -196,6 +199,7 @@ static func apply(g, data: Dictionary) -> void:
 			"best": float(comp_raw.get("best", 0.0)),
 			"claimed": bool(comp_raw.get("claimed", false)),
 			"reward": int(comp_raw.get("reward", 0)),
+			"wins": maxi(0, int(comp_raw.get("wins", 0))),   # v15 累计夺金（旧档 0）
 		}
 	var ds_raw: Variant = data.get("day_stat", {})  # 旧档无 → main._ensure_day_stat 现生成
 	if ds_raw is Dictionary and ds_raw.has("date"):
@@ -224,6 +228,9 @@ static func apply(g, data: Dictionary) -> void:
 	g.focus_reward_date = str(data.get("focus_rd", ""))
 	g.focus_pending = clampi(int(data.get("focus_pend", 0)), 0, 2)
 	g.pet_steals = int(data.get("pet_steals", 0))
+	# —— v15 数值 P1（旧档无 → 0，无损迁移）——
+	g.scales = maxi(0, int(data.get("scales", 0)))
+	g.yest_income = maxi(0, int(data.get("yest_income", 0)))
 	# —— v14 鱼贩合约（旧档无/字段损坏 → 未购买；先复位再覆盖，保证 apply 完全决定状态）——
 	g.auto_sell_bought = false
 	g.auto_sell_on = false

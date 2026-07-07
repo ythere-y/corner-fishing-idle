@@ -642,17 +642,22 @@ func _build_action_button() -> void:
 	_update_action_button()
 
 
-func _action_style(bg: Color) -> StyleBoxFlat:
+func _action_style(bg: Color, quiet := false) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.set_corner_radius_all(999)
 	sb.content_margin_left = 22
 	sb.content_margin_right = 22
-	sb.content_margin_top = 11
-	sb.content_margin_bottom = 11
-	sb.shadow_color = Color(0, 0, 0, 0.38)
-	sb.shadow_size = 10
-	sb.shadow_offset = Vector2(0, 4)
+	if quiet:
+		# 安静态（自动垂钓中）：状态提示而非按钮——薄胶囊、无阴影，不抢注意力
+		sb.content_margin_top = 4
+		sb.content_margin_bottom = 4
+	else:
+		sb.content_margin_top = 11
+		sb.content_margin_bottom = 11
+		sb.shadow_color = Color(0, 0, 0, 0.38)
+		sb.shadow_size = 10
+		sb.shadow_offset = Vector2(0, 4)
 	return sb
 
 
@@ -672,13 +677,16 @@ func _update_action_button() -> void:
 	var txt := "起竿"
 	var bg := DT.BRONZE
 	var fg := DT.INK_ON_GOLD
+	var quiet := false
 	if _bag_alert():
 		txt = "鱼篓满了 · 去兑换"
 		bg = DT.BAG_FULL
 	elif auto_cast:
-		txt = "· 自动垂钓中 ·"
-		bg = Color(0.235, 0.251, 0.220, 0.82)   # .action.wait rgba(60,64,56,.82)
-		fg = DT.TEXT_MUTED_GLASS
+		# 安静态：挂机常态下它只是状态角标（用户反馈按钮形态存在感太强）
+		txt = "· 自动垂钓 ·"
+		bg = Color(0.235, 0.251, 0.220, 0.30)
+		fg = DT.TEXT_FAINT_GLASS
+		quiet = true
 	elif _state == ST_BITE:
 		txt = "起钩！"
 		bg = DT.RUST
@@ -686,11 +694,20 @@ func _update_action_button() -> void:
 	else:
 		txt = "起竿"
 		bg = DT.BRONZE
+	# 几何随状态收放：安静态缩成薄小胶囊并重新居中；行动态（起钩/满篓/起竿）恢复完整按钮
+	var bw := 132.0 if quiet else 220.0
+	var bh := 26.0 if quiet else 48.0
+	_action_btn.custom_minimum_size = Vector2(bw, bh)
+	_action_btn.size = Vector2(bw, bh)
+	_action_btn.position = Vector2((float(WIN.x) - bw) * 0.5,
+		float(WIN.y) - FRAMED_CONSOLE_H - 66.0 + (11.0 if quiet else 0.0))
+	_action_btn.add_theme_font_size_override("font_size", 12 if quiet else 15)
 	_action_btn.text = txt
 	_action_btn.add_theme_color_override("font_color", fg)
-	_action_btn.add_theme_stylebox_override("normal", _action_style(bg))
-	_action_btn.add_theme_stylebox_override("hover", _action_style(bg.lightened(0.10)))
-	_action_btn.add_theme_stylebox_override("pressed", _action_style(bg.darkened(0.10)))
+	_action_btn.add_theme_stylebox_override("normal", _action_style(bg, quiet))
+	# 安静态 hover/pressed 不提亮——没有可点的暗示（自动模式下点它本就无操作）
+	_action_btn.add_theme_stylebox_override("hover", _action_style(bg if quiet else bg.lightened(0.10), quiet))
+	_action_btn.add_theme_stylebox_override("pressed", _action_style(bg if quiet else bg.darkened(0.10), quiet))
 
 
 # 探针取可见场景内一点（窗口右下角附近），判断挂件是否落在某块屏幕可见区内。

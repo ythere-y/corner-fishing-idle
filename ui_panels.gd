@@ -681,20 +681,7 @@ static func fill_decor_tab(g: CornerFishing, v: VBoxContainer) -> void:
 	stat.add_theme_font_size_override("font_size", DT.FS_XS)
 	stat.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 	v.add_child(stat)
-	# 活水族箱视图：缸内鱼沿平滑路径游动，点鱼看纪录
-	var aq := Aquarium.new()
-	aq.name = "Aquarium"
-	aq.setup(g)
-	v.add_child(aq)
-	var tip := Label.new()
-	tip.text = "点缸里的鱼看它的纪录，也能把它捞回鱼篓。鎏金/七彩会发光。"
-	tip.add_theme_font_size_override("font_size", 12)
-	tip.add_theme_color_override("font_color", Color(0.70, 0.66, 0.58))
-	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tip.custom_minimum_size = Vector2(440, 0)
-	v.add_child(tip)
-	v.add_child(HSeparator.new())
-	# 从鱼篓放入
+	# 从鱼篓放入（选择界面：置顶）
 	var pick_lbl := Label.new()
 	if Decor.is_full(g):
 		pick_lbl.text = "水族箱满了（%d 条），先捞回一条再放新的。" % Decor.NUM_SLOTS
@@ -707,7 +694,7 @@ static func fill_decor_tab(g: CornerFishing, v: VBoxContainer) -> void:
 	v.add_child(pick_lbl)
 	if not Decor.is_full(g) and not g.inventory.is_empty():
 		var sc := ScrollContainer.new()
-		sc.custom_minimum_size = Vector2(0, 144)   # 高度下限；下面 EXPAND_FILL 让它吃掉面板底部留白
+		sc.custom_minimum_size = Vector2(0, 144)   # 高度下限；EXPAND_FILL 让它吃掉面板顶部留白（鱼缸在下方）
 		sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 		var list := VBoxContainer.new()
@@ -719,6 +706,19 @@ static func fill_decor_tab(g: CornerFishing, v: VBoxContainer) -> void:
 			list.add_child(decor_pick_row(g, g.inventory[i], i))
 		sc.add_child(list)
 		v.add_child(sc)
+	v.add_child(HSeparator.new())
+	var tip := Label.new()
+	tip.text = "点缸里的鱼看它的纪录，也能把它捞回鱼篓。鎏金/七彩会发光。"
+	tip.add_theme_font_size_override("font_size", 12)
+	tip.add_theme_color_override("font_color", Color(0.70, 0.66, 0.58))
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tip.custom_minimum_size = Vector2(440, 0)
+	v.add_child(tip)
+	# 活水族箱视图（俯视图）：缸内鱼沿平滑路径游动，点鱼看纪录 —— 置于底部
+	var aq := Aquarium.new()
+	aq.name = "Aquarium"
+	aq.setup(g)
+	v.add_child(aq)
 
 
 static func decor_pick_row(g: CornerFishing, c: Dictionary, idx: int) -> Control:

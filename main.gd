@@ -62,6 +62,7 @@ var auto_sell_on := false       # 合约开关：买断后默认开，可随时�
 var auto_sold_n := 0            # 合约累计带走条数（统计页）
 var auto_sold_v := 0            # 合约累计入金（统计页）
 var scales: Array = [0, 0, 0]   # 彩鳞（v15）：斑斓鳞/鎏金鳞/七彩鳞——重复变体折同档鳞（FishData.SCALE_NAMES）
+var showcase_pending := ""      # 试竿保底（v15）：购买升级后的下一竿保底展示新效果（"rod"/"bait"/"hook"/"lure"）
 var yest_income := 0            # 昨日（上个游玩日）卖鱼收入（v15）：周赛/周目标奖励的收入锚
 var inventory: Array = []  # 每条 {"id", "w", "v", "q"(星级)}，一条鱼占一格
 var display: Array = []     # 陈列架上的鱼（离开鱼篓、永久展示），最多 Decor.NUM_SLOTS 件
@@ -96,7 +97,7 @@ var _story_step := 0         # 【新增】开场故事动画当前播放到第�
 var _opacity := 1.0
 var paper_grain := true          # 水彩纸纹层开关（视觉偏好；真值在 main，经 _set_paper_grain 应用到 painter）
 const FPS_OPTIONS := [30, 60, 90, 120]   # 设置里可选的帧率上限
-var max_fps := 30                # 帧率上限：默认 30 挂件省电，可在设置调到 60/90/120
+var max_fps := 120               # 帧率上限：默认 120 流畅优先（用户拍板），可在设置降到 30/60 省电
 const UI_SCALE_OPTIONS := [1.0, 1.25, 1.5]   # 设置里「快捷跳档」按钮（自由拖拽不受这三个值限制）
 const UI_SCALE_MIN := 0.5                    # 自由缩放下限：0.5=520×360，桌面角落挂件可缩到很小；再小手柄/字就难用
 const UI_SCALE_MAX := 2.5                    # 自由缩放绝对上限（实际还会再夹到屏幕可用区）
@@ -201,7 +202,7 @@ const TANK_TAB := 6                    # 鱼篓面板「鱼缸」页签下标（
 
 func _ready() -> void:
 	rng.randomize()
-	Engine.max_fps = max_fps  # 默认 30 挂件省电；存档载入后按玩家设置覆盖
+	Engine.max_fps = max_fps  # 默认 120 流畅优先；存档载入后按玩家设置覆盖
 	get_tree().set_auto_accept_quit(false)  # 退出前存档
 	_setup_theme()
 	_apply_display_mode()   # 按 framed / immersive 布置场景 + 羽化
@@ -641,17 +642,22 @@ func _build_action_button() -> void:
 	_update_action_button()
 
 
-func _action_style(bg: Color) -> StyleBoxFlat:
+func _action_style(bg: Color, quiet := false) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.set_corner_radius_all(999)
 	sb.content_margin_left = 22
 	sb.content_margin_right = 22
-	sb.content_margin_top = 11
-	sb.content_margin_bottom = 11
-	sb.shadow_color = Color(0, 0, 0, 0.38)
-	sb.shadow_size = 10
-	sb.shadow_offset = Vector2(0, 4)
+	if quiet:
+		# 安静态（自动垂钓中）：状态提示而非按钮——薄胶囊、无阴影，不抢注意力
+		sb.content_margin_top = 4
+		sb.content_margin_bottom = 4
+	else:
+		sb.content_margin_top = 11
+		sb.content_margin_bottom = 11
+		sb.shadow_color = Color(0, 0, 0, 0.38)
+		sb.shadow_size = 10
+		sb.shadow_offset = Vector2(0, 4)
 	return sb
 
 
@@ -671,13 +677,16 @@ func _update_action_button() -> void:
 	var txt := "起竿"
 	var bg := DT.BRONZE
 	var fg := DT.INK_ON_GOLD
+	var quiet := false
 	if _bag_alert():
 		txt = "鱼篓满了 · 去兑换"
 		bg = DT.BAG_FULL
 	elif auto_cast:
-		txt = "· 自动垂钓中 ·"
-		bg = Color(0.235, 0.251, 0.220, 0.82)   # .action.wait rgba(60,64,56,.82)
-		fg = DT.TEXT_MUTED_GLASS
+		# 安静态：挂机常态下它只是状态角标（用户反馈按钮形态存在感太强）
+		txt = "· 自动垂钓 ·"
+		bg = Color(0.235, 0.251, 0.220, 0.30)
+		fg = DT.TEXT_FAINT_GLASS
+		quiet = true
 	elif _state == ST_BITE:
 		txt = "起钩！"
 		bg = DT.RUST
@@ -685,11 +694,20 @@ func _update_action_button() -> void:
 	else:
 		txt = "起竿"
 		bg = DT.BRONZE
+	# 几何随状态收放：安静态缩成薄小胶囊并重新居中；行动态（起钩/满篓/起竿）恢复完整按钮
+	var bw := 132.0 if quiet else 220.0
+	var bh := 26.0 if quiet else 48.0
+	_action_btn.custom_minimum_size = Vector2(bw, bh)
+	_action_btn.size = Vector2(bw, bh)
+	_action_btn.position = Vector2((float(WIN.x) - bw) * 0.5,
+		float(WIN.y) - FRAMED_CONSOLE_H - 66.0 + (11.0 if quiet else 0.0))
+	_action_btn.add_theme_font_size_override("font_size", 12 if quiet else 15)
 	_action_btn.text = txt
 	_action_btn.add_theme_color_override("font_color", fg)
-	_action_btn.add_theme_stylebox_override("normal", _action_style(bg))
-	_action_btn.add_theme_stylebox_override("hover", _action_style(bg.lightened(0.10)))
-	_action_btn.add_theme_stylebox_override("pressed", _action_style(bg.darkened(0.10)))
+	_action_btn.add_theme_stylebox_override("normal", _action_style(bg, quiet))
+	# 安静态 hover/pressed 不提亮——没有可点的暗示（自动模式下点它本就无操作）
+	_action_btn.add_theme_stylebox_override("hover", _action_style(bg if quiet else bg.lightened(0.10), quiet))
+	_action_btn.add_theme_stylebox_override("pressed", _action_style(bg if quiet else bg.darkened(0.10), quiet))
 
 
 # 探针取可见场景内一点（窗口右下角附近），判断挂件是否落在某块屏幕可见区内。
@@ -958,7 +976,17 @@ func _do_catch() -> void:
 		_begin_wait()
 		return
 	var luck := _catch_luck()
+	# 试竿保底（升级体感）：购买升级后的下一竿保底展示新效果——把"花钱→变强"的回路当场闭合。
+	# 只送一竿，经济影响 ≈0；概率型升级没有保底展示就永远"感觉不出来"（S12 感知阈值）。
+	var showcase := showcase_pending
+	showcase_pending = ""
+	if showcase == "rod":
+		luck += 4   # 高运气一竿：亲眼看见"更易上高阶鱼"
 	var c := _roll_one(luck)
+	if showcase == "bait":
+		_force_catch_grade(c, mini(bait_level, 3), 0)   # 保底展示刚解锁的新星级
+	elif showcase == "lure":
+		_force_catch_grade(c, 0, 1)                     # 保底斑斓：亲眼看见变体杠杆
 	var focus_up := _apply_focus_reward(c)   # 专注奖励：把这一竿强制升级（保底高星/鎏金）
 	var tier := FishData.tier_of(c["id"])
 	var q := int(c.get("q", 0))
@@ -1008,9 +1036,9 @@ func _do_catch() -> void:
 	# 渔夫性格：钓到高星/七彩，举手欢呼一下（Task 4）
 	if (q >= 2 or vr >= 3) and painter.has_method("fisher_cheer"):
 		painter.fisher_cheer()
-	# 鱼钩双钩：一定几率再上一条（受背包剩余格数限制）
+	# 鱼钩双钩：一定几率再上一条（受背包剩余格数限制）；鱼钩试竿 → 必双钩
 	if hook_level > 0 and not _bag_full() \
-			and rng.randf() < float(FishData.HOOKS[hook_level]["double"]):
+			and (showcase == "hook" or rng.randf() < float(FishData.HOOKS[hook_level]["double"])):
 		var c2 := _roll_one(luck)
 		inventory.append(c2)
 		lifetime_catches += 1
@@ -1037,6 +1065,8 @@ func _do_catch() -> void:
 	_check_achievements()
 	_update_hud()
 	_refresh_panel()
+	if showcase != "":  # 试竿反馈：升级是玩家刚刚的主动操作，回执不受安静模式抑制（事务性）
+		_toast("🎣 试竿：%s %.2fkg" % [fname, float(c["w"])], 2.6, Color(0.72, 0.86, 0.78))
 	if focus_up > 0:  # 专注奖励到手：用最醒目的 toast 收尾（最后调用者覆盖前面的飘字）
 		var rname := FishData.variant_label(int(c.get("var", 0))) + FishData.quality_label(int(c.get("q", 0))) \
 			+ FishData.display_name(str(c["id"]))
@@ -1987,6 +2017,26 @@ func _check_achievements(silent := false) -> void:
 			_toast(msg, 3.0, Color(0.98, 0.85, 0.45))
 
 
+## 某竿级的平均一竿周期（等待均值 + 咬钩 0.9s）——装备页数字明牌与离线结算共用同一真值。
+func _avg_wait_for(lv: int) -> float:
+	return 5.25 * maxf(0.4, 1.0 - float(lv - 1) * 0.04) + 0.9
+
+
+## 把一条渔获强制抬到保底品相/变体（重算卖价）。试竿保底与专注奖励共用的抬品逻辑。
+func _force_catch_grade(c: Dictionary, min_q: int, min_var: int) -> void:
+	var old_q := int(c.get("q", 0))
+	var old_v := int(c.get("var", 0))
+	var nq := maxi(old_q, min_q)
+	var nv := maxi(old_v, min_var)
+	if nq == old_q and nv == old_v:
+		return
+	var mult: float = FishData.QUALITY_MULTS[nq] / FishData.QUALITY_MULTS[old_q] \
+		* FishData.VARIANT_MULTS[nv] / FishData.VARIANT_MULTS[old_v]
+	c["q"] = nq
+	c["var"] = nv
+	c["v"] = maxi(1, int(round(float(c["v"]) * mult)))
+
+
 func _rod_cost() -> int:
 	# 陡成本曲线：让鱼竿成为真正的长期金币去向（旧 40×1.8^n 几乎零成本）。
 	# 400×1.7^n：成本增速(1.7/级) 高于产出增速(~1.1~1.25/级)，回本时间平滑递增形成减速带，
@@ -2002,10 +2052,13 @@ func _try_upgrade_rod() -> void:
 		return
 	coins -= cost
 	rod_level += 1
+	showcase_pending = "rod"
 	Audio.play_sfx("upgrade")
 	_check_achievements()
 	_update_hud()
-	_toast("鱼竿升到 Lv.%d！" % rod_level, 2.0, Color(0.5, 0.8, 1.0))
+	_toast("鱼竿 Lv.%d！咬钩 %.1fs→%.1fs · 卖价 +%d%%（下一竿试竿手感）" % [rod_level,
+		_avg_wait_for(rod_level - 1), _avg_wait_for(rod_level), (rod_level - 1) * 8],
+		2.8, Color(0.5, 0.8, 1.0))
 	_refresh_panel()   # 升级页已是鱼篓面板「装备」页签，原地刷新即可
 
 
@@ -2018,12 +2071,15 @@ func _try_upgrade_bait() -> void:
 		Audio.play_ui("ui_error")
 		_toast("金币不足", 1.5, Color(1.0, 0.5, 0.4))
 		return
+	var old_p1 := float((FishData.BAITS[bait_level]["probs"] as Array)[1])
 	coins -= cost
 	bait_level += 1
+	showcase_pending = "bait"
 	Audio.play_sfx("upgrade")
 	_check_achievements()
 	_update_hud()
-	_toast("换上了%s，星级渔获概率提升！" % nxt["name"], 2.4, Color(0.6, 0.85, 0.5))
+	_toast("换上%s！★率 %d%%→%d%%（下一竿保底新星级）" % [nxt["name"],
+		int(old_p1 * 100.0), int(float((nxt["probs"] as Array)[1]) * 100.0)], 2.8, Color(0.6, 0.85, 0.5))
 	_save()
 	_refresh_panel()   # 升级页已是鱼篓面板「装备」页签，原地刷新即可
 
@@ -2039,10 +2095,12 @@ func _try_upgrade_hook() -> void:
 		return
 	coins -= cost
 	hook_level += 1
+	showcase_pending = "hook"
 	Audio.play_sfx("upgrade")
 	_check_achievements()
 	_update_hud()
-	_toast("换上了%s，双钩几率提升！" % nxt["name"], 2.4, Color(0.6, 0.85, 0.5))
+	_toast("换上%s！双钩率 %d%%（下一竿必双钩）" % [nxt["name"],
+		int(float(nxt["double"]) * 100.0)], 2.8, Color(0.6, 0.85, 0.5))
 	_save()
 	_refresh_panel()   # 升级页已是鱼篓面板「装备」页签，原地刷新即可
 
@@ -2058,10 +2116,12 @@ func _try_upgrade_lure() -> void:
 		return
 	coins -= cost
 	lure_level += 1
+	showcase_pending = "lure"
 	Audio.play_sfx("upgrade")
 	_check_achievements()
 	_update_hud()
-	_toast("撒下%s，稀有变体几率提升！" % nxt["name"], 2.4, Color(0.78, 0.62, 0.95))
+	_toast("撒下%s！七彩几率 ×%.1f（下一竿保底斑斓）" % [nxt["name"],
+		1.0 + float(nxt["vbias"])], 2.8, Color(0.78, 0.62, 0.95))
 	_save()
 	_refresh_panel()   # 升级页已是鱼篓面板「装备」页签，原地刷新即可
 
@@ -2081,7 +2141,7 @@ func _set_paper_grain(on: bool) -> void:
 
 ## 帧率上限：非法值回落到 30；纯设值 + 应用，存档/刷新由调用方负责（同 _set_opacity）。
 func _set_max_fps(val: int) -> void:
-	max_fps = val if val in FPS_OPTIONS else 30
+	max_fps = val if val in FPS_OPTIONS else 120
 	Engine.max_fps = max_fps
 
 
@@ -2415,8 +2475,7 @@ func _offline_phase_slices(elapsed: float) -> Array:
 ## 小结覆盖全量渔获（含溢出段——原先 98% 的离线渔获不进小结，惊喜白出）。
 ## 返回本次产生收益的总条数（入篓 + 兜底）。
 func _offline_catch(elapsed: float) -> int:
-	var wait_factor: float = maxf(0.4, 1.0 - float(rod_level - 1) * 0.04)
-	var avg_interval := 5.25 * wait_factor + 0.9
+	var avg_interval := _avg_wait_for(rod_level)
 	var cap := _bag_capacity()
 	var phase_before := day_phase
 	var total_est := 0

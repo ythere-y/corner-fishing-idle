@@ -1,6 +1,6 @@
 # 背包钓鱼手记 🎣
 <!-- 【修改】原标题「角落垂钓」→ 最终定名「背包钓鱼手记」（Backpack & Bait）；
-     候选清单及命名理由见 docs/lore_backpacker.md。 -->
+	 候选清单及命名理由见 docs/lore_backpacker.md。 -->
 
 贴在桌面角落的一本「背包客钓鱼手记」——TA 在外面环游世界，边走边钓；你在这边，边挂机边看 TA 的旅程。Godot 4.6 · 2D。
 

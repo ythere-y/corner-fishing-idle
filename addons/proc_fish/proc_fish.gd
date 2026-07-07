@@ -15,23 +15,32 @@ var idx: int = -1                         # 在 g.display 中的下标(捞回鱼
 
 var _target: Vector2 = Vector2.ZERO       # 当前游向目标
 var _bounds: Rect2 = Rect2()
+var _vel: Vector2 = Vector2.ZERO          # 带惯性的头部速度，避免直线追点的呆板感
 var _speed: float = 22.0
+var _heading: float = 0.0                 # 当前航向。只按角速度渐变，避免突然掉头。
 var _swim_t: float = 0.0
 var _swim_freq: float = 2.2               # 摆尾频率
 var _wiggle: float = 3.0                  # 侧向摆动幅度(px)
 var _pulse_ph: float = 0.0                # 变体光晕脉动相位(各鱼错开)
+var _turn_rate: float = 1.65              # 最大转向角速度(rad/s)：限制大角度转身
 
 
 func setup(sp: ProcFishSpecies, origin: Vector2, bounds: Rect2, rng: RandomNumberGenerator) -> void:
 	species = sp
 	_bounds = bounds
 	spine = ProcFishSpine.new(origin, ProcFishSpecies.TOTAL_JOINTS, sp.link_size, sp.angle_constraint)
-	_speed = rng.randf_range(16.0, 30.0)
-	_swim_freq = rng.randf_range(1.8, 2.8)
-	_wiggle = sp.link_size * rng.randf_range(0.35, 0.6)
+	_speed = rng.randf_range(16.0, 30.0) * sp.speed_mult
+	_swim_freq = rng.randf_range(1.8, 2.8) * sp.tail_freq_mult
+	_wiggle = sp.link_size * rng.randf_range(0.35, 0.6) * sp.wiggle_mult
+	_turn_rate = rng.randf_range(1.25, 2.1) * sp.turn_rate_mult
 	_swim_t = rng.randf() * TAU
 	_pulse_ph = rng.randf() * TAU
 	_pick_target(rng)
+	var initial_dir := (_target - origin).normalized()
+	if initial_dir.length() <= 0.01:
+		initial_dir = Vector2.RIGHT.rotated(rng.randf() * TAU)
+	_heading = initial_dir.angle()
+	_vel = Vector2.from_angle(_heading) * _speed
 
 
 func head() -> Vector2:
@@ -47,11 +56,29 @@ func hit(p: Vector2) -> bool:
 	return false
 
 
-func _pick_target(rng: RandomNumberGenerator) -> void:
-	var m := 20.0
+func _pick_target(rng: RandomNumberGenerator, center_bias: bool = false) -> void:
+	var max_margin := maxf(4.0, minf(_bounds.size.x, _bounds.size.y) * 0.42)
+	var m := minf(maxf(22.0, species.body_len * 0.35), max_margin)
+	var min_x := _bounds.position.x + m
+	var max_x := _bounds.end.x - m
+	var min_y := _bounds.position.y + m
+	var max_y := _bounds.end.y - m
+	if center_bias:
+		var center := _bounds.get_center()
+		var half := _bounds.size * 0.28
+		min_x = maxf(min_x, center.x - half.x)
+		max_x = minf(max_x, center.x + half.x)
+		min_y = maxf(min_y, center.y - half.y)
+		max_y = minf(max_y, center.y + half.y)
+	if min_x > max_x:
+		min_x = _bounds.get_center().x
+		max_x = min_x
+	if min_y > max_y:
+		min_y = _bounds.get_center().y
+		max_y = min_y
 	_target = Vector2(
-		rng.randf_range(_bounds.position.x + m, _bounds.end.x - m),
-		rng.randf_range(_bounds.position.y + m, _bounds.end.y - m))
+		rng.randf_range(min_x, max_x),
+		rng.randf_range(min_y, max_y))
 
 
 func update(delta: float, bounds: Rect2, rng: RandomNumberGenerator) -> void:
@@ -59,17 +86,59 @@ func update(delta: float, bounds: Rect2, rng: RandomNumberGenerator) -> void:
 	_swim_t += delta * _swim_freq
 	var h := spine.joints[0]
 	var to_t := _target - h
-	if to_t.length() < 14.0:
+	if to_t.length() < maxf(18.0, species.body_len * 0.42):
 		_pick_target(rng)
 		to_t = _target - h
-	var dir := to_t.normalized()
-	# 侧向正弦摆动 → 头左右微摆 → 身体 S 形跟随(尾巴自然摆)
-	var perp := Vector2(-dir.y, dir.x)
-	var desired := h + dir * _speed * delta + perp * sin(_swim_t) * _wiggle * delta * 6.0
-	# 软边界：贴边则把目标重选到中心侧,避免卡边
-	desired.x = clampf(desired.x, bounds.position.x + 6.0, bounds.end.x - 6.0)
-	desired.y = clampf(desired.y, bounds.position.y + 6.0, bounds.end.y - 6.0)
+	var dist := maxf(to_t.length(), 0.001)
+	var dir := to_t / dist
+	# 边界不再反弹速度，而是持续给一个回到缸内的航向偏置，避免贴边时突然掉头。
+	var edge := maxf(14.0, species.body_len * 0.20)
+	var avoid := Vector2.ZERO
+	if h.x < bounds.position.x + edge:
+		avoid.x += 1.0 - clampf((h.x - bounds.position.x) / edge, 0.0, 1.0)
+	elif h.x > bounds.end.x - edge:
+		avoid.x -= 1.0 - clampf((bounds.end.x - h.x) / edge, 0.0, 1.0)
+	if h.y < bounds.position.y + edge:
+		avoid.y += 1.0 - clampf((h.y - bounds.position.y) / edge, 0.0, 1.0)
+	elif h.y > bounds.end.y - edge:
+		avoid.y -= 1.0 - clampf((bounds.end.y - h.y) / edge, 0.0, 1.0)
+	if avoid.length() > 0.01:
+		dir = (dir + avoid.normalized() * 1.8).normalized()
+		if h.distance_to(_target) < edge * 1.4:
+			_pick_target(rng, true)
+	# 航向按最大角速度旋过去，大角度转身会走弧线，不会一帧翻面。
+	_heading = _rotate_toward_angle(_heading, dir.angle(), _turn_rate * delta)
+	var cruise := _speed * lerpf(0.72, 1.10, clampf(dist / maxf(bounds.size.length() * 0.35, 1.0), 0.0, 1.0))
+	var desired_vel := Vector2.from_angle(_heading) * cruise
+	_vel = _vel.lerp(desired_vel, clampf(delta * 3.0, 0.0, 1.0))
+	var move_dir := Vector2.from_angle(_heading)
+	var perp := Vector2(-move_dir.y, move_dir.x)
+	var wander := perp * sin(_swim_t * 0.72 + _pulse_ph) * _wiggle * 0.55
+	var desired := h + (_vel + wander) * delta
+	var min_x := bounds.position.x + edge
+	var max_x := bounds.end.x - edge
+	var min_y := bounds.position.y + edge
+	var max_y := bounds.end.y - edge
+	if min_x > max_x:
+		min_x = bounds.get_center().x
+		max_x = min_x
+	if min_y > max_y:
+		min_y = bounds.get_center().y
+		max_y = min_y
+	var clamped := Vector2(clampf(desired.x, min_x, max_x), clampf(desired.y, min_y, max_y))
+	if clamped.distance_squared_to(h) < 0.01 and avoid.length() > 0.01:
+		_heading = avoid.angle()
+		_vel = avoid.normalized() * _speed * 0.65
+		clamped = Vector2(clampf(h.x + _vel.x * delta, min_x, max_x), clampf(h.y + _vel.y * delta, min_y, max_y))
+	desired = clamped
 	spine.resolve(desired)
+
+
+static func _rotate_toward_angle(from_angle: float, to_angle: float, max_step: float) -> float:
+	var diff := fposmod(to_angle - from_angle + PI, TAU) - PI
+	if absf(diff) <= max_step:
+		return ProcFishSpine._simplify_angle(to_angle)
+	return ProcFishSpine._simplify_angle(from_angle + signf(diff) * max_step)
 
 
 # ============================ 绘制 ============================
@@ -91,24 +160,28 @@ func draw(ci: CanvasItem, t: float, glow_tex: Texture2D) -> void:
 		ci.draw_texture_rect(glow_tex, Rect2(mid - Vector2(gs, gs) * 0.5, Vector2(gs, gs)),
 			false, Color(vc.r, vc.g, vc.b, 0.16 + 0.18 * pulse))
 
-	var head_to_mid1 := ProcFishSpine._relative_angle_diff(a[0], a[6])
-	var head_to_mid2 := ProcFishSpine._relative_angle_diff(a[0], a[7])
-	var head_to_tail: float = head_to_mid1 + ProcFishSpine._relative_angle_diff(a[6], a[11])
+	var head_to_mid1 := clampf(ProcFishSpine._relative_angle_diff(a[0], a[6]), -0.95, 0.95)
+	var head_to_mid2 := clampf(ProcFishSpine._relative_angle_diff(a[0], a[7]), -0.95, 0.95)
+	var head_to_tail: float = clampf(head_to_mid1 + ProcFishSpine._relative_angle_diff(a[6], a[11]), -1.15, 1.15)
 
 	# —— 胸鳍(joint 3)——
-	ci.draw_colored_polygon(_oval(_bp(3, PI / 3.0, 0.0), 80.0 * r, 32.0 * r, a[2] - PI / 4.0), species.fin_color)
-	ci.draw_colored_polygon(_oval(_bp(3, -PI / 3.0, 0.0), 80.0 * r, 32.0 * r, a[2] + PI / 4.0), species.fin_color)
+	ci.draw_colored_polygon(_oval(_bp(3, PI / 3.0, 0.0), 80.0 * r * species.pectoral_mult,
+		32.0 * r * species.pectoral_mult, a[2] - PI / 4.0), species.fin_color)
+	ci.draw_colored_polygon(_oval(_bp(3, -PI / 3.0, 0.0), 80.0 * r * species.pectoral_mult,
+		32.0 * r * species.pectoral_mult, a[2] + PI / 4.0), species.fin_color)
 	# —— 腹鳍(joint 7)——
-	ci.draw_colored_polygon(_oval(_bp(7, PI / 2.0, 0.0), 48.0 * r, 16.0 * r, a[6] - PI / 4.0), species.belly_color)
-	ci.draw_colored_polygon(_oval(_bp(7, -PI / 2.0, 0.0), 48.0 * r, 16.0 * r, a[6] + PI / 4.0), species.belly_color)
+	ci.draw_colored_polygon(_oval(_bp(7, PI / 2.0, 0.0), 48.0 * r * species.pectoral_mult,
+		16.0 * r * species.pectoral_mult, a[6] - PI / 4.0), species.belly_color)
+	ci.draw_colored_polygon(_oval(_bp(7, -PI / 2.0, 0.0), 48.0 * r * species.pectoral_mult,
+		16.0 * r * species.pectoral_mult, a[6] + PI / 4.0), species.belly_color)
 
 	# —— 尾鳍(joints 8..11)——
 	var tail := PackedVector2Array()
 	for i in range(8, 12):
-		var tw := 1.5 * head_to_tail * float(i - 8) * float(i - 8)
+		var tw := clampf(1.5 * head_to_tail * float(i - 8) * float(i - 8) * species.tail_mult, -18.0, 18.0)
 		tail.append(j[i] + Vector2.from_angle(a[i] - PI / 2.0) * tw)
 	for i in range(11, 7, -1):
-		var tw := clampf(head_to_tail * 6.0, -13.0, 13.0)
+		var tw := clampf(head_to_tail * 6.0 * species.tail_mult, -16.0, 16.0)
 		tail.append(j[i] + Vector2.from_angle(a[i] + PI / 2.0) * tw)
 	if tail.size() >= 3:
 		ci.draw_colored_polygon(tail, species.fin_color)
@@ -136,13 +209,15 @@ func draw(ci: CanvasItem, t: float, glow_tex: Texture2D) -> void:
 	# —— 花纹(MVP:叠在鱼身上,半透明)——
 	_draw_pattern(ci, head_to_tail)
 
-	# —— 背鳍(joints 4..7,贝塞尔近似 → 采样多边形)——
-	var dorsal := _dorsal_shape(head_to_mid1, head_to_mid2)
-	if dorsal.size() >= 3:
-		ci.draw_colored_polygon(dorsal, species.fin_color)
+	# —— 背鳍(joints 4..7)：用粗曲线代替闭合多边形，避免急转时自交导致三角剖分闪烁。
+	var dorsal := _dorsal_curve(head_to_mid1, head_to_mid2)
+	if dorsal.size() >= 2:
+		var dcol := species.fin_color
+		dcol.a *= 0.82
+		ci.draw_polyline(dorsal, dcol, maxf(1.4, r * 8.0 * species.dorsal_mult), true)
 
 	# —— 眼 ——
-	var eye_r := maxf(2.0, 12.0 * r)
+	var eye_r := maxf(2.0, 12.0 * r * species.eye_mult)
 	var el := _bp(0, PI / 2.0, -18.0 * r)
 	var er := _bp(0, -PI / 2.0, -18.0 * r)
 	ci.draw_circle(el, eye_r, Color(1, 1, 1, 0.95))
@@ -178,23 +253,18 @@ func _draw_pattern(ci: CanvasItem, head_to_tail: float) -> void:
 			pass
 
 
-## 背鳍：joints 4→7 上缘,一条三次贝塞尔回到 4(参考 Fish.pde 的 bezierVertex);采样成多边形。
-func _dorsal_shape(h2m1: float, h2m2: float) -> PackedVector2Array:
+## 背鳍：joints 4→7 上缘的一条稳定曲线。早期闭合多边形在急转时可能自交，触发 triangulation failed。
+func _dorsal_curve(h2m1: float, h2m2: float) -> PackedVector2Array:
 	var j := spine.joints
 	var a := spine.angles
-	var p0 := j[4]
-	var p3 := j[7]
-	# 去程曲线(沿脊背)控制点 = j5,j6;回程控制点把鳍鼓起来
-	var c1 := j[5]
-	var c2 := j[6]
-	var back_c1 := Vector2(j[6].x + cos(a[6] + PI / 2.0) * h2m2 * 16.0, j[6].y + sin(a[6] + PI / 2.0) * h2m2 * 16.0)
-	var back_c2 := Vector2(j[5].x + cos(a[5] + PI / 2.0) * h2m1 * 16.0, j[5].y + sin(a[5] + PI / 2.0) * h2m1 * 16.0)
+	var p0 := j[4] + Vector2.from_angle(a[4] + PI / 2.0) * h2m1 * 4.0
+	var p3 := j[7] + Vector2.from_angle(a[7] + PI / 2.0) * h2m2 * 4.0
+	var c1 := j[5] + Vector2.from_angle(a[5] + PI / 2.0) * h2m1 * 13.0 * species.dorsal_mult
+	var c2 := j[6] + Vector2.from_angle(a[6] + PI / 2.0) * h2m2 * 13.0 * species.dorsal_mult
 	var pts := PackedVector2Array()
 	var segs := 8
-	for s in segs + 1:                     # p0 → p3 沿脊背
+	for s in segs + 1:
 		pts.append(_bezier(p0, c1, c2, p3, float(s) / float(segs)))
-	for s in segs + 1:                     # p3 → p0 鼓起的外缘
-		pts.append(_bezier(p3, back_c1, back_c2, p0, float(s) / float(segs)))
 	return pts
 
 

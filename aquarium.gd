@@ -5,7 +5,7 @@ extends Control
 ## 自管动画（_process 推进、_draw 合成），不依赖 tween，避免面板重建时残留。
 ## 字段沿用主节点的 display（不另起炉灶）；纪录取自 g.dex（首捕日期为 v11 新增）。
 ## 缸景（俯视）：ins 蓝渐变水体（半透铺在砂底上）+ 焦散光斑 + 砂砾/椭圆卵石/横卧沉木/放射水草 + 悬浮微粒 + 气泡；
-## 外圈一圈投影 + 金属缸框（四角螺栓 + 受光高光），从上方看进一只缸。鱼的 ProcFish 绘制动画保持不动。
+## 外圈分层投影 + 木/金属复合缸框 + 玻璃内缘高光 + 四角压片，从上方看进一只家中鱼缸。鱼的 ProcFish 绘制动画保持不动。
 
 var g                                   # CornerFishing 主节点（弱类型避免循环依赖）
 var swimmers: Array = []                # Array[ProcFish]：程序化脊椎链鱼（替代原 PNG 正弦游动）
@@ -27,6 +27,9 @@ const WATER_TOP := Color(0.38, 0.66, 0.96)  # ins 蓝：亮蓝（上层水）
 const WATER_BOT := Color(0.10, 0.34, 0.72)  # ins 蓝：深蓝（下层水）
 const WATER_ALPHA := 0.86               # 半透铺在砂底上：蓝调主导、砂底隐约可见
 const SAND_COL := Color(0.30, 0.27, 0.20)   # 砂/砾底色（透过蓝水读作砂底）
+const FRAME_WOOD := Color(0.46, 0.30, 0.18)
+const FRAME_METAL := Color(0.38, 0.45, 0.54)
+const FRAME_HI := Color(0.86, 0.92, 0.96)
 
 
 ## 内容绘制区（缸框内环）：把缸框 PAD 环带让出来，水/鱼/装饰都画在内区里。
@@ -64,6 +67,10 @@ func _ready() -> void:
 		add_child(hint)
 
 
+func _exit_tree() -> void:
+	_dismiss_card()
+
+
 func _build_swimmers() -> void:
 	swimmers.clear()
 	if g == null:
@@ -92,7 +99,7 @@ func _swim_bounds() -> Rect2:
 		ir.size.x - MARGIN * 2.0, ir.size.y - MARGIN * 2.0)
 
 
-## 缸景：水草丛 + 石头 + 沉木 + 浮游微粒 + 气泡。一次性随机生成，之后靠 _t 做确定性动画。
+## 缸景：角落式造景（水草一角、石头一角）+ 少量微粒/气泡。一次性随机生成，之后靠 _t 做确定性动画。
 func _build_decor() -> void:
 	bubbles.clear()
 	plants.clear()
@@ -100,63 +107,71 @@ func _build_decor() -> void:
 	motes.clear()
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
-	# 水草：多丛散布全缸（俯视：从缸内任一点冒出的草丛，不再贴缸底）
 	var ir0 := _inner_of(_effective_size())
-	var spots := [0.08, 0.18, 0.3, 0.42, 0.55, 0.68, 0.8, 0.9]
-	for si in spots.size():
-		var s: float = spots[si]
-		var back := (si % 2 == 0)               # 隔丛靠后，前后两层更密
+	# 水草：集中收纳在右下角，中心留给鱼游动。
+	var plant_anchor := Vector2(ir0.end.x - 42.0, ir0.end.y - 34.0)
+	var plant_offsets := [
+		Vector2(-34.0, -8.0),
+		Vector2(-18.0, -22.0),
+		Vector2(0.0, -10.0),
+		Vector2(16.0, -28.0),
+	]
+	for si in plant_offsets.size():
+		var back := si < 2
 		var blades := []
-		var n := rng.randi_range(4, 7)
+		var n := rng.randi_range(5, 8)
 		for b in n:
 			blades.append({
-				"h": rng.randf_range(20.0, 46.0) * (0.85 if back else 1.0),  # 俯视草丛：较短的放射叶
-				"w": rng.randf_range(3.0, 6.0),
-				"ph": rng.randf() * TAU,
+				"h": rng.randf_range(18.0, 38.0) * (0.8 if back else 1.0),
+				"w": rng.randf_range(2.6, 4.8),
+				"ph": rng.randf_range(PI * 0.85, PI * 1.65),
 				"bend": rng.randf_range(0.6, 1.4),
 			})
+		var base := plant_anchor + Vector2(plant_offsets[si])
 		plants.append({
-			"x": ir0.position.x + ir0.size.x * s + rng.randf_range(-10.0, 10.0),
-			"base_y": ir0.position.y + rng.randf_range(20.0, ir0.size.y - 20.0),
+			"x": base.x + rng.randf_range(-4.0, 4.0),
+			"base_y": base.y + rng.randf_range(-4.0, 4.0),
 			"blades": blades,
 			"back": back,
 		})
-	# 石头：2~3 块，散布全缸（降低存在感）
-	for k in rng.randi_range(2, 3):
-		var w := rng.randf_range(22.0, 50.0)
+	# 石头：集中在左上角做一组卵石，不再散落全缸。
+	var rock_anchor := Vector2(ir0.position.x + 54.0, ir0.position.y + 38.0)
+	var rock_offsets := [Vector2(0.0, 0.0), Vector2(28.0, 10.0), Vector2(12.0, 27.0)]
+	for k in rock_offsets.size():
+		var w := rng.randf_range(22.0, 36.0)
 		rocks.append({
-			"x": rng.randf_range(ir0.position.x + 28.0, ir0.end.x - 28.0),
-			"y": rng.randf_range(ir0.position.y + 24.0, ir0.end.y - 24.0),
+			"x": rock_anchor.x + rock_offsets[k].x + rng.randf_range(-4.0, 4.0),
+			"y": rock_anchor.y + rock_offsets[k].y + rng.randf_range(-3.0, 3.0),
 			"w": w,
 			"h": w * rng.randf_range(0.6, 0.85),
 			"col": Color(0.12, 0.14, 0.16).lerp(Color(0.19, 0.20, 0.21), rng.randf()),
 		})
-	# 沉木：一根横躺枯木，散布缸中（俯视：任意朝向）
+	# 沉木：缩短并靠近水草，作为造景一部分，避免横穿画面。
 	driftwood = {
-		"x": ir0.position.x + ir0.size.x * rng.randf_range(0.3, 0.6),
-		"y": ir0.position.y + ir0.size.y * rng.randf_range(0.3, 0.7),
-		"len": rng.randf_range(80.0, 120.0),
-		"ang": rng.randf_range(0.0, TAU),
-		"w": rng.randf_range(8.0, 12.0),
+		"x": plant_anchor.x - 86.0,
+		"y": plant_anchor.y - 20.0,
+		"len": rng.randf_range(48.0, 66.0),
+		"ang": rng.randf_range(-0.35, 0.25),
+		"w": rng.randf_range(5.0, 7.0),
 	}
-	# 悬浮浮游微粒：散布全缸，缓慢下沉横移，填充空旷水域
-	for k in 34:
+	# 悬浮浮游微粒：少量，避免缸内显乱。
+	for k in 12:
 		motes.append({
 			"x": rng.randf_range(ir0.position.x, ir0.end.x),
 			"y": rng.randf_range(ir0.position.y, ir0.end.y),
-			"r": rng.randf_range(0.6, 1.6),
-		"vx": rng.randf_range(-3.0, 3.0),
-		"vy": rng.randf_range(2.0, 7.0),
-		"a": rng.randf_range(0.03, 0.10),
+			"r": rng.randf_range(0.5, 1.1),
+			"vx": rng.randf_range(-3.0, 3.0),
+			"vy": rng.randf_range(2.0, 7.0),
+			"a": rng.randf_range(0.025, 0.07),
 		})
-	# 气泡：从缸底零散升起
-	for k in 16:
+	# 气泡：集中从水草角落升起，和造景绑定。
+	for k in 5:
 		bubbles.append({
-			"x": rng.randf_range(ir0.position.x + MARGIN, ir0.end.x - MARGIN),
-			"y": rng.randf_range(ir0.position.y, ir0.end.y),
-			"r": rng.randf_range(1.2, 3.0),
+			"x": plant_anchor.x + rng.randf_range(-24.0, 18.0),
+			"y": rng.randf_range(ir0.position.y + 18.0, ir0.end.y - 8.0),
+			"r": rng.randf_range(1.0, 2.3),
 			"spd": rng.randf_range(10.0, 22.0),
-			"sway": rng.randf_range(3.0, 7.0),
+			"sway": rng.randf_range(2.0, 4.5),
 			"phase": rng.randf() * TAU,
 		})
 
@@ -209,6 +224,7 @@ func _draw() -> void:
 		draw_texture_rect(_water_tex, ir, false)
 	else:
 		draw_rect(ir, WATER_TOP)
+	_draw_water_reflections(ir)
 	# 3. 水面焦散光斑（俯视下读作投在缸底的晃动光斑）
 	for i in 4:
 		var gx := ir.position.x + ir.size.x * (0.2 + 0.22 * i) + sin(_t * 0.25 + i * 1.7) * 30.0
@@ -239,7 +255,7 @@ func _draw() -> void:
 		_draw_bubble(bb)
 	# 10. 内缘暗角：四周轻压，把视线收进缸里
 	_draw_vignette(ir)
-	# 11. 缸框（俯视：金属/玻璃边框 + 四角螺栓 + 受光高光）
+	# 11. 缸框（俯视：木/金属复合边框 + 玻璃内缘 + 四角压片）
 	_draw_tank_frame(sz, ir)
 
 
@@ -248,11 +264,11 @@ func _draw_substrate(sz: Rect2) -> void:
 	draw_rect(Rect2(sz.position.x, sz.position.y, sz.size.x, sz.size.y), SAND_COL)
 	var ox := sz.position.x
 	var oy := sz.position.y
-	for i in 5:   # 几片略深斑驳（降低存在感）
+	for i in 3:   # 几片略深斑驳（降低存在感）
 		var cx := ox + sz.size.x * (0.15 + 0.18 * i) + sin(i * 2.3) * 14.0
 		var cy := oy + sz.size.y * (0.2 + 0.16 * i)
 		draw_circle(Vector2(cx, cy), 50.0 + 20.0 * sin(i), Color(0.23, 0.24, 0.23, 0.28))
-	for i in 30:   # 亮砂点 + 小卵石
+	for i in 16:   # 亮砂点 + 小卵石
 		var gx := ox + fmod(13.0 * i * 1.7 + 5.0, sz.size.x)
 		var gy := oy + fmod(7.0 * i * 2.3 + 11.0, sz.size.y)
 		draw_circle(Vector2(gx, gy), 0.6 + 0.5 * sin(i * 1.3), Color(0.34, 0.34, 0.30, 0.28))
@@ -332,6 +348,27 @@ func _draw_motes() -> void:
 		draw_circle(Vector2(m["x"], m["y"]), m["r"], Color(0.78, 0.86, 0.84, m["a"]))
 
 
+## 水面细节：几条克制的玻璃反光和细波纹，避免小缸变成纯蓝块。
+func _draw_water_reflections(ir: Rect2) -> void:
+	for i in 4:
+		var y := ir.position.y + ir.size.y * (0.22 + 0.16 * i) + sin(_t * 0.45 + i) * 2.2
+		var x0 := ir.position.x + ir.size.x * (0.12 + 0.05 * sin(i))
+		var x1 := ir.end.x - ir.size.x * (0.14 + 0.03 * cos(i))
+		var pts := PackedVector2Array()
+		var segs := 12
+		for s in segs + 1:
+			var f := float(s) / float(segs)
+			var x := lerpf(x0, x1, f)
+			var yy := y + sin(f * TAU * 1.6 + _t * 0.8 + i) * 1.8
+			pts.append(Vector2(x, yy))
+		draw_polyline(pts, Color(0.86, 0.96, 1.0, 0.10), 1.0, true)
+	# 玻璃斜反光，固定在上左侧，强化俯视玻璃面。
+	draw_line(ir.position + Vector2(14.0, 12.0), ir.position + Vector2(ir.size.x * 0.35, 5.0),
+		Color(1.0, 1.0, 1.0, 0.16), 2.0, true)
+	draw_line(ir.position + Vector2(24.0, 24.0), ir.position + Vector2(ir.size.x * 0.48, 13.0),
+		Color(1.0, 1.0, 1.0, 0.08), 1.0, true)
+
+
 func _draw_bubble(bb: Dictionary) -> void:
 	var x: float = bb["x"] + sin(_t * 1.6 + bb["phase"]) * bb["sway"]
 	var pos := Vector2(x, bb["y"])
@@ -355,27 +392,55 @@ func _draw_vignette(sz: Rect2) -> void:
 ## 俯视投影：缸像落在桌面上的物件，外环一圈由外向内渐隐的暗影（PAD 环带）。
 func _draw_tank_shadow(sz: Vector2) -> void:
 	var base := Color(0.04, 0.07, 0.11)
-	for i in 5:
-		var a := maxf(0.16 - i * 0.03, 0.0)
-		var inset := float(i) * 2.0
-		draw_rect(Rect2(inset, inset, sz.x - inset * 2.0, sz.y - inset * 2.0),
+	for i in 6:
+		var a := maxf(0.18 - i * 0.026, 0.0)
+		var inset := float(i) * 2.4
+		draw_rect(Rect2(inset, inset + 2.0, sz.x - inset * 2.0, sz.y - inset * 2.0),
 			Color(base.r, base.g, base.b, a))
 
 
 ## 俯视缸框：金属/玻璃边框 + 四角螺栓 + 受光高光（上/左亮、下/右暗），标明这是俯视的缸。
 func _draw_tank_frame(sz: Vector2, ir: Rect2) -> void:
-	var frame := Color(0.32, 0.38, 0.46)
-	var hi := Color(0.80, 0.87, 0.94)
 	var lw := 2.0
+	# 外层木框：和房间 home 氛围一致；内层金属/玻璃框负责读作鱼缸。
+	draw_rect(Rect2(0.0, 0.0, sz.x, PAD), FRAME_WOOD)
+	draw_rect(Rect2(0.0, sz.y - PAD, sz.x, PAD), FRAME_WOOD.darkened(0.10))
+	draw_rect(Rect2(0.0, 0.0, PAD, sz.y), FRAME_WOOD.darkened(0.04))
+	draw_rect(Rect2(sz.x - PAD, 0.0, PAD, sz.y), FRAME_WOOD.darkened(0.14))
+	for i in 4:
+		var x := 8.0 + i * maxf((sz.x - 16.0) / 4.0, 1.0)
+		draw_line(Vector2(x, 3.0), Vector2(minf(x + 44.0, sz.x - 5.0), 3.0),
+			Color(0.78, 0.58, 0.36, 0.20), 1.0)
+		draw_line(Vector2(x, sz.y - 4.0), Vector2(minf(x + 40.0, sz.x - 5.0), sz.y - 4.0),
+			Color(0.18, 0.10, 0.06, 0.18), 1.0)
 	# 内缘四边描边：上/左受光（亮），下/右背光（暗）
-	draw_rect(Rect2(ir.position.x, ir.position.y, ir.size.x, lw), hi)
-	draw_rect(Rect2(ir.position.x, ir.position.y, lw, ir.size.y), hi)
-	draw_rect(Rect2(ir.position.x, ir.end.y - lw, ir.size.x, lw), frame.darkened(0.35))
-	draw_rect(Rect2(ir.end.x - lw, ir.position.y, lw, ir.size.y), frame.darkened(0.35))
-	# 四角螺栓（金属件，强化“缸框”的俯视读图）
-	for c in [ir.position, Vector2(ir.end.x, ir.position.y), Vector2(ir.position.x, ir.end.y), ir.end]:
-		draw_circle(c, 3.2, Color(0.40, 0.45, 0.54))
-		draw_circle(c, 1.5, Color(0.78, 0.83, 0.90))
+	draw_rect(Rect2(ir.position.x, ir.position.y, ir.size.x, lw), FRAME_HI)
+	draw_rect(Rect2(ir.position.x, ir.position.y, lw, ir.size.y), FRAME_HI)
+	draw_rect(Rect2(ir.position.x, ir.end.y - lw, ir.size.x, lw), FRAME_METAL.darkened(0.36))
+	draw_rect(Rect2(ir.end.x - lw, ir.position.y, lw, ir.size.y), FRAME_METAL.darkened(0.36))
+	# 玻璃内唇：半透明蓝白，边缘更有厚度。
+	draw_rect(Rect2(ir.position.x + 3.0, ir.position.y + 3.0, ir.size.x - 6.0, 2.0),
+		Color(0.78, 0.94, 1.0, 0.22))
+	draw_rect(Rect2(ir.position.x + 3.0, ir.position.y + 3.0, 2.0, ir.size.y - 6.0),
+		Color(0.78, 0.94, 1.0, 0.16))
+	draw_rect(Rect2(ir.position.x + 3.0, ir.end.y - 5.0, ir.size.x - 6.0, 2.0),
+		Color(0.03, 0.10, 0.18, 0.18))
+	draw_rect(Rect2(ir.end.x - 5.0, ir.position.y + 3.0, 2.0, ir.size.y - 6.0),
+		Color(0.03, 0.10, 0.18, 0.18))
+	# 四角金属压片 + 螺栓，强化“缸框”的俯视读图。
+	var corners := [
+		ir.position,
+		Vector2(ir.end.x, ir.position.y),
+		Vector2(ir.position.x, ir.end.y),
+		ir.end,
+	]
+	for c in corners:
+		var sx := -1.0 if c.x > sz.x * 0.5 else 1.0
+		var sy := -1.0 if c.y > sz.y * 0.5 else 1.0
+		var plate := Rect2(c + Vector2(-5.0 if sx < 0.0 else 0.0, -5.0 if sy < 0.0 else 0.0), Vector2(5.0, 5.0))
+		draw_rect(plate, FRAME_METAL)
+		draw_circle(c + Vector2(sx * 3.0, sy * 3.0), 2.6, Color(0.42, 0.48, 0.56))
+		draw_circle(c + Vector2(sx * 3.0, sy * 3.0), 1.1, Color(0.82, 0.87, 0.92))
 
 
 func _draw_swimmer(pf, sz: Rect2) -> void:
@@ -407,6 +472,8 @@ func _make_glow() -> ImageTexture:
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if is_instance_valid(_card) and _card.get_global_rect().has_point(get_global_mouse_position()):
+			return
 		_dismiss_card()
 		var hit = _swimmer_at(event.position)
 		if hit != null:
@@ -438,6 +505,7 @@ func _show_card(sw, at: Vector2) -> void:
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", UIPanels.panel_bg_style())
 	card.z_index = 60
+	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	var mg := MarginContainer.new()
 	for side in ["left", "top", "right", "bottom"]:
 		mg.add_theme_constant_override("margin_" + side, 10 if side in ["left", "right"] else 8)
@@ -495,7 +563,8 @@ func _show_card(sw, at: Vector2) -> void:
 	back.text = "捞回鱼篓"
 	back.custom_minimum_size = Vector2(0, 30)
 	UIPanels.apply_button_skin(back, false)
-	back.pressed.connect(func() -> void: Decor.remove_to_inventory(g, int(sw.idx)))
+	back.pressed.connect(func() -> void:
+		Decor.remove_to_inventory(g, _slot_for_swimmer(sw)))
 	box.add_child(back)
 	card.custom_minimum_size = Vector2(186, 0)   # 定宽，高随内容（按真实高摆放，不再用写死的 168）
 	card.top_level = true                         # 脱离鱼缸的 clip_contents：卡片可越过缸底/缸边完整显示，不被裁
@@ -510,3 +579,13 @@ func _show_card(sw, at: Vector2) -> void:
 	pos.x = clampf(pos.x, area.position.x + 4.0, maxf(area.position.x + 4.0, area.end.x - csz.x - 4.0))
 	pos.y = clampf(pos.y, area.position.y + 4.0, maxf(area.position.y + 4.0, area.end.y - csz.y - 4.0))
 	card.position = pos
+
+
+func _slot_for_swimmer(sw) -> int:
+	var idx := int(sw.idx)
+	if idx >= 0 and idx < g.display.size() and g.display[idx] == sw.catch_data:
+		return idx
+	for i in g.display.size():
+		if g.display[i] == sw.catch_data:
+			return i
+	return idx

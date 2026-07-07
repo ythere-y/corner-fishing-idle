@@ -4,7 +4,7 @@ extends SceneTree
 ## （旧版 成本÷该档总收入 / 对 0 档差分 会把回本虚低 1.5~4.5 倍，见 docs/balance_audit_2026-07-06.md）。
 ## ⚠ 本文件含真值公式的手工副本，主代码改动后必须同步，否则探针静默漂移：
 ##   main.gd —— 间隔基数 5.25 与等待折扣 0.04（_begin_wait/_offline_catch）、竿价 400×1.7^n（_rod_cost）、
-##              离线 8h 上限与 0.5 效率（OFFLINE_CAP/OFFLINE_EFFICIENCY）、背包扩容价目文本；
+##              离线 12h 基础/24h 里程碑上限与 0.5 效率（OFFLINE_CAP_BASE/EXT、图鉴≥145 扩容）、背包扩容价目文本；
 ##   fish_data.gd —— 价值 +8%/级（roll_catch 的 rod_mult）；品质/变体倍率已改为直读常量，不会漂。
 ## 运行: godot_console --headless -s tools/balance_probe.gd
 
@@ -105,6 +105,7 @@ func _run() -> void:
 			str(h["name"]), int(h["cost"]), int(float(h["double"]) * 100.0), gain, delta, payback])
 
 	print("=== 诱饵/窝料回本（rod=5 秘制饵基准，变体期望，相邻档边际）===")
+	print("  （收集杠杆线：卖点是稀有档频率与彩鳞产出，金币回本非设计目标——勿按 S2 带宽调参）")
 	for li in range(FishData.LURES.size()):
 		var l: Dictionary = FishData.LURES[li]
 		var gain := hbase * _variant_mult(li)

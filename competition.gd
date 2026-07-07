@@ -12,6 +12,7 @@ static func week_id() -> int:
 
 ## 确保 g.competition 是当前周的（跨周自动重选目标鱼、清零本周最佳）。
 static func ensure(g: CornerFishing) -> void:
+	Orders.ensure_day_stat(g)   # 重建赛事前先沉淀"昨日收入"锚（与 Orders.ensure_weekly 同理）
 	var wk := week_id()
 	if g.competition.has("week") and int(g.competition.get("week", -1)) == wk \
 			and FishData.FISH.has(str(g.competition.get("fish", ""))):

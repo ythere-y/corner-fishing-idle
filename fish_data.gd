@@ -318,7 +318,9 @@ const HOOKS := [
 
 # —— 诱饵/窝料：第四条成长线，决定「稀有变体」偏置（vbias）。鱼竿管稀有度、鱼饵管星级、
 # 鱼钩管产量、诱饵管变体——补齐四轴对称。vbias 喂给 roll_variant 经 variant_scale 分档抬高变体率；
-# 0 级（无窝料）vbias=0，与基线逐位一致（不破回归）。作为变体墙收集轴的专属长线 coin sink。——
+# 0 级（无窝料）vbias=0，与基线逐位一致（不破回归）。作为变体墙收集轴的专属长线 coin sink。
+# ⚠ 本线按「收集杠杆」定价（麝香：七彩 ×4、彩鳞产出 ×~3），P1 变体收敛后金币口径回本 ≈50h
+# 系有意取舍——勿按 S2 回本带宽把它当定价事故来"修"（决策见 BACKLOG 2026-07-07）。——
 const LURES := [
 	{"name": "无窝料", "cost": 0, "vbias": 0.0, "desc": "空钩直钓，花色全凭运气"},
 	{"name": "碎米窝", "cost": 30000, "vbias": 0.6, "desc": "撒把碎米打窝，斑斓鱼更常照面"},
@@ -332,23 +334,20 @@ static func lure_vbias(lure_idx: int) -> float:
 	return float(LURES[clampi(lure_idx, 0, LURES.size() - 1)]["vbias"])
 
 
-# —— 彩鳞（P1 变体兑换货币，balance_audit §3.4）：重复变体自动折鳞、定向点亮 657 格缺格，
-# 把收集轴尾部的纯赌命（T5×七彩单格期望 ~90h）压回可规划区间。——
-const SCALE_VALUES := [0, 1, 8, 40]   # 重复 斑斓/鎏金/七彩 各折多少彩鳞
+# —— 彩鳞（P1 变体兑换货币，balance_audit §3.4）：重复变体折「同档鳞」、定向点亮 657 格缺格，
+# 把收集轴尾部的纯赌命（T5×七彩单格期望 ~90h）压回可规划区间（目标 1~3h/格）。
+# ⚠ 分三种币、同档兑同档（S8「重复稀有 3~5 换 1 定向」的严格口径）：对抗审查证明单一货币会让
+# 高频的斑斓/鎏金重复金流直接供给最稀缺的七彩格，T5 格塌缩到分钟级——七彩格只认重复七彩。——
+const SCALE_NAMES := ["斑斓鳞", "鎏金鳞", "七彩鳞"]   # 下标 = 变体档 − 1
 
 
-static func scale_value(vi: int) -> int:
-	return SCALE_VALUES[clampi(vi, 0, SCALE_VALUES.size() - 1)]
-
-
-## 定向点亮一格变体的彩鳞价：按鱼品阶分层（t0~2=4 / t3~4=8 / t5=30）。
-## t5 取 30（区间上限）：防止 T5 七彩定向比直钓 T3 七彩还快（核查员提醒）。
+## 定向点亮一格 vi 档变体所需的「同档鳞」枚数：按鱼品阶分层（t0~2=3 / t3~4=4 / t5=5）。
 static func scale_cost(tier: int) -> int:
 	if tier >= 5:
-		return 30
+		return 5
 	if tier >= 3:
-		return 8
-	return 4
+		return 4
+	return 3
 
 
 ## 星级抽取：逐级 roll，失败即停。

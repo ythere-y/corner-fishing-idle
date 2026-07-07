@@ -1,6 +1,7 @@
 class_name AchievementData
-## 成就配置（纯数据）。kind 决定达成判定，n 为阈值，reward 为达成奖励金币。
-## 判定逻辑在 main.gd::_ach_done()。轻量 16 项，覆盖渔获/财富/收集/品阶/品相/装备多条线。
+## 成就配置（纯数据）。kind 决定达成判定，n 为阈值，reward 为达成奖励金币（0 = 纯称号）。
+## 判定逻辑在 main.gd::_ach_done()。数量见 LIST（勿在注释写死），覆盖渔获/财富/收集/品阶/
+## 品相/装备/陈列/变体/陪伴/周赛多条线；P1 起含 20h→100h 长线断点阶梯。
 
 const LIST := [
 	{"id": "first_cast", "name": "初次垂钓", "desc": "钓到第一条鱼", "kind": "catches", "n": 1, "reward": 0},

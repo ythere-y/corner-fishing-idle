@@ -192,8 +192,8 @@ static func try_complete_daily_order(g: CornerFishing) -> void:
 			if order_matches(g, c) and not bool(c.get("lock", false)):
 				all_n += 1
 		if all_n >= need:
-			g._toast("目标鱼够数，但含珍稀（鎏金/七彩/★★★不自动交单）——先把珍稀入缸或卖掉", 3.0,
-				Color(0.95, 0.78, 0.42))
+			g._toast("目标鱼够数，但珍稀（鎏金/七彩/★★★）不自动交单——再钓 %d 条普通品相的就行" % (need - indices.size()),
+				3.0, Color(0.95, 0.78, 0.42))
 		else:
 			g._toast("目标鱼还不够", 1.6, Color(1.0, 0.5, 0.4))
 		return
@@ -221,6 +221,7 @@ static func week_id() -> int:
 
 
 static func ensure_weekly(g: CornerFishing) -> void:
+	ensure_day_stat(g)   # 重建周字典前先沉淀"昨日收入"锚（防任何调用路径读到过期锚）
 	var wk := week_id()
 	if g.weekly.has("week") and int(g.weekly.get("week", -1)) == wk \
 			and g.weekly.has("kind") and int(g.weekly.get("target", 0)) > 0:

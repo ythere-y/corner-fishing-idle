@@ -71,7 +71,7 @@ static func collect(g) -> Dictionary:
 		"autosell": {"b": g.auto_sell_bought, "on": g.auto_sell_on,
 			"n": g.auto_sold_n, "v": g.auto_sold_v},
 		# —— v15 数值 P1 ——
-		"scales": g.scales,            # 彩鳞（competition.wins 随 competition 整字典走）
+		"scales": g.scales,            # 彩鳞三元数组 [斑斓,鎏金,七彩]（competition.wins 随 competition 整字典走）
 		"yest_income": g.yest_income,  # 昨日卖鱼收入（周赛/周目标奖励锚）
 		"ts": Time.get_unix_time_from_system(),
 	}
@@ -228,8 +228,12 @@ static func apply(g, data: Dictionary) -> void:
 	g.focus_reward_date = str(data.get("focus_rd", ""))
 	g.focus_pending = clampi(int(data.get("focus_pend", 0)), 0, 2)
 	g.pet_steals = int(data.get("pet_steals", 0))
-	# —— v15 数值 P1（旧档无 → 0，无损迁移）——
-	g.scales = maxi(0, int(data.get("scales", 0)))
+	# —— v15 数值 P1（旧档无 → 0，无损迁移；scales 为三元数组，非数组的过渡值直接归零）——
+	g.scales = [0, 0, 0]
+	var sc_raw: Variant = data.get("scales", [])
+	if sc_raw is Array:
+		for i in mini(3, (sc_raw as Array).size()):
+			g.scales[i] = maxi(0, int(sc_raw[i]))
 	g.yest_income = maxi(0, int(data.get("yest_income", 0)))
 	# —— v14 鱼贩合约（旧档无/字段损坏 → 未购买；先复位再覆盖，保证 apply 完全决定状态）——
 	g.auto_sell_bought = false

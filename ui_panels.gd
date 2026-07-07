@@ -1492,10 +1492,11 @@ static func fill_fish_detail(g: CornerFishing, v: VBoxContainer) -> void:
 	vcol.add_theme_constant_override("separation", 6)
 	vmar.add_child(vcol)
 	var vtitle := Label.new()
-	vtitle.text = "变体墙　%d / %d　·　彩鳞 ×%d" % [vgot, FishData.VARIANT_NAMES.size(), g.scales]
+	vtitle.text = "变体墙　%d / %d　·　鳞 %d/%d/%d" % [vgot, FishData.VARIANT_NAMES.size(),
+		int(g.scales[0]), int(g.scales[1]), int(g.scales[2])]
 	vtitle.add_theme_font_size_override("font_size", 12)
 	vtitle.add_theme_color_override("font_color", Color(0.50, 0.47, 0.40))
-	vtitle.tooltip_text = "重复钓到已点亮的变体会折成彩鳞（斑斓1/鎏金8/七彩40）；\n彩鳞可定向点亮已收录鱼的缺失变体格"
+	vtitle.tooltip_text = "重复钓到已点亮的变体折 1 枚同档鳞（斑斓鳞/鎏金鳞/七彩鳞）；\n同档鳞可定向点亮已收录鱼的同档缺格（按品阶 3/4/5 枚一格）"
 	vcol.add_child(vtitle)
 	var vrow := HBoxContainer.new()
 	vrow.add_theme_constant_override("separation", 6)
@@ -1535,14 +1536,15 @@ static func fill_fish_detail(g: CornerFishing, v: VBoxContainer) -> void:
 				sst.add_theme_color_override("font_color", Color(0.5, 0.47, 0.42, 0.5))
 			sbox.add_child(sst)
 		else:
-			# 已收录鱼的缺失变体格：彩鳞定向兑换入口（点亮收集位，不发鱼）
+			# 已收录鱼的缺失变体格：同档鳞定向兑换入口（点亮收集位，不发鱼）
 			var rcost := FishData.scale_cost(FishData.tier_of(id))
+			var have: int = int(g.scales[vi - 1])
 			var rb := Button.new()
 			rb.text = "兑 %d鳞" % rcost
 			rb.add_theme_font_size_override("font_size", 11)
 			rb.custom_minimum_size = Vector2(0, 24)
-			rb.disabled = g.scales < rcost
-			rb.tooltip_text = "花 %d 彩鳞点亮此格（现有 %d）" % [rcost, g.scales]
+			rb.disabled = have < rcost
+			rb.tooltip_text = "花 %d 枚%s点亮此格（现有 %d）" % [rcost, FishData.SCALE_NAMES[vi - 1], have]
 			apply_button_skin(rb, false)
 			if not rb.disabled:
 				rb.pressed.connect(g._redeem_variant.bind(id, vi))
@@ -1698,8 +1700,9 @@ static func fill_dex_tab(g: CornerFishing, v: VBoxContainer) -> void:
 				vc += 1
 	var vtotal := FishData.FISH.size() * (FishData.VARIANT_NAMES.size() - 1)
 	var stat := Label.new()
-	stat.text = "收集 %d/%d　·　变体 %d/%d　·　彩鳞 ×%d　·　渔获 %d" % [
-		g.dex.size(), FishData.FISH.size(), vc, vtotal, g.scales, g.lifetime_catches]
+	stat.text = "收集 %d/%d　·　变体 %d/%d　·　鳞 %d/%d/%d　·　渔获 %d" % [
+		g.dex.size(), FishData.FISH.size(), vc, vtotal,
+		int(g.scales[0]), int(g.scales[1]), int(g.scales[2]), g.lifetime_catches]
 	stat.add_theme_font_size_override("font_size", DT.FS_XS)
 	stat.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 	v.add_child(stat)
@@ -1990,8 +1993,8 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 			rw[1].add_child(make_pill("🔒 %d" % int(h["cost"]), DT.GLASS_ROW, DT.TEXT_FAINT_GLASS))
 		list.add_child(rw[0])
 
-	# 诱饵 / 窝料（决定稀有变体几率）
-	_section(list, "诱饵 · 决定稀有变体几率（斑斓/鎏金/七彩，卖价 ×2/×5/×12）")
+	# 诱饵 / 窝料（变体收集杠杆——段头用收集口径，卖价倍率下沉到行内，防按金币回本误判性价比）
+	_section(list, "诱饵 · 变体收集杠杆（越稀有的花色提升越多；重复变体折彩鳞）")
 	for i in FishData.LURES.size():
 		var lu: Dictionary = FishData.LURES[i]
 		var lsub := "%s · 越稀有的花色提升越多（七彩 ×%.1f）" % [lu.get("desc", ""), 1.0 + float(lu["vbias"])]
@@ -2656,7 +2659,8 @@ static func fill_offline_report(g: CornerFishing, v: VBoxContainer) -> void:
 		nm.add_theme_color_override("font_color", g._ui_tier_color(t, true))
 		info.add_child(nm)
 		var meta := Label.new()
-		meta.text = "%.2fkg · %d 金币" % [float(top["w"]), int(top["v"])]
+		meta.text = "%.2fkg · %d 金币%s" % [float(top["w"]), int(top["v"]),
+			"（已折价兑金，不在篓中）" if bool(rep.get("top_folded", false)) else ""]
 		meta.add_theme_font_size_override("font_size", 12)
 		meta.add_theme_color_override("font_color", Color(0.5, 0.46, 0.4))
 		info.add_child(meta)
@@ -2680,7 +2684,9 @@ static func fill_offline_report(g: CornerFishing, v: VBoxContainer) -> void:
 	var notable: Array = rep.get("notable", [])
 	if not notable.is_empty():
 		var nlbl := Label.new()
-		nlbl.text = "其中珍稀 %d 条：" % notable.size()
+		var n_total := int(rep.get("notable_n", notable.size()))
+		nlbl.text = ("其中珍稀 %d 条，价值最高的 %d 条：" % [n_total, notable.size()]) \
+			if n_total > notable.size() else ("其中珍稀 %d 条：" % n_total)
 		nlbl.add_theme_font_size_override("font_size", DT.FS_XS)
 		nlbl.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 		v.add_child(nlbl)

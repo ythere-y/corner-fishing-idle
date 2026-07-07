@@ -607,7 +607,7 @@ func _check_focus_reward() -> void:
 	_assert(absf(g._focus_away_t - seg * 0.8) < 0.01, "宽限窗外操作应折算保留 80%")
 	# 50 分钟档：保底鎏金变体（var>=2）
 	g._window_focused = false
-	g._focus_t1_done = true   # 直接验证 50 分钟档
+	g._focus_granted = 1   # 直接验证 50 分钟档
 	g._tick_focus(g.FOCUS_T2 + 1.0)
 	_assert(g.focus_pending == 2, "失焦满 50 分钟应保底鎏金（pending=2），实际 %d" % g.focus_pending)
 	g.inventory = []
@@ -616,8 +616,7 @@ func _check_focus_reward() -> void:
 	# 每日封顶：达上限后不再发奖励
 	g.focus_reward_today = g.FOCUS_REWARD_DAILY_CAP
 	g._focus_away_t = 0.0
-	g._focus_t1_done = false
-	g._focus_t2_done = false
+	g._focus_granted = 0
 	g._window_focused = false
 	g._tick_focus(g.FOCUS_T1 + 1.0)
 	_assert(g.focus_pending == 0, "达每日封顶后不应再发奖励")
@@ -1033,29 +1032,30 @@ func _check_p1_scales() -> void:
 	g.save_enabled = false
 	root.add_child(g)
 	await process_frame
-	# 首见变体不折鳞；重复按档折鳞（斑斓=1/鎏金=8/七彩=40）
+	# 首见变体不折鳞；重复折 1 枚「同档鳞」（三币种：防低档金流刷穿七彩格）
 	g.dex.clear()
-	g.scales = 0
+	g.scales = [0, 0, 0]
 	g._dex_record("carp", 1.0, false, false, 1)
-	_assert(g.scales == 0, "首见变体不应折鳞")
+	_assert(int(g.scales[0]) == 0, "首见变体不应折鳞")
 	g._dex_record("carp", 1.0, false, false, 1)
-	_assert(g.scales == 1, "重复斑斓应折 1 彩鳞，实际 %d" % g.scales)
+	_assert(int(g.scales[0]) == 1 and int(g.scales[2]) == 0, "重复斑斓应折 1 枚斑斓鳞")
 	g._dex_record("carp", 1.0, false, false, 3)
 	g._dex_record("carp", 1.0, false, false, 3)
-	_assert(g.scales == 41, "重复七彩应折 40 彩鳞，实际 %d" % g.scales)
-	# 定向兑换：扣鳞 + 点亮；余额不足/已点亮不动
-	g.scales = 3
+	_assert(int(g.scales[2]) == 1 and int(g.scales[0]) == 1, "重复七彩应折 1 枚七彩鳞（不混档）")
+	# 定向兑换：扣同档鳞 + 点亮；余额不足/异档鳞再多也不动/已点亮不扣
+	g.scales = [99, 2, 0]
+	g._redeem_variant("carp", 2)   # carp tier1 → 需 3 枚鎏金鳞，只有 2
+	_assert((int(g.dex["carp"]["vmask"]) & (1 << 2)) == 0 and int(g.scales[1]) == 2,
+		"同档鳞不足不应兑换（异档鳞不可代用）")
+	g.scales = [0, 3, 0]
 	g._redeem_variant("carp", 2)
-	_assert((int(g.dex["carp"]["vmask"]) & (1 << 2)) == 0 and g.scales == 3, "彩鳞不足不应兑换")
-	g.scales = 4
-	g._redeem_variant("carp", 2)   # carp tier1 → 4 鳞
 	_assert((int(g.dex["carp"]["vmask"]) & (1 << 2)) != 0, "兑换应点亮鎏金位")
-	_assert(g.scales == 0, "兑换应扣 4 彩鳞，余 %d" % g.scales)
-	g.scales = 99
+	_assert(int(g.scales[1]) == 0, "兑换应扣 3 枚鎏金鳞，余 %d" % int(g.scales[1]))
+	g.scales = [0, 0, 9]
 	g._redeem_variant("carp", 3)   # 首见七彩时已点亮 → 不扣
-	_assert(g.scales == 99, "已点亮格不应重复扣鳞")
-	_assert(FishData.scale_cost(1) == 4 and FishData.scale_cost(4) == 8 and FishData.scale_cost(5) == 30,
-		"分层定价应为 4/8/30")
+	_assert(int(g.scales[2]) == 9, "已点亮格不应重复扣鳞")
+	_assert(FishData.scale_cost(1) == 3 and FishData.scale_cost(4) == 4 and FishData.scale_cost(5) == 5,
+		"分层定价应为 3/4/5 枚同档鳞")
 	# vgrid 成就：34 种 ×3 位 = 102 格
 	g.dex.clear()
 	for id in FishData.FISH.keys().slice(0, 34):
@@ -1070,16 +1070,22 @@ func _check_p1_scales() -> void:
 	g.competition["wins"] = 5
 	g._check_achievements()
 	_assert(g.achievements_done.has("comp_wins_5"), "累计夺金 5 次应解锁 comp_wins_5")
-	# v15 往返：scales / yest_income / competition.wins
-	g.scales = 7
+	# v15 往返：scales 三元数组 / yest_income / competition.wins
+	g.scales = [7, 2, 1]
 	g.yest_income = 12345
 	var d: Dictionary = SaveSystem.collect(g)
-	g.scales = 0
+	g.scales = [0, 0, 0]
 	g.yest_income = 0
 	g.competition = {}
 	SaveSystem.apply(g, d)
-	_assert(g.scales == 7 and g.yest_income == 12345 and int(g.competition.get("wins", 0)) == 5,
-		"v15 字段应随档往返（scales/yest_income/wins）")
+	_assert(int(g.scales[0]) == 7 and int(g.scales[1]) == 2 and int(g.scales[2]) == 1 \
+		and g.yest_income == 12345 and int(g.competition.get("wins", 0)) == 5,
+		"v15 字段应随档往返（scales[]/yest_income/wins）")
+	# 过渡档兼容：scales 为旧 int 形态 → 归零不崩
+	var od2: Dictionary = d.duplicate()
+	od2["scales"] = 41
+	SaveSystem.apply(g, od2)
+	_assert(g.scales == [0, 0, 0], "int 形态的过渡 scales 应安全归零")
 	print("  彩鳞折算 / 定向兑换与边界 / 分层价 / vgrid·comp_wins 成就 / v15 往返 通过")
 	g.queue_free()
 	await process_frame
@@ -1609,11 +1615,16 @@ func _check_offline() -> void:
 	# 钉死时段：离线结算的 day_phase 在 _ready 内部取真实时钟（测试插手不到），
 	# 不钉死则出鱼池/价值系数随开发机时间漂移——本函数所有断言必须保持相位无关或钉死后再加。
 	Weather.force_phase = "day"
+	# 预置全部成就为已达成：离线结算后会补 _check_achievements()（P1），随机钓到稀有时
+	# 成就发金币会污染"coins 只来自兜底折价"的断言（且随机 → flaky）
+	var all_ach: Array = []
+	for a in AchievementData.LIST:
+		all_ach.append(str(a["id"]))
 	# —— 子用例 1：离线时长不足以装满 → 全部入篓，不触发折价、不直接产金币 ——
 	var short_save := {
 		"ver": 2, "coins": 0, "rod_level": 1, "bag_level": 1,
 		"inv": [["ghostfish", 1.0, 10], ["carp", 2.0, 30]],  # 未知鱼种过滤；v2 三元组 → q=0
-		"lt_coins": 0, "lt_catches": 0, "dex": [], "opacity": 1.0,
+		"lt_coins": 0, "lt_catches": 0, "dex": [], "opacity": 1.0, "ach": all_ach,
 		"ts": Time.get_unix_time_from_system() - 60.0,  # 仅 1 分钟 → est 远小于空格
 	}
 	var f := FileAccess.open(TEST_SAVE, FileAccess.WRITE)
@@ -1639,7 +1650,7 @@ func _check_offline() -> void:
 	var long_save := {
 		"ver": 2, "coins": 0, "rod_level": 1, "bag_level": 1,
 		"inv": [["carp", 2.0, 30]],
-		"lt_coins": 0, "lt_catches": 0, "dex": [], "opacity": 1.0,
+		"lt_coins": 0, "lt_catches": 0, "dex": [], "opacity": 1.0, "ach": all_ach,
 		"ts": Time.get_unix_time_from_system() - 3600.0,  # 1 小时 → est 远超 20 格
 	}
 	f = FileAccess.open(TEST_SAVE, FileAccess.WRITE)
@@ -1656,10 +1667,24 @@ func _check_offline() -> void:
 	_assert(g2.coins == int(g2._offline_report.get("overflow_v", -1)), "兜底金币应与小结一致")
 	print("  长离线 1h：填满 %d 格 + 折价兑 %d 条 = +%d 金币" % [
 		g2.inventory.size(), int(g2._offline_report.get("overflow_n", 0)), g2.coins])
+	# —— 切片函数不变量（force_phase 复位后直调，覆盖小时回推循环——钉死时段的用例跑不到它）——
+	Weather.force_phase = ""
+	for hrs in [0.5, 3.0, 12.0, 24.0]:
+		var sl: Array = g2._offline_phase_slices(hrs * 3600.0)
+		var sum_sec := 0.0
+		var prev_ph := ""
+		for seg in sl:
+			var ph := str(seg["phase"])
+			_assert(Weather.has(ph), "切片时段应合法：%s" % ph)
+			_assert(ph != prev_ph, "相邻切片时段不应相同（应已合并）")
+			_assert(float(seg["sec"]) > 0.0, "切片秒数应为正")
+			sum_sec += float(seg["sec"])
+			prev_ph = ph
+		_assert(absf(sum_sec - hrs * 3600.0) < 0.01, "切片总秒数应等于离线时长（%.1fh）" % hrs)
+		_assert(sl.size() <= int(hrs) + 2, "切片段数应有限（%.1fh → %d 段）" % [hrs, sl.size()])
 	g2.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_SAVE))
-	Weather.force_phase = ""
 
 
 ## 满篓兜底核心 _absorb_overflow：留贵兑贱、上锁/订单鱼绝不被兑、折价正确。

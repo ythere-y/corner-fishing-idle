@@ -61,7 +61,7 @@ var auto_sell_bought := false   # 一次性买断（AUTO_SELL_COST）
 var auto_sell_on := false       # 合约开关：买断后默认开，可随时暂停
 var auto_sold_n := 0            # 合约累计带走条数（统计页）
 var auto_sold_v := 0            # 合约累计入金（统计页）
-var scales := 0                 # 彩鳞（v15）：重复变体折算的定向兑换货币（见 FishData.SCALE_VALUES）
+var scales: Array = [0, 0, 0]   # 彩鳞（v15）：斑斓鳞/鎏金鳞/七彩鳞——重复变体折同档鳞（FishData.SCALE_NAMES）
 var yest_income := 0            # 昨日（上个游玩日）卖鱼收入（v15）：周赛/周目标奖励的收入锚
 var inventory: Array = []  # 每条 {"id", "w", "v", "q"(星级)}，一条鱼占一格
 var display: Array = []     # 陈列架上的鱼（离开鱼篓、永久展示），最多 Decor.NUM_SLOTS 件
@@ -123,7 +123,7 @@ const OFFLINE_CAP_BASE := 12.0 * 3600.0   # 离线结算基础上限 12h（覆�
 const OFFLINE_CAP_EXT := 24.0 * 3600.0    # 图鉴 ≥145 种（溶洞站同款里程碑）扩到 24h：旅程后期特权
 const OFFLINE_EFFICIENCY := 0.5           # 离线效率 50%
 const OVERFLOW_SELL_RATE := 0.5       # 满篓兜底：自动折价兑换比例（调研 3.2，避免满篓硬截断惩罚挂机）
-const AUTO_SELL_COST := 60000         # 鱼贩合约（自动贩卖）一次性买断价：中期 coin sink（rod5 口径约 16~33 分钟收入，视鱼饵档；探针实测 2026-07-07）
+const AUTO_SELL_COST := 60000         # 鱼贩合约（自动贩卖）一次性买断价：中期 coin sink（rod5 无窝料口径约 16~33 分钟收入，视鱼饵档；探针 2026-07-07，变体收敛后各档收入 −7%~−26% 注意标尺漂移）
 var _save_t := 10.0
 var _pending_offline := ""               # 仅"满篓没钓到"等无渔获情况用 toast
 var _offline_report := {}                # 离线小结：{dur,count,full,value,top,notable[]}
@@ -183,8 +183,8 @@ const FOCUS_REWARD_DAILY_CAP := 4      # 每日封顶，防刷
 var _window_focused := true            # 窗口是否聚焦（FOCUS_IN/OUT 通知维护）
 var _focus_away_t := 0.0               # 当前连续失焦累计秒（宽限窗外操作折算保留 80%）
 var _focus_grace_t := 0.0              # 回焦宽限窗剩余秒：窗内点击不折算专注（容纳快速卖鱼一趟）
-var _focus_t1_done := false            # 本段是否已发 25 分钟奖励
-var _focus_t2_done := false            # 本段是否已发 50 分钟奖励
+var _focus_granted := 0                # 本段已「实际发放」的最高档（0=无 1=25min 2=50min）——
+                                       # 记事实而非从时长反推：封顶期间越阈未发的档不能被误标已发
 var focus_pending := 0                 # 待兑奖励等级（0 无 / 1 高星 / 2 鎏金），下一竿消费
 var focus_minutes_total := 0.0         # 累计专注分钟（成就/统计）
 var focus_reward_today := 0            # 今日已发奖励次数（封顶）
@@ -214,11 +214,13 @@ func _ready() -> void:
 	_apply_hud_legibility()
 	_setup_window()
 	_load_ui_layout()
-	# 载档前先定昼夜时段：离线结算按「开机时刻」的时段掷鱼池/定价（单时段简化，不跨段结算——
-	# 整窗分段切片留 P1，见 balance_audit §4）。不提前赋值则离线恒按默认白昼池，夜行限定鱼永不出。
+	# 载档前先定昼夜时段：作为离线分段结算（_offline_phase_slices）后 day_phase 的恢复基准，
+	# 也保证结算前 Spots/Weather 读到真实时段而非默认白昼。
 	day_phase = Weather.current_phase()
 	_load_save()
 	_refresh_unlocks()  # 载入期静默补登已满足解锁的钓点
+	_ensure_day_stat()  # 先沉淀"昨日收入"锚再重建周字典——跨周首启是周奖励重建的主路径，
+	                    # 顺序反了会把锚读成"上上个游玩日"（对抗审查 should-fix）
 	_ensure_daily_order()
 	_ensure_weekly()
 	_ensure_competition()
@@ -856,7 +858,7 @@ func _dex_record(id: String, w: float, is_big := false, is_perfect := false, var
 		return false
 	var r: Dictionary = dex[id]
 	if vbit != 0 and (int(r.get("vmask", 0)) & vbit) != 0:
-		scales += FishData.scale_value(variant)   # 重复变体折彩鳞：已点亮格的重复不再空转
+		scales[variant - 1] = int(scales[variant - 1]) + 1   # 重复变体折 1 枚同档鳞：已点亮格的重复不再空转
 	var broke: bool = int(r["n"]) >= 5 and w > float(r["w"])
 	r["n"] = int(r["n"]) + 1
 	if w > float(r["w"]):   # 刷新个人最大体重，记下破纪录日期
@@ -879,15 +881,16 @@ func _redeem_variant(id: String, vi: int) -> void:
 	if int(r.get("vmask", 0)) & (1 << vi):
 		return   # 已点亮
 	var cost := FishData.scale_cost(FishData.tier_of(id))
-	if scales < cost:
+	var sname: String = FishData.SCALE_NAMES[vi - 1]
+	if int(scales[vi - 1]) < cost:
 		Audio.play_ui("ui_error")
-		_toast("彩鳞不够（需 %d，现有 %d）" % [cost, scales], 1.8, Color(1.0, 0.5, 0.4))
+		_toast("%s不够（需 %d，现有 %d）" % [sname, cost, int(scales[vi - 1])], 1.8, Color(1.0, 0.5, 0.4))
 		return
-	scales -= cost
+	scales[vi - 1] = int(scales[vi - 1]) - cost
 	r["vmask"] = int(r.get("vmask", 0)) | (1 << vi)
 	Audio.play_sfx("upgrade")
-	_toast("✨ 兑换点亮：%s%s（−%d 彩鳞）" % [FishData.VARIANT_NAMES[vi],
-		FishData.display_name(id), cost], 2.4, FishData.variant_color(vi))
+	_toast("✨ 兑换点亮：%s%s（−%d %s）" % [FishData.VARIANT_NAMES[vi],
+		FishData.display_name(id), cost, sname], 2.4, FishData.variant_color(vi))
 	_check_achievements()
 	_update_hud()
 	_save()
@@ -987,7 +990,9 @@ func _do_catch() -> void:
 		_toast("%s钓到 %s（%.2fkg，%d 金币）" % [
 			(FishData.TIER_NAMES[tier] + "！") if tier >= 3 else "",
 			fname, c["w"], c["v"]], 2.4, col)
-	elif not bool(daily_order.get("done", false)) and _order_matches(c):
+	elif not bool(daily_order.get("done", false)) and _order_matches(c) \
+			and vr < 2 and (str(daily_order.get("kind", "")) == "perfect" or q < 3):
+		# 与自动交单池同口径：珍稀（鎏金/七彩/★★★）不计入订单，进度提示也不该由它触发
 		var need := int(daily_order.get("need", 1))
 		var have := mini(_daily_order_indices().size(), need)
 		_toast("订单进度：%s %d/%d" % [_order_short(), have, need],
@@ -1807,13 +1812,15 @@ func _sell_all() -> void:
 	_save()
 
 
-## 卖杂鱼：卖出未上锁且非当前订单目标的鱼，保留订单进度与收藏。
+## 卖杂鱼：卖出未上锁、非当前订单目标、非珍稀（鎏金/七彩/★★★）的鱼。
+## 珍稀护栏与鱼贩合约/订单排除同口径——"一键卖杂鱼"不该卖掉失焦时钓到的七彩（对抗审查）。
 func _sell_junk() -> void:
 	var total := 0
 	var n := 0
 	var keep: Array = []
 	for c in inventory:
-		if bool(c.get("lock", false)) or _order_matches(c):
+		if bool(c.get("lock", false)) or _order_matches(c) \
+				or int(c.get("var", 0)) >= 2 or int(c.get("q", 0)) >= 3:
 			keep.append(c)
 		else:
 			total += _sell_value(c)
@@ -2208,11 +2215,11 @@ func _check_focus_thresholds() -> void:
 	_ensure_focus_day()
 	if focus_reward_today >= FOCUS_REWARD_DAILY_CAP:
 		return
-	if not _focus_t1_done and _focus_away_t >= FOCUS_T1:
-		_focus_t1_done = true
+	if _focus_granted < 1 and _focus_away_t >= FOCUS_T1:
+		_focus_granted = 1
 		_grant_focus_reward(1)
-	if not _focus_t2_done and _focus_away_t >= FOCUS_T2 and focus_reward_today < FOCUS_REWARD_DAILY_CAP:
-		_focus_t2_done = true
+	if _focus_granted < 2 and _focus_away_t >= FOCUS_T2 and focus_reward_today < FOCUS_REWARD_DAILY_CAP:
+		_focus_granted = 2
 		_grant_focus_reward(2)
 
 
@@ -2233,7 +2240,11 @@ func _apply_focus_reward(c: Dictionary) -> int:
 	var level := focus_pending
 	focus_pending = 0
 	_ensure_focus_day()
-	focus_reward_today += 1   # 额度按实际兑现计
+	focus_reward_today += 1   # 额度按实际兑现计（T1、T2 各占一次；仅停竿未兑时两档合并为一次）
+	if level >= 2:
+		# 段满额兑清 → 重新起算：否则 away_t 只增不消，挂一整天后奖励永久停发（对抗审查 must-fix）
+		_focus_away_t = 0.0
+		_focus_granted = 0
 	var old_q := int(c.get("q", 0))
 	var old_v := int(c.get("var", 0))
 	var new_q := maxi(old_q, 2)                       # 保底极品★★
@@ -2252,6 +2263,9 @@ func _ensure_focus_day() -> void:
 	if focus_reward_date != today:
 		focus_reward_date = today
 		focus_reward_today = 0
+		# 跨日顺带重开专注段：过夜挂机 away_t 已饱和（granted=2），不重开则新一天永远不发
+		_focus_away_t = 0.0
+		_focus_granted = 0
 
 
 ## 宽限窗外的主动操作 → 当前专注段折算保留 80%（S18：中断不没收全部进度——正常用电脑
@@ -2259,8 +2273,11 @@ func _ensure_focus_day() -> void:
 ## 不清待兑奖励：已挣到的留着下一竿兑。
 func _fold_focus_streak() -> void:
 	_focus_away_t *= 0.8
-	_focus_t1_done = _focus_away_t >= FOCUS_T1
-	_focus_t2_done = _focus_away_t >= FOCUS_T2
+	# 折算跌回阈值下时允许重新攒到（每日封顶兜底）；只降不升——从不篡改"已发放"的事实
+	if _focus_away_t < FOCUS_T1:
+		_focus_granted = 0
+	elif _focus_away_t < FOCUS_T2:
+		_focus_granted = mini(_focus_granted, 1)
 
 
 ## 把昼夜/久未操作等上下文喂给绘制层，驱动渔夫情绪动画（Task 4）。
@@ -2347,11 +2364,15 @@ func _load_save() -> void:
 		if _event_buff_t <= 0.0:
 			active_event = ""
 			_event_buff_t = 0.0
+	var raw_elapsed := maxf(elapsed, 0.0)
 	elapsed = clampf(elapsed, 0.0, _offline_cap())
 	if elapsed > 30.0:
 		var caught := _offline_catch(elapsed)
+		_check_achievements()   # 离线跨过的断点（species/vgrid/catches）当场入账，与小结同帧
 		if caught > 0:
-			_offline_report["dur"] = _fmt_dur(elapsed)
+			# 时长如实显示真实离开时间；被上限截断时把规则挑明（"离开 63h 只结 12h"是明规则不是暗坑）
+			_offline_report["dur"] = _fmt_dur(raw_elapsed) \
+				+ ("（按上限结算 %s）" % _fmt_dur(elapsed) if raw_elapsed > elapsed + 60.0 else "")
 			_offline_report["full"] = _bag_full()
 		elif _bag_full():
 			_pending_offline = "离线 %s，鱼篓是满的，一条都装不下啦" % _fmt_dur(elapsed)
@@ -2398,13 +2419,13 @@ func _offline_catch(elapsed: float) -> int:
 	var avg_interval := 5.25 * wait_factor + 0.9
 	var cap := _bag_capacity()
 	var phase_before := day_phase
-	var stored := 0
-	var overflow := 0
+	var total_est := 0
 	var overflow_v := 0
-	var total_v := 0
 	var top: Dictionary = {}
 	var notable: Array = []
 	var lim_counts := {}
+	var oid := 0   # 本次结算的临时序号：结算尾部按"仍在篓中"回填 folded（_absorb_overflow 会换鱼入篓，
+	               # 折价路径 ≠ 真的被卖掉——按调用前满篓判定会把换进篓的珍稀错标"已兑金"）
 	for s in _offline_phase_slices(elapsed):
 		var est_i := int(float(s["sec"]) / avg_interval * OFFLINE_EFFICIENCY)
 		if est_i <= 0:
@@ -2416,11 +2437,22 @@ func _offline_catch(elapsed: float) -> int:
 			var lid := str(c["id"])
 			if not FishData.limited_of(lid).is_empty():
 				if int(lim_counts.get(lid, 0)) >= 2:
-					day_phase = "day"          # 超上限：改抽一条非限定（白昼池无限定鱼）
-					c = _roll_one(0)
-					day_phase = str(s["phase"])
+					# 超上限：改抽非限定。重抽后仍复查（当前白昼池恰好无限定鱼，但这是数据巧合——
+					# P2 计划加 ~33 种含昼/晨昏限定，不复查护栏会静默失效），3 次仍限定则计数放行防死循环
+					for retry in 3:
+						day_phase = "day"
+						c = _roll_one(0)
+						day_phase = str(s["phase"])
+						lid = str(c["id"])
+						if FishData.limited_of(lid).is_empty():
+							break
+					if not FishData.limited_of(lid).is_empty():
+						lim_counts[lid] = int(lim_counts.get(lid, 0)) + 1
 				else:
 					lim_counts[lid] = int(lim_counts.get(lid, 0)) + 1
+			c["_oid"] = oid
+			oid += 1
+			total_est += 1
 			var ib := FishData.size_tag(c["id"], c["w"]) == "巨物·"
 			_dex_record(c["id"], float(c["w"]), ib, int(c.get("q", 0)) >= 3, int(c.get("var", 0)))
 			lifetime_catches += 1
@@ -2428,34 +2460,48 @@ func _offline_catch(elapsed: float) -> int:
 			best_variant = maxi(best_variant, int(c.get("var", 0)))
 			if ib:
 				caught_giant = true
-			var folded := inventory.size() >= cap
-			if folded:
-				overflow += 1
-				overflow_v += _absorb_overflow(c)
+			if inventory.size() >= cap:
+				overflow_v += _absorb_overflow(c)   # 折价路径：更贵的 c 会换进篓、卖掉篓中最廉价那条
 			else:
 				inventory.append(c)
-				stored += 1
-				total_v += int(c["v"])
 			if top.is_empty() or int(c["v"]) > int(top["v"]):
 				top = c
 			if FishData.tier_of(c["id"]) >= 3 or int(c.get("q", 0)) >= 2 or int(c.get("var", 0)) >= 1:
-				var nc := c.duplicate()
-				nc["folded"] = folded   # 溢出段已折价兑金（不在篓里），UI 标注防"小结列了、篓里没有"
-				notable.append(nc)
+				notable.append(c.duplicate())   # 副本自带 _oid，尾部统一回填 folded
 	day_phase = phase_before
 	coins += overflow_v
 	lifetime_coins += overflow_v
+	# —— 按最终篓内容回填：谁真的留下了、离线新增的在篓价值是多少 ——
+	var kept := {}
+	var stored_v := 0
+	for f in inventory:
+		if f.has("_oid"):
+			kept[int(f["_oid"])] = true
+			stored_v += int(f["v"])
+	var top_folded := false
+	if not top.is_empty():
+		top_folded = not kept.has(int(top.get("_oid", -1)))
+		top = top.duplicate()
+		top.erase("_oid")
 	notable.sort_custom(func(a, b): return int(a["v"]) > int(b["v"]))
-	if notable.size() > 8:
-		notable.resize(8)
-	_offline_report["overflow_n"] = overflow
+	var notable_n := notable.size()   # 珍稀真实总数（截断前）——UI 标题用
+	if notable.size() > 6:
+		notable.resize(6)             # 截断长度与小结 UI 显示上限一致
+	for nc in notable:
+		nc["folded"] = not kept.has(int(nc.get("_oid", -1)))
+		nc.erase("_oid")
+	for f in inventory:
+		f.erase("_oid")   # 清临时键（collect 走字段白名单本不会入档，防御性清理）
+	_offline_report["overflow_n"] = total_est - kept.size()
 	_offline_report["overflow_v"] = overflow_v
-	if stored > 0 or overflow > 0:
-		_offline_report["count"] = stored          # 入篓条数（满篓溢出走 overflow_n/v）
-		_offline_report["value"] = total_v
+	if total_est > 0:
+		_offline_report["count"] = kept.size()     # 离线新增且仍在篓（含折价路径换入的）
+		_offline_report["value"] = stored_v
 		_offline_report["top"] = top
+		_offline_report["top_folded"] = top_folded
 		_offline_report["notable"] = notable
-	return stored + overflow
+		_offline_report["notable_n"] = notable_n
+	return total_est
 
 
 func _fmt_dur(sec: float) -> String:
@@ -2548,8 +2594,7 @@ func _new_save() -> void:
 	_merchant_active = false
 	_merchant_t = rng.randf_range(MERCHANT_FIRST.x, MERCHANT_FIRST.y)
 	_focus_away_t = 0.0
-	_focus_t1_done = false
-	_focus_t2_done = false
+	_focus_granted = 0
 	_idle_t = 0.0
 	_refresh_unlocks()
 	_ensure_daily_order()

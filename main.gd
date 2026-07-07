@@ -56,6 +56,11 @@ var bag_level := 1
 var bait_level := 0  # FishData.BAITS 下标，金币永久升级
 var hook_level := 0  # FishData.HOOKS 下标，决定双钩几率
 var lure_level := 0  # FishData.LURES 下标，决定稀有变体偏置（vbias），金币永久升级
+# —— 鱼贩合约（自动贩卖，VISION 决策 2026-07-07）：满篓只自动带走杂鱼，珍品永远留给手动 ——
+var auto_sell_bought := false   # 一次性买断（AUTO_SELL_COST）
+var auto_sell_on := false       # 合约开关：买断后默认开，可随时暂停
+var auto_sold_n := 0            # 合约累计带走条数（统计页）
+var auto_sold_v := 0            # 合约累计入金（统计页）
 var inventory: Array = []  # 每条 {"id", "w", "v", "q"(星级)}，一条鱼占一格
 var display: Array = []     # 陈列架上的鱼（离开鱼篓、永久展示），最多 Decor.NUM_SLOTS 件
 var lifetime_coins := 0    # 累计卖鱼所得
@@ -112,6 +117,7 @@ var save_path := "user://corner_fishing_save.json"
 const OFFLINE_CAP := 8.0 * 3600.0     # 离线最多结算 8 小时
 const OFFLINE_EFFICIENCY := 0.5       # 离线效率 50%
 const OVERFLOW_SELL_RATE := 0.5       # 满篓兜底：自动折价兑换比例（调研 3.2，避免满篓硬截断惩罚挂机）
+const AUTO_SELL_COST := 60000         # 鱼贩合约（自动贩卖）一次性买断价：中期 coin sink（rod5 口径约 16~33 分钟收入，视鱼饵档；探针实测 2026-07-07）
 var _save_t := 10.0
 var _pending_offline := ""               # 仅"满篓没钓到"等无渔获情况用 toast
 var _offline_report := {}                # 离线小结：{dur,count,full,value,top,notable[]}
@@ -471,13 +477,13 @@ func _update_framed_hud() -> void:
 	if is_instance_valid(_chip_bag):
 		_chip_bag.text = "%d/%d" % [inventory.size(), _bag_capacity()]
 		_chip_bag.add_theme_color_override("font_color",
-			Color(1.0, 0.780, 0.451) if _bag_full() else Color(0.925, 0.910, 0.878))
+			Color(1.0, 0.780, 0.451) if _bag_alert() else Color(0.925, 0.910, 0.878))
 	if is_instance_valid(_chip_dex):
 		_chip_dex.text = "%d/%d" % [dex.size(), FishData.FISH.size()]
 	# 导航徽章：鱼篓满「满」 / 任务可交付「!」
 	if _nav_badges.has(0) and is_instance_valid(_nav_badges[0]):
 		var b0: PanelContainer = _nav_badges[0]
-		b0.visible = _bag_full()
+		b0.visible = _bag_alert()
 		b0.get_node("L").text = "满"
 	if _nav_badges.has(2) and is_instance_valid(_nav_badges[2]):
 		var b2: PanelContainer = _nav_badges[2]
@@ -656,7 +662,7 @@ func _update_action_button() -> void:
 	var txt := "起竿"
 	var bg := DT.BRONZE
 	var fg := DT.INK_ON_GOLD
-	if _bag_full():
+	if _bag_alert():
 		txt = "鱼篓满了 · 去兑换"
 		bg = DT.BAG_FULL
 	elif auto_cast:
@@ -780,8 +786,11 @@ func _process(delta: float) -> void:
 	match _state:
 		ST_WAIT:
 			painter.dip = lerpf(painter.dip, 0.0, delta * 6.0)
-			if _state_t <= 0.0 and not _bag_full():
-				_begin_bite()
+			if _state_t <= 0.0:
+				if _bag_full():
+					_try_auto_sell()   # 鱼贩合约：满篓先带走一条杂鱼腾格，挂机不因满篓停产
+				if not _bag_full() or _auto_sell_active():
+					_begin_bite()      # 合约在手：篓全珍品也照常咬钩，_do_catch 走满篓折价兜底
 		ST_BITE:
 			painter.dip = lerpf(painter.dip, 1.0, delta * 10.0)
 			if _state_t <= 0.0:
@@ -857,6 +866,19 @@ func _bag_full() -> bool:
 	return inventory.size() >= _bag_capacity()
 
 
+## 满篓「警示态」：满篓且有钱在漏才亮（未签约=停产等人；签约但全是珍品=新渔获走折价兜底）。
+## 合约稳态（有杂鱼可腾格）满↔差一格每竿抖动属正常运转，不亮警示——防止警示每竿闪烁贬值。
+func _bag_alert() -> bool:
+	if not _bag_full():
+		return false
+	if not _auto_sell_active():
+		return true
+	for f in inventory:
+		if _auto_sell_eligible(f):
+			return false
+	return true
+
+
 ## 钓点：薄壳委托 Spots（实现见 spots.gd，行为不变）。
 func _spot_pool() -> Array:
 	return Spots.pool(self)
@@ -891,7 +913,9 @@ func _roll_one(luck: int, vbias := -1.0) -> Dictionary:
 
 func _do_catch() -> void:
 	if _bag_full():
-		_overflow_catch()   # 满篓不空转：钓一条折价兑成金币，挂机永不停产
+		_try_auto_sell()   # 鱼贩合约：先按市价带走杂鱼腾格；腾不出（全是珍品）才走折价兜底
+	if _bag_full():
+		_overflow_catch()   # 兜底折价兑金（签约后篓全珍品时的常态路径；未签约在线到不了这里——满篓不咬钩）
 		_begin_wait()
 		return
 	var luck := _catch_luck()
@@ -962,7 +986,7 @@ func _do_catch() -> void:
 			_toast("🏆 巨物赛夺金！%s %.2fkg，+%d 金币" % [
 				FishData.display_name(str(c2["id"])), float(c2["w"]), comp_win2], 3.4, Color(1.0, 0.86, 0.32))
 			_flash()
-	if _bag_full():
+	if _bag_full() and not _auto_sell_active():   # 签约后收鱼郎代劳腾格，这条建议每竿刷屏且已过时
 		_toast("鱼篓满了，先去卖鱼或扩容～", 3.0, Color(1.0, 0.75, 0.4))
 	_maybe_pet_steal()   # 桌面宠物：小概率叼走最廉价的一条（Task 4）
 	if painter.has_method("pet_react") and not focus_mode and rng.randf() < 0.3:
@@ -1022,6 +1046,86 @@ func _overflow_catch() -> void:
 		Color(0.85, 0.72, 0.42))
 	_check_achievements()
 	_update_hud()
+	_refresh_panel()
+
+
+## —— 鱼贩合约（自动贩卖）：满篓时自动按市价带走一条「杂鱼」腾格，挂机不因满篓停产。——
+## 护栏（守住"手动卖出珍品"的核心交互，VISION 决策 2026-07-07）：只碰 普通花色 + ≤★ +
+## 稀有以下(tier≤2)、未上锁、非当前订单目标的鱼；变体/高星/史诗以上永远留给玩家手动处置。
+func _auto_sell_active() -> bool:
+	return auto_sell_bought and auto_sell_on
+
+
+func _auto_sell_eligible(c: Dictionary) -> bool:
+	if int(c.get("var", 0)) != 0 or int(c.get("q", 0)) > 1 or bool(c.get("lock", false)):
+		return false
+	if FishData.tier_of(str(c["id"])) > 2:
+		return false
+	if FishData.size_tag(str(c["id"]), float(c.get("w", 0.0))) == "巨物·":
+		return false   # 巨物（破纪录体型）视同珍品，第六道护栏
+	# 订单保护只在订单未交付时生效（与 _do_catch 的订单进度 toast 同口径；
+	# 交付后不解除会让 tier/weight 类订单日冻住大片杂鱼、合约整天失效）
+	if not bool(daily_order.get("done", false)) and _order_matches(c):
+		return false
+	return true
+
+
+## 卖出篓中最便宜的一条可带走杂鱼（市价，同手动卖出）。成功腾出格子返回 true。
+## 静音克制（不打扰）：只在浮标处小飘字，不 toast、不响金币音。
+func _try_auto_sell() -> bool:
+	if not _auto_sell_active():
+		return false
+	var idx := -1
+	var idx_v := 0
+	for i in inventory.size():
+		var f: Dictionary = inventory[i]
+		if not _auto_sell_eligible(f):
+			continue
+		var fv := _sell_value(f)
+		if idx == -1 or fv < idx_v:
+			idx = i
+			idx_v = fv
+	if idx < 0:
+		return false
+	var c: Dictionary = inventory[idx]
+	inventory.remove_at(idx)
+	coins += idx_v
+	lifetime_coins += idx_v
+	auto_sold_n += 1
+	auto_sold_v += idx_v
+	_check_achievements()   # 财富线成就与其他卖鱼收入路径同口径，不延迟到下一竿
+	_popup("收鱼郎带走%s +%d" % [FishData.display_name(c["id"]), idx_v],
+		_scene_pt(painter.bobber_pos()) + Vector2(-22, -8), Color(0.72, 0.66, 0.52))
+	_update_hud()
+	_refresh_panel()
+	return true
+
+
+func _try_buy_autosell() -> void:
+	if auto_sell_bought:
+		return
+	if coins < AUTO_SELL_COST:
+		Audio.play_ui("ui_error")
+		_toast("金币不足", 1.5, Color(1.0, 0.5, 0.4))
+		return
+	coins -= AUTO_SELL_COST
+	auto_sell_bought = true
+	auto_sell_on = true
+	Audio.play_sfx("upgrade")
+	_toast("与收鱼郎签下长约！满篓自动带走杂鱼；想留的杂鱼记得🔒上锁", 3.2, Color(0.85, 0.72, 0.42))
+	_check_achievements()
+	_update_hud()
+	_save()
+	_refresh_panel()
+
+
+func _toggle_autosell() -> void:
+	if not auto_sell_bought:
+		return
+	auto_sell_on = not auto_sell_on
+	Audio.play_ui("ui_click")
+	_toast("鱼贩合约：%s" % ("生效中" if auto_sell_on else "已暂停"), 1.6, Color(0.85, 0.72, 0.42))
+	_save()
 	_refresh_panel()
 
 

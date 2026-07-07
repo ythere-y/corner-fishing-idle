@@ -517,6 +517,7 @@ static func fill_stats_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		["巨物纪录", "已钓到" if g.caught_giant else "尚无"],
 		["累计专注", "%d 分钟" % int(g.focus_minutes_total)],
 		["猫税", "被叼走 %d 条" % g.pet_steals],
+		["鱼贩合约", ("带走 %d 条 · +%d 金币" % [g.auto_sold_n, g.auto_sold_v]) if g.auto_sell_bought else "未签约"],
 		["鱼篓容量", "%d 格" % g._bag_capacity()],
 		["当前装备", "鱼竿 Lv.%d · %s · %s · %s" % [
 			g.rod_level, FishData.BAITS[g.bait_level]["name"], FishData.HOOKS[g.hook_level]["name"],
@@ -1023,6 +1024,7 @@ static func fill_tasks_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		["巨物纪录", "已钓到" if g.caught_giant else "尚无"],
 		["累计专注", "%d 分钟" % int(g.focus_minutes_total)],
 		["猫税", "被叼走 %d 条" % g.pet_steals],
+		["鱼贩合约", ("带走 %d 条 · +%d 金币" % [g.auto_sold_n, g.auto_sold_v]) if g.auto_sell_bought else "未签约"],
 		["鱼篓容量", "%d 格" % g._bag_capacity()],
 		["当前装备", "鱼竿 Lv.%d · %s · %s · %s" % [
 			g.rod_level, FishData.BAITS[g.bait_level]["name"], FishData.HOOKS[g.hook_level]["name"],
@@ -1990,6 +1992,21 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 		else:
 			lrw[1].add_child(make_pill("🔒 %d" % int(lu["cost"]), DT.GLASS_ROW, DT.TEXT_FAINT_GLASS))
 		list.add_child(lrw[0])
+
+	# 鱼贩合约（自动贩卖）：一次性买断 + 开关。只带走杂鱼，珍品/收藏/订单永远留给手动。
+	_section(list, "鱼贩合约 · 满篓自动卖杂鱼（普通花色 · ≤★ · 稀有以下 · 非巨物；收藏/未交付订单不碰）")
+	var asub := "与收鱼郎签长约：在线满篓时按市价自动带走一条最便宜的杂鱼（离线仍走折价兜底）；想留的杂鱼点🔒上锁即不碰"
+	if g.auto_sell_bought:
+		asub = "已签约 · 累计带走 %d 条 / +%d 金币" % [g.auto_sold_n, g.auto_sold_v]
+	var arw := list_row("res://assets/art/equipment/coin_pouch.png", "鱼贩合约", asub, g._auto_sell_active())
+	if not g.auto_sell_bought:
+		_equip_btn(arw[1], "签约 %d" % g.AUTO_SELL_COST, g.coins >= g.AUTO_SELL_COST, true, g._try_buy_autosell)
+	else:
+		arw[1].add_child(make_pill("生效中" if g.auto_sell_on else "已暂停",
+			DT.GOLD if g.auto_sell_on else DT.GLASS_ROW_HOVER,
+			DT.INK_ON_GOLD if g.auto_sell_on else DT.TEXT_MUTED_GLASS))
+		_equip_btn(arw[1], "暂停" if g.auto_sell_on else "开启", true, false, g._toggle_autosell)
+	list.add_child(arw[0])
 	v.add_child(sc)
 
 

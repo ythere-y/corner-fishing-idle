@@ -44,6 +44,9 @@ func _run() -> void:
 	print("=== 诱饵 / 窝料（变体杠杆）===")
 	await _check_lure()
 
+	print("=== 鱼贩合约（自动贩卖）===")
+	await _check_autosell()
+
 	print("=== 成就系统 ===")
 	await _check_achievements_feature()
 
@@ -930,6 +933,79 @@ func _check_daily_order() -> void:
 	await process_frame
 
 
+## 鱼贩合约（自动贩卖）：签约扣款 / 只卖最便宜杂鱼 / 珍品·收藏·订单全保护 / 开关 / 存档往返。
+func _check_autosell() -> void:
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	g.daily_order = {}  # 解耦 _ready 按真实日期种子生成的订单（tier/weight 单会保护全部 carp → 假失败）；订单保护下面单测
+	var junk := func(v: int) -> Dictionary:
+		return {"id": "carp", "w": 1.0, "v": v, "q": 0, "lock": false, "var": 0}
+	# 未签约：满篓也不动（老玩家行为不变）
+	g.inventory = []
+	for i in g._bag_capacity():
+		g.inventory.append(junk.call(10))
+	_assert(not g._try_auto_sell(), "未签约不应自动卖")
+	# 签约：扣款 + 默认开启
+	var cost: int = g.AUTO_SELL_COST
+	g.coins = cost + 10000
+	g._try_buy_autosell()
+	_assert(g.auto_sell_bought and g.auto_sell_on, "签约后应买断并默认开启")
+	_assert(g.coins == 10000, "签约应扣 %d 金币，余 %d" % [cost, g.coins])
+	# 满篓：按市价带走「最便宜」那条杂鱼
+	g.inventory[3] = junk.call(5)
+	var before: int = g.coins
+	_assert(g._try_auto_sell(), "签约后满篓应自动带走一条")
+	_assert(g.inventory.size() == g._bag_capacity() - 1, "带走后应腾出 1 格")
+	_assert(g.coins == before + 5 and g.auto_sold_n == 1 and g.auto_sold_v == 5,
+		"应按市价卖出最便宜那条(5)并计数")
+	# 五道内在护栏（无订单干扰）：变体/高星/高品阶/巨物/收藏锁——每条恰好只踩一道，独立可验
+	g.inventory = [
+		{"id": "carp", "w": 1.0, "v": 10, "q": 0, "lock": false, "var": 1},   # 斑斓变体
+		{"id": "carp", "w": 1.0, "v": 10, "q": 2, "lock": false, "var": 0},   # ★★ 高星
+		{"id": "kaluga", "w": 80.0, "v": 9000, "q": 0, "lock": false, "var": 0},  # 高品阶
+		{"id": "carp", "w": 7.9, "v": 38, "q": 0, "lock": false, "var": 0},   # 巨物体型（≥wmin+0.95×跨度）
+		{"id": "carp", "w": 1.0, "v": 10, "q": 0, "lock": true, "var": 0},    # 收藏锁
+	]
+	var protected_n: int = g.inventory.size()
+	_assert(not g._try_auto_sell(), "篓里全是珍品/受保护鱼时不应卖出任何一条")
+	_assert(g.inventory.size() == protected_n, "受保护鱼一条不能少")
+	# 第六道：订单保护看 done——未交付的目标鱼不碰，交付后解除（防 tier/weight 单冻住合约一整天）
+	g.daily_order = {"date": "x", "kind": "species", "fish": "carp", "need": 99,
+		"tier": 1, "minw": 1.0, "spot": g.current_spot, "done": false}
+	g.inventory = [junk.call(10)]
+	_assert(not g._try_auto_sell(), "未交付订单的目标鱼不应被自动卖")
+	g.daily_order["done"] = true
+	_assert(g._try_auto_sell(), "订单交付后应解除保护、恢复可卖")
+	g.daily_order = {}
+	# 开关：暂停后即使有杂鱼也不动
+	g.inventory = [junk.call(10)]
+	g._toggle_autosell()
+	_assert(not g.auto_sell_on and not g._try_auto_sell(), "暂停后不应自动卖")
+	g._toggle_autosell()
+	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
+	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
+	var d: Dictionary = SaveSystem.collect(g)
+	_assert(int(d["ver"]) == 14, "存档版本应为 v14")
+	g.auto_sell_bought = false
+	g.auto_sell_on = false
+	g.auto_sold_n = 0
+	g.auto_sold_v = 0
+	SaveSystem.apply(g, d)
+	_assert(g.auto_sell_bought and g.auto_sell_on and g.auto_sold_n == 3 and g.auto_sold_v == 25,
+		"合约字段应随档往返（含 n/v 累计），实得 n=%d v=%d" % [g.auto_sold_n, g.auto_sold_v])
+	# 旧档（无 autosell 字段）→ 默认未购买、计数归零
+	var old_d: Dictionary = d.duplicate()
+	old_d.erase("autosell")
+	SaveSystem.apply(g, old_d)
+	_assert(not g.auto_sell_bought and not g.auto_sell_on and g.auto_sold_n == 0 and g.auto_sold_v == 0,
+		"旧档迁移应默认未签约、计数归零")
+	print("  鱼贩合约：签约/最便宜杂鱼/六道护栏独立命中/订单done解除/开关/往返+旧档迁移 通过")
+	g.queue_free()
+	await process_frame
+
+
 func _check_achievements_feature() -> void:
 	_assert(AchievementData.LIST.size() >= 12, "成就至少 12 项")
 	var ids := {}
@@ -1669,12 +1745,15 @@ func _check_new_save() -> void:
 	g.inventory = [{"id": str(FishData.FISH.keys()[0]), "w": 0.02, "v": 3, "q": 0, "lock": false, "var": 0}]
 	g.dex = {str(FishData.FISH.keys()[0]): {"n": 5, "w": 0.02, "big": false, "perf": false, "vmask": 0, "fd": "2026-06-01"}}
 	g.seen_intro = true
+	g.auto_sell_bought = true   # v14 合约：验证新档路径能完整复位
+	g.auto_sell_on = true
 	g._save()
 	_assert(FileAccess.file_exists(TEST_SAVE), "前置：应已落盘有进度的存档")
 	# 开启新存档
 	g._new_save()
 	_assert(g.coins == 0 and g.lifetime_catches == 0 and g.lifetime_coins == 0, "新存档应清零金币/累计")
 	_assert(g.rod_level == 1 and g.bag_level == 1 and g.bait_level == 0 and g.hook_level == 0, "新存档应复位装备")
+	_assert(not g.auto_sell_bought and not g.auto_sell_on, "新存档应复位鱼贩合约")
 	_assert(g.inventory.is_empty() and g.dex.is_empty(), "新存档应清空鱼篓与图鉴")
 	_assert(not g.seen_intro, "新存档应重置引导标记（重看引导）")
 	_assert(g.current_spot == SpotData.DEFAULT_SPOT and g.unlocked_spots.size() == 1, "新存档应回默认钓点")

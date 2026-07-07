@@ -11,6 +11,7 @@ class_name SaveSystem
 ## v12 第四成长线：lure(诱饵/窝料下标，决定稀有变体偏置 vbias)。旧档默认 0=无窝料（与基线一致，无损）。
 ## 【修改】v13 背包客人设：character(选择的角色 id，"jim"/"ganie")、chosen_character(是否已选过)。
 ##     旧档默认 chosen_character=true（老玩家不重新弹选人页），character 默认 CharacterData.DEFAULT_CHARACTER，无损迁移。
+## v14 鱼贩合约：autosell {b:已买断, on:开关, n/v:累计带走条数与入金}。旧档默认未购买，无损迁移。
 
 const OFFLINE_CAP := 8.0 * 3600.0
 
@@ -26,7 +27,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 13,   # 【修改】12→13：新增背包客角色字段
+		"ver": 14,   # 13→14：新增鱼贩合约（自动贩卖）字段
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"bag_level": g.bag_level,
@@ -66,6 +67,9 @@ static func collect(g) -> Dictionary:
 		"focus_rd": g.focus_reward_date,       # 封顶计数对应日期
 		"focus_pend": g.focus_pending,         # 待兑专注奖励等级
 		"pet_steals": g.pet_steals,            # 桌面宠物叼走鱼计数
+		# —— v14 鱼贩合约（自动贩卖）——
+		"autosell": {"b": g.auto_sell_bought, "on": g.auto_sell_on,
+			"n": g.auto_sold_n, "v": g.auto_sold_v},
 		"ts": Time.get_unix_time_from_system(),
 	}
 	if DisplayServer.get_name() != "headless":
@@ -220,6 +224,17 @@ static func apply(g, data: Dictionary) -> void:
 	g.focus_reward_date = str(data.get("focus_rd", ""))
 	g.focus_pending = clampi(int(data.get("focus_pend", 0)), 0, 2)
 	g.pet_steals = int(data.get("pet_steals", 0))
+	# —— v14 鱼贩合约（旧档无/字段损坏 → 未购买；先复位再覆盖，保证 apply 完全决定状态）——
+	g.auto_sell_bought = false
+	g.auto_sell_on = false
+	g.auto_sold_n = 0
+	g.auto_sold_v = 0
+	var asr: Variant = data.get("autosell", {})
+	if asr is Dictionary:
+		g.auto_sell_bought = bool(asr.get("b", false))
+		g.auto_sell_on = bool(asr.get("on", false)) and g.auto_sell_bought
+		g.auto_sold_n = maxi(0, int(asr.get("n", 0)))
+		g.auto_sold_v = maxi(0, int(asr.get("v", 0)))
 	var wp: Variant = data.get("win_pos", null)
 	if wp is Array and wp.size() >= 2:
 		g._saved_win_pos = Vector2i(int(wp[0]), int(wp[1]))

@@ -4,7 +4,8 @@ extends Control
 ## 兑现 Chillquarium 式收集深度——鎏金/七彩变体带光晕粒子，点鱼弹出它的纪录卡。
 ## 自管动画（_process 推进、_draw 合成），不依赖 tween，避免面板重建时残留。
 ## 字段沿用主节点的 display（不另起炉灶）；纪录取自 g.dex（首捕日期为 v11 新增）。
-## 缸景：竖向水体渐变 + 斜射光柱/焦散 + 砂砾/石头/水草/沉木 + 悬浮微粒 + 气泡 + 景深柔影。
+## 缸景（俯视）：ins 蓝渐变水体（半透铺在砂底上）+ 焦散光斑 + 砂砾/椭圆卵石/横卧沉木/放射水草 + 悬浮微粒 + 气泡；
+## 外圈一圈投影 + 金属缸框（四角螺栓 + 受光高光），从上方看进一只缸。鱼的 ProcFish 绘制动画保持不动。
 
 var g                                   # CornerFishing 主节点（弱类型避免循环依赖）
 var swimmers: Array = []                # Array[ProcFish]：程序化脊椎链鱼（替代原 PNG 正弦游动）
@@ -20,9 +21,17 @@ var _water_tex: Texture2D               # 上亮下深的水体竖向渐变（�
 var _card: Control = null               # 当前打开的纪录卡（点空白处关闭）
 
 const VIEW_SIZE := Vector2(472, 260)
-const MARGIN := 22.0                     # 鱼游动的四周留白（俯视：上下左右都要留）
-const TOP_COL := Color(0.13, 0.36, 0.42) # 俯视水体：从上方看进水里的青绿（平涂，无上亮下深渐变）
-const WATER_ALPHA := 0.95
+const PAD := 14.0                       # 缸框（俯视：金属边框 + 四角螺栓 + 投影）占用的外环宽度
+const MARGIN := 18.0                    # 鱼在内区四周的留白
+const WATER_TOP := Color(0.38, 0.66, 0.96)  # ins 蓝：亮蓝（上层水）
+const WATER_BOT := Color(0.10, 0.34, 0.72)  # ins 蓝：深蓝（下层水）
+const WATER_ALPHA := 0.86               # 半透铺在砂底上：蓝调主导、砂底隐约可见
+const SAND_COL := Color(0.30, 0.27, 0.20)   # 砂/砾底色（透过蓝水读作砂底）
+
+
+## 内容绘制区（缸框内环）：把缸框 PAD 环带让出来，水/鱼/装饰都画在内区里。
+func _inner_of(s: Vector2) -> Rect2:
+	return Rect2(PAD, PAD, maxf(s.x - PAD * 2.0, 1.0), maxf(s.y - PAD * 2.0, 1.0))
 
 
 func setup(host) -> void:
@@ -67,10 +76,11 @@ func _build_swimmers() -> void:
 		swimmers.append(pf)
 
 
-## 鱼可游动的矩形范围（俯视：整片缸内，留四周边距即可）。
+## 鱼可游动的矩形范围（俯视：整片缸内区，留四周边距即可）。
 func _swim_bounds() -> Rect2:
-	var sz := size if size.x > 1.0 else VIEW_SIZE
-	return Rect2(MARGIN, 24.0, sz.x - MARGIN * 2.0, sz.y - 48.0)
+	var ir := _inner_of(size if size.x > 1.0 else VIEW_SIZE)
+	return Rect2(ir.position.x + MARGIN, ir.position.y + MARGIN,
+		ir.size.x - MARGIN * 2.0, ir.size.y - MARGIN * 2.0)
 
 
 ## 缸景：水草丛 + 石头 + 沉木 + 浮游微粒 + 气泡。一次性随机生成，之后靠 _t 做确定性动画。
@@ -82,6 +92,7 @@ func _build_decor() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	# 水草：多丛散布全缸（俯视：从缸内任一点冒出的草丛，不再贴缸底）
+	var ir0 := _inner_of(VIEW_SIZE)
 	var spots := [0.08, 0.18, 0.3, 0.42, 0.55, 0.68, 0.8, 0.9]
 	for si in spots.size():
 		var s: float = spots[si]
@@ -96,8 +107,8 @@ func _build_decor() -> void:
 				"bend": rng.randf_range(0.6, 1.4),
 			})
 		plants.append({
-			"x": VIEW_SIZE.x * s + rng.randf_range(-10.0, 10.0),
-			"base_y": rng.randf_range(24.0, VIEW_SIZE.y - 24.0),
+			"x": ir0.position.x + ir0.size.x * s + rng.randf_range(-10.0, 10.0),
+			"base_y": ir0.position.y + rng.randf_range(20.0, ir0.size.y - 20.0),
 			"blades": blades,
 			"back": back,
 		})
@@ -105,16 +116,16 @@ func _build_decor() -> void:
 	for k in rng.randi_range(3, 4):
 		var w := rng.randf_range(22.0, 50.0)
 		rocks.append({
-			"x": rng.randf_range(28.0, VIEW_SIZE.x - 28.0),
-			"y": rng.randf_range(24.0, VIEW_SIZE.y - 24.0),
+			"x": rng.randf_range(ir0.position.x + 28.0, ir0.end.x - 28.0),
+			"y": rng.randf_range(ir0.position.y + 24.0, ir0.end.y - 24.0),
 			"w": w,
 			"h": w * rng.randf_range(0.6, 0.85),
 			"col": Color(0.12, 0.14, 0.16).lerp(Color(0.19, 0.20, 0.21), rng.randf()),
 		})
 	# 沉木：一根横躺枯木，散布缸中（俯视：任意朝向）
 	driftwood = {
-		"x": VIEW_SIZE.x * rng.randf_range(0.3, 0.6),
-		"y": VIEW_SIZE.y * rng.randf_range(0.3, 0.7),
+		"x": ir0.position.x + ir0.size.x * rng.randf_range(0.3, 0.6),
+		"y": ir0.position.y + ir0.size.y * rng.randf_range(0.3, 0.7),
 		"len": rng.randf_range(80.0, 120.0),
 		"ang": rng.randf_range(0.0, TAU),
 		"w": rng.randf_range(8.0, 12.0),
@@ -122,8 +133,8 @@ func _build_decor() -> void:
 	# 悬浮浮游微粒：散布全缸，缓慢下沉横移，填充空旷水域
 	for k in 34:
 		motes.append({
-			"x": rng.randf_range(0.0, VIEW_SIZE.x),
-			"y": rng.randf_range(0.0, VIEW_SIZE.y),
+			"x": rng.randf_range(ir0.position.x, ir0.end.x),
+			"y": rng.randf_range(ir0.position.y, ir0.end.y),
 			"r": rng.randf_range(0.6, 1.6),
 			"vx": rng.randf_range(-3.0, 3.0),
 			"vy": rng.randf_range(2.0, 7.0),
@@ -132,8 +143,8 @@ func _build_decor() -> void:
 	# 气泡：从缸底零散升起
 	for k in 16:
 		bubbles.append({
-			"x": rng.randf_range(MARGIN, VIEW_SIZE.x - MARGIN),
-			"y": rng.randf_range(0.0, VIEW_SIZE.y),
+			"x": rng.randf_range(ir0.position.x + MARGIN, ir0.end.x - MARGIN),
+			"y": rng.randf_range(ir0.position.y, ir0.end.y),
 			"r": rng.randf_range(1.2, 3.0),
 			"spd": rng.randf_range(10.0, 22.0),
 			"sway": rng.randf_range(3.0, 7.0),
@@ -141,12 +152,14 @@ func _build_decor() -> void:
 		})
 
 
-## 俯视水体：平涂水色纹理（1px 宽、拉伸填充），不再有上亮下深竖向渐变。
+## ins 蓝水体：竖向渐变（亮蓝→深蓝）纹理（1px 宽、拉伸填充），半透铺在砂底上。
 func _make_water_tex() -> ImageTexture:
-	var h := 4
+	var h := 32
 	var img := Image.create(1, h, false, Image.FORMAT_RGBA8)
 	for y in h:
-		img.set_pixel(0, y, Color(TOP_COL.r, TOP_COL.g, TOP_COL.b, WATER_ALPHA))
+		var f := float(y) / float(h - 1)
+		var col := WATER_TOP.lerp(WATER_BOT, f)
+		img.set_pixel(0, y, Color(col.r, col.g, col.b, WATER_ALPHA))
 	return ImageTexture.create_from_image(img)
 
 
@@ -155,76 +168,84 @@ func _process(delta: float) -> void:
 		return
 	_t += delta
 	var bounds := _swim_bounds()
+	var ir := _inner_of(size if size.x > 1.0 else VIEW_SIZE)
 	for pf in swimmers:
 		pf.update(delta, bounds, _rng)
 	# 气泡上升 + 横向轻摆；越顶则回到缸底重生
 	for bb in bubbles:
 		bb["y"] -= bb["spd"] * delta
-		if bb["y"] <= 6.0:
-			bb["y"] = VIEW_SIZE.y - 6.0
-			bb["x"] = clampf(bb["x"] + (bb["phase"] - PI) * 2.0, MARGIN, VIEW_SIZE.x - MARGIN)
+		if bb["y"] <= ir.position.y + 6.0:
+			bb["y"] = ir.end.y - 6.0
+			bb["x"] = clampf(bb["x"] + (bb["phase"] - PI) * 2.0, ir.position.x + MARGIN, ir.end.x - MARGIN)
 	# 浮游微粒：缓慢下沉 + 横移，落到缸底回到顶部
 	for m in motes:
-		m["x"] = fposmod(m["x"] + m["vx"] * delta, VIEW_SIZE.x)
+		m["x"] = fposmod(m["x"] + m["vx"] * delta - ir.position.x, ir.size.x) + ir.position.x
 		m["y"] += m["vy"] * delta
-		if m["y"] > VIEW_SIZE.y:
-			m["y"] = 0.0
-	queue_redraw()
+		if m["y"] > ir.end.y:
+			m["y"] = ir.position.y
+		queue_redraw()
 
 
 # ============================ 绘制 ============================
 
 func _draw() -> void:
 	var sz := size if size.x > 1.0 else VIEW_SIZE
-	# ① 水体：上亮下深竖向渐变（替代纯色矩形+横线，去掉"表格"廉价感）
+	var ir := _inner_of(sz)
+	# 0. 缸体投影（俯视：缸像落在桌面上的物件，外环一圈暗影）
+	_draw_tank_shadow(sz)
+	# 1. 底砂/砾石（俯视：铺满内区，作为透过蓝水可见的砂底）
+	_draw_substrate(ir)
+	# 2. ins 蓝水体：竖向渐变半透铺在砂底上 → 蓝调主导、砂底隐约
 	if _water_tex != null:
-		draw_texture_rect(_water_tex, Rect2(Vector2.ZERO, sz), false)
+		draw_texture_rect(_water_tex, ir, false)
 	else:
-		draw_rect(Rect2(Vector2.ZERO, sz), TOP_COL)
-	# ② 底砂/砾石（俯视：铺满整片，不再是底部一条带）
-	_draw_substrate(sz)
-	# ③ 水面焦散光斑（俯视下读作投在缸底的晃动光斑）
+		draw_rect(ir, WATER_TOP)
+	# 3. 水面焦散光斑（俯视下读作投在缸底的晃动光斑）
 	for i in 4:
-		var gx := sz.x * (0.2 + 0.22 * i) + sin(_t * 0.25 + i * 1.7) * 36.0
-		var gy := sz.y * (0.18 + 0.09 * i) + cos(_t * 0.2 + i) * 10.0
-		var gr := 70.0 + 18.0 * sin(_t * 0.3 + i)
+		var gx := ir.position.x + ir.size.x * (0.2 + 0.22 * i) + sin(_t * 0.25 + i * 1.7) * 30.0
+		var gy := ir.position.y + ir.size.y * (0.18 + 0.09 * i) + cos(_t * 0.2 + i) * 8.0
+		var gr := 60.0 + 16.0 * sin(_t * 0.3 + i)
 		draw_texture_rect(_glow_tex, Rect2(Vector2(gx - gr, gy - gr), Vector2(gr, gr) * 2.0),
-			false, Color(0.55, 0.82, 0.80, 0.05))
-	# ④ 石头（俯视卵石）
+			false, Color(0.75, 0.90, 1.0, 0.06))
+	# 4. 石头（俯视卵石）
 	for r in rocks:
-		_draw_rock(r, sz)
-	# ⑤ 沉木（俯视横躺枯枝）
-	_draw_driftwood(sz)
-	# ⑥ 后景水草（鱼之前画 → 在鱼后面）
+		_draw_rock(r, ir)
+	# 5. 沉木（俯视横躺枯枝）
+	_draw_driftwood(ir)
+	# 6. 后景水草（鱼之前画 → 在鱼后面）
 	for p in plants:
 		if p["back"]:
 			_draw_plant(p, true)
-	# ⑦ 鱼（程序化脊椎链，各自带柔影）
+	# 7. 鱼（程序化脊椎链，各自带柔影）
 	for pf in swimmers:
-		_draw_swimmer(pf, sz)
-	# ⑦b 悬浮浮游微粒（填鱼周空白）
+		_draw_swimmer(pf, ir)
+	# 7b 悬浮浮游微粒（填鱼周空白）
 	_draw_motes()
-	# ⑧ 前景水草（鱼之后画 → 个别遮住鱼，造穿插）
+	# 8. 前景水草（鱼之后画 → 个别遮住鱼，造穿插）
 	for p in plants:
 		if not p["back"]:
 			_draw_plant(p, false)
-	# ⑨ 气泡（最前）
+	# 9. 气泡（最前）
 	for bb in bubbles:
 		_draw_bubble(bb)
-	# ⑩ 暗角：四周轻压，把视线收进缸里
-	_draw_vignette(sz)
+	# 10. 内缘暗角：四周轻压，把视线收进缸里
+	_draw_vignette(ir)
+	# 11. 缸框（俯视：金属/玻璃边框 + 四角螺栓 + 受光高光）
+	_draw_tank_frame(sz, ir)
 
 
-## 俯视底砂/砾石：铺满整片矩形，无“底部一条带”语义；斑驳 + 亮砂点去平涂感。
-func _draw_substrate(sz: Vector2) -> void:
-	draw_rect(Rect2(Vector2.ZERO, sz), Color(0.20, 0.21, 0.20))   # 砂/砾底色
+## 俯视底砂/砾石：铺满内区矩形（透过蓝水可见的砂底）；斑驳 + 亮砂点去平涂感。
+func _draw_substrate(sz: Rect2) -> void:
+	draw_rect(Rect2(sz.position.x, sz.position.y, sz.size.x, sz.size.y), SAND_COL)
+	var ox := sz.position.x
+	var oy := sz.position.y
 	for i in 5:   # 几片略深斑驳
-		var cx := sz.x * (0.15 + 0.18 * i) + sin(i * 2.3) * 14.0
-		var cy := sz.y * (0.2 + 0.16 * i)
+		var cx := ox + sz.size.x * (0.15 + 0.18 * i) + sin(i * 2.3) * 14.0
+		var cy := oy + sz.size.y * (0.2 + 0.16 * i)
 		draw_circle(Vector2(cx, cy), 50.0 + 20.0 * sin(i), Color(0.23, 0.24, 0.23, 0.5))
 	for i in 30:   # 亮砂点 + 小卵石
-		var gx := fmod(13.0 * i * 1.7 + 5.0, sz.x)
-		var gy := fmod(7.0 * i * 2.3 + 11.0, sz.y)
+		var gx := ox + fmod(13.0 * i * 1.7 + 5.0, sz.size.x)
+		var gy := oy + fmod(7.0 * i * 2.3 + 11.0, sz.size.y)
 		draw_circle(Vector2(gx, gy), 0.6 + 0.5 * sin(i * 1.3), Color(0.34, 0.34, 0.30, 0.5))
 
 
@@ -238,7 +259,7 @@ func _draw_ellipse(cx: float, cy: float, rx: float, ry: float, col: Color) -> vo
 
 
 ## 俯视卵石：从上方看的椭圆 + 暗面 + 高光点。
-func _draw_rock(r: Dictionary, sz: Vector2) -> void:
+func _draw_rock(r: Dictionary, sz: Rect2) -> void:
 	var cx: float = r["x"]
 	var cy: float = r["y"]
 	var w: float = r["w"]
@@ -249,7 +270,7 @@ func _draw_rock(r: Dictionary, sz: Vector2) -> void:
 
 
 ## 俯视横躺枯枝：沿底质一截弯曲粗线 + 小枝杈 + 附生苔，作为缸中焦点物。
-func _draw_driftwood(sz: Vector2) -> void:
+func _draw_driftwood(sz: Rect2) -> void:
 	if driftwood.is_empty():
 		return
 	var base := Vector2(driftwood["x"], driftwood["y"])
@@ -311,17 +332,43 @@ func _draw_bubble(bb: Dictionary) -> void:
 
 
 ## 四周暗角：各三条递减 alpha 的半透明条，柔化边缘、收拢视线（俯视：四边都压）。
-func _draw_vignette(sz: Vector2) -> void:
+func _draw_vignette(sz: Rect2) -> void:
 	for i in 3:
 		var a := 0.14 - i * 0.045
 		var wdt := 6.0
-		draw_rect(Rect2(i * wdt, 0, wdt, sz.y), Color(0.02, 0.05, 0.08, a))
-		draw_rect(Rect2(sz.x - (i + 1) * wdt, 0, wdt, sz.y), Color(0.02, 0.05, 0.08, a))
-		draw_rect(Rect2(0, i * wdt, sz.x, wdt), Color(0.02, 0.05, 0.08, a))
-		draw_rect(Rect2(0, sz.y - (i + 1) * wdt, sz.x, wdt), Color(0.02, 0.05, 0.08, a))
+		draw_rect(Rect2(sz.position.x + i * wdt, sz.position.y, wdt, sz.size.y), Color(0.02, 0.05, 0.08, a))
+		draw_rect(Rect2(sz.end.x - (i + 1) * wdt, sz.position.y, wdt, sz.size.y), Color(0.02, 0.05, 0.08, a))
+		draw_rect(Rect2(sz.position.x, sz.position.y + i * wdt, sz.size.x, wdt), Color(0.02, 0.05, 0.08, a))
+		draw_rect(Rect2(sz.position.x, sz.end.y - (i + 1) * wdt, sz.size.x, wdt), Color(0.02, 0.05, 0.08, a))
 
 
-func _draw_swimmer(pf, sz: Vector2) -> void:
+## 俯视投影：缸像落在桌面上的物件，外环一圈由外向内渐隐的暗影（PAD 环带）。
+func _draw_tank_shadow(sz: Vector2) -> void:
+	var base := Color(0.04, 0.07, 0.11)
+	for i in 5:
+		var a := maxf(0.16 - i * 0.03, 0.0)
+		var inset := float(i) * 2.0
+		draw_rect(Rect2(inset, inset, sz.x - inset * 2.0, sz.y - inset * 2.0),
+			Color(base.r, base.g, base.b, a))
+
+
+## 俯视缸框：金属/玻璃边框 + 四角螺栓 + 受光高光（上/左亮、下/右暗），标明这是俯视的缸。
+func _draw_tank_frame(sz: Vector2, ir: Rect2) -> void:
+	var frame := Color(0.32, 0.38, 0.46)
+	var hi := Color(0.80, 0.87, 0.94)
+	var lw := 2.0
+	# 内缘四边描边：上/左受光（亮），下/右背光（暗）
+	draw_rect(Rect2(ir.position.x, ir.position.y, ir.size.x, lw), hi)
+	draw_rect(Rect2(ir.position.x, ir.position.y, lw, ir.size.y), hi)
+	draw_rect(Rect2(ir.position.x, ir.end.y - lw, ir.size.x, lw), frame.darkened(0.35))
+	draw_rect(Rect2(ir.end.x - lw, ir.position.y, lw, ir.size.y), frame.darkened(0.35))
+	# 四角螺栓（金属件，强化“缸框”的俯视读图）
+	for c in [ir.position, Vector2(ir.end.x, ir.position.y), Vector2(ir.position.x, ir.end.y), ir.end]:
+		draw_circle(c, 3.2, Color(0.40, 0.45, 0.54))
+		draw_circle(c, 1.5, Color(0.78, 0.83, 0.90))
+
+
+func _draw_swimmer(pf, sz: Rect2) -> void:
 	# 俯视顶光：鱼身中心一团极淡柔影（不依赖侧视的“缸底”）
 	var mid := Vector2(pf.spine.joints[int(pf.spine.joints.size() * 0.4)])
 	if _glow_tex != null:

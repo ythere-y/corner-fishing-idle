@@ -680,7 +680,12 @@ static func fill_decor_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		g.display.size(), Decor.NUM_SLOTS, int(round(Decor.value_bonus(g) * 100.0))]
 	stat.add_theme_font_size_override("font_size", DT.FS_XS)
 	stat.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
-	v.add_child(stat)
+	# 上方：鱼选择界面，包进一个会扩展的子容器，吃满鱼缸上方的所有空间
+	var upper := VBoxContainer.new()
+	upper.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	upper.add_theme_constant_override("separation", 6)
+	v.add_child(upper)
+	upper.add_child(stat)
 	# 从鱼篓放入（选择界面：置顶）
 	var pick_lbl := Label.new()
 	if Decor.is_full(g):
@@ -691,10 +696,10 @@ static func fill_decor_tab(g: CornerFishing, v: VBoxContainer) -> void:
 	pick_lbl.add_theme_color_override("font_color", Color(0.70, 0.66, 0.58))
 	pick_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	pick_lbl.custom_minimum_size = Vector2(440, 0)
-	v.add_child(pick_lbl)
+	upper.add_child(pick_lbl)
 	if not Decor.is_full(g) and not g.inventory.is_empty():
 		var sc := ScrollContainer.new()
-		sc.custom_minimum_size = Vector2(0, 144)   # 高度下限；EXPAND_FILL 让它吃掉面板顶部留白（鱼缸在下方）
+		sc.custom_minimum_size = Vector2(0, 144)   # 高度下限；EXPAND_FILL 让它吃掉上方留白
 		sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 		var list := VBoxContainer.new()
@@ -705,19 +710,20 @@ static func fill_decor_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		for i in idxs:
 			list.add_child(decor_pick_row(g, g.inventory[i], i))
 		sc.add_child(list)
-		v.add_child(sc)
-	v.add_child(HSeparator.new())
+		upper.add_child(sc)
+	upper.add_child(HSeparator.new())
 	var tip := Label.new()
 	tip.text = "点缸里的鱼看它的纪录，也能把它捞回鱼篓。鎏金/七彩会发光。"
 	tip.add_theme_font_size_override("font_size", 12)
 	tip.add_theme_color_override("font_color", Color(0.70, 0.66, 0.58))
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	tip.custom_minimum_size = Vector2(440, 0)
-	v.add_child(tip)
-	# 活水族箱视图（俯视图）：缸内鱼沿平滑路径游动，点鱼看纪录 —— 置于底部
+	upper.add_child(tip)
+	# 活水族箱视图（俯视图）：固定贴底（SIZE_SHRINK_END），不随上方选择界面扩缩上下移动
 	var aq := Aquarium.new()
 	aq.name = "Aquarium"
 	aq.setup(g)
+	aq.size_flags_vertical = Control.SIZE_SHRINK_END
 	v.add_child(aq)
 
 

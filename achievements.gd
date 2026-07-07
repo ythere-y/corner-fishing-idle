@@ -26,6 +26,7 @@ const LIST := [
 	{"id": "coin_500k", "name": "腰缠万贯", "desc": "累计卖鱼赚 500,000 金币", "kind": "coins", "n": 500000, "reward": 20000},
 	{"id": "rod_10", "name": "如臂使指", "desc": "鱼竿升到 Lv.10", "kind": "rod", "n": 10, "reward": 0},
 	{"id": "bag_max", "name": "巨型鱼篓", "desc": "鱼篓扩到 55 格", "kind": "bag", "n": 8, "reward": 0},
+	{"id": "bag_100", "name": "百格渔仓", "desc": "鱼篓扩到 100 格（毕业期工程）", "kind": "bag", "n": 14, "reward": 0},
 	{"id": "whopper", "name": "大鱼出水", "desc": "钓到一条 ≥10kg 的鱼", "kind": "maxweight", "n": 10, "reward": 2000},
 	{"id": "leviathan", "name": "深渊巨怪", "desc": "钓到一条 ≥100kg 的鱼", "kind": "maxweight", "n": 100, "reward": 8000},
 	# —— 水族箱/陈列（健康非数值长线）——

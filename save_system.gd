@@ -12,8 +12,9 @@ class_name SaveSystem
 ## 【修改】v13 背包客人设：character(选择的角色 id，"jim"/"ganie")、chosen_character(是否已选过)。
 ##     旧档默认 chosen_character=true（老玩家不重新弹选人页），character 默认 CharacterData.DEFAULT_CHARACTER，无损迁移。
 ## v14 鱼贩合约：autosell {b:已买断, on:开关, n/v:累计带走条数与入金}。旧档默认未购买，无损迁移。
-
-const OFFLINE_CAP := 8.0 * 3600.0
+## v15 数值 P1：scales(彩鳞——重复变体折算的定向兑换货币)、yest_income(昨日卖鱼收入——周赛/
+##     周目标奖励锚)、competition.wins(巨物赛累计夺金，跨周携带)。旧档全部默认 0，无损迁移。
+## v16 帧率默认 30→120：≤v15 档的 max_fps=30 视为旧默认、一次性迁到 120（v16 起选 30 被尊重）。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -27,7 +28,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 14,   # 13→14：新增鱼贩合约（自动贩卖）字段
+		"ver": 16,   # 15→16：帧率默认 30→120（≤v15 档里的 30 视为旧默认、一次性迁移）
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"bag_level": g.bag_level,
@@ -48,7 +49,7 @@ static func collect(g) -> Dictionary:
 		"giant": g.caught_giant,
 		"ach": g.achievements_done.keys(),
 		"opacity": g._opacity,
-		"max_fps": g.max_fps,           # 帧率上限设置（旧档无 → 载入默认 30）
+		"max_fps": g.max_fps,           # 帧率上限设置（旧档无 → 载入默认 120）
 		"ui_scale": g.ui_scale,         # 界面缩放设置（旧档无 → 载入默认 1.0）
 		"paper_grain": g.paper_grain,   # 水彩纸纹偏好（旧档无 → 载入默认开）
 		"focus": g.focus_mode,
@@ -70,6 +71,10 @@ static func collect(g) -> Dictionary:
 		# —— v14 鱼贩合约（自动贩卖）——
 		"autosell": {"b": g.auto_sell_bought, "on": g.auto_sell_on,
 			"n": g.auto_sold_n, "v": g.auto_sold_v},
+		# —— v15 数值 P1 ——
+		"scales": g.scales,            # 彩鳞三元数组 [斑斓,鎏金,七彩]（competition.wins 随 competition 整字典走）
+		"yest_income": g.yest_income,  # 昨日卖鱼收入（周赛/周目标奖励锚）
+		"showcase": g.showcase_pending,  # 试竿保底挂起（升级后未钓即退出也不丢）
 		"ts": Time.get_unix_time_from_system(),
 	}
 	if DisplayServer.get_name() != "headless":
@@ -196,6 +201,7 @@ static func apply(g, data: Dictionary) -> void:
 			"best": float(comp_raw.get("best", 0.0)),
 			"claimed": bool(comp_raw.get("claimed", false)),
 			"reward": int(comp_raw.get("reward", 0)),
+			"wins": maxi(0, int(comp_raw.get("wins", 0))),   # v15 累计夺金（旧档 0）
 		}
 	var ds_raw: Variant = data.get("day_stat", {})  # 旧档无 → main._ensure_day_stat 现生成
 	if ds_raw is Dictionary and ds_raw.has("date"):
@@ -206,7 +212,12 @@ static func apply(g, data: Dictionary) -> void:
 		}
 	g._opacity = float(data.get("opacity", 1.0))
 	g._set_opacity(g._opacity)
-	g._set_max_fps(int(data.get("max_fps", 30)))   # 校验 + 应用 Engine.max_fps，旧档默认 30
+	# 帧率：默认 120（用户拍板"默认最高"）。≤v15 档里的 30 是旧默认落盘的 → 一次性迁到 120；
+	# v16 起玩家主动选的 30 正常尊重（新档写 ver=16，不会再被迁移）。
+	var fps_saved := int(data.get("max_fps", 120))
+	if int(data.get("ver", 0)) <= 15 and fps_saved == 30:
+		fps_saved = 120
+	g._set_max_fps(fps_saved)
 	g._set_ui_scale(float(data.get("ui_scale", 1.0)))   # 校验 + 应用窗口缩放，旧档默认 1.0
 	g._set_paper_grain(bool(data.get("paper_grain", true)))   # 水彩纸纹偏好，旧档默认开
 	g.seen_intro = bool(data.get("seen_intro", true))  # 有存档=老玩家，默认已看过引导
@@ -224,6 +235,16 @@ static func apply(g, data: Dictionary) -> void:
 	g.focus_reward_date = str(data.get("focus_rd", ""))
 	g.focus_pending = clampi(int(data.get("focus_pend", 0)), 0, 2)
 	g.pet_steals = int(data.get("pet_steals", 0))
+	# —— v15 数值 P1（旧档无 → 0，无损迁移；scales 为三元数组，非数组的过渡值直接归零）——
+	g.scales = [0, 0, 0]
+	var sc_raw: Variant = data.get("scales", [])
+	if sc_raw is Array:
+		for i in mini(3, (sc_raw as Array).size()):
+			g.scales[i] = maxi(0, int(sc_raw[i]))
+	g.yest_income = maxi(0, int(data.get("yest_income", 0)))
+	g.showcase_pending = str(data.get("showcase", ""))
+	if not (g.showcase_pending in ["rod", "bait", "hook", "lure"]):
+		g.showcase_pending = ""
 	# —— v14 鱼贩合约（旧档无/字段损坏 → 未购买；先复位再覆盖，保证 apply 完全决定状态）——
 	g.auto_sell_bought = false
 	g.auto_sell_on = false

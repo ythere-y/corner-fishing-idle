@@ -4,7 +4,7 @@ extends SceneTree
 ## （旧版 成本÷该档总收入 / 对 0 档差分 会把回本虚低 1.5~4.5 倍，见 docs/balance_audit_2026-07-06.md）。
 ## ⚠ 本文件含真值公式的手工副本，主代码改动后必须同步，否则探针静默漂移：
 ##   main.gd —— 间隔基数 5.25 与等待折扣 0.04（_begin_wait/_offline_catch）、竿价 400×1.7^n（_rod_cost）、
-##              离线 8h 上限与 0.5 效率（OFFLINE_CAP/OFFLINE_EFFICIENCY）、背包扩容价目文本；
+##              离线 12h 基础/24h 里程碑上限与 0.5 效率（OFFLINE_CAP_BASE/EXT、图鉴≥145 扩容）、背包扩容价目文本；
 ##   fish_data.gd —— 价值 +8%/级（roll_catch 的 rod_mult）；品质/变体倍率已改为直读常量，不会漂。
 ## 运行: godot_console --headless -s tools/balance_probe.gd
 
@@ -29,11 +29,12 @@ func _quality_mult(bait: int) -> float:
 
 
 func _variant_mult(lure: int) -> float:
-	# 变体期望倍率：E = 1 + Σ P(vi)·(1+vbias)·(mult(vi)−1)，同 FishData.roll_variant 的 scale 语义。
-	var s := 1.0 + clampf(FishData.lure_vbias(lure), 0.0, 10.0)
+	# 变体期望倍率：E = 1 + Σ P(vi)·variant_scale(vi,vbias)·(mult(vi)−1)，直读 FishData 分档杠杆。
+	var vb := FishData.lure_vbias(lure)
 	var ev := 1.0
 	for vi in range(1, FishData.VARIANT_PROBS.size()):
-		ev += float(FishData.VARIANT_PROBS[vi]) * s * (float(FishData.VARIANT_MULTS[vi]) - 1.0)
+		ev += float(FishData.VARIANT_PROBS[vi]) * FishData.variant_scale(vi, vb) \
+			* (float(FishData.VARIANT_MULTS[vi]) - 1.0)
 	return ev
 
 
@@ -104,6 +105,7 @@ func _run() -> void:
 			str(h["name"]), int(h["cost"]), int(float(h["double"]) * 100.0), gain, delta, payback])
 
 	print("=== 诱饵/窝料回本（rod=5 秘制饵基准，变体期望，相邻档边际）===")
+	print("  （收集杠杆线：卖点是稀有档频率与彩鳞产出，金币回本非设计目标——勿按 S2 带宽调参）")
 	for li in range(FishData.LURES.size()):
 		var l: Dictionary = FishData.LURES[li]
 		var gain := hbase * _variant_mult(li)
@@ -114,10 +116,10 @@ func _run() -> void:
 		print("  %s 花费 %d ｜vbias %.1f ｜变体期望 ×%.3f ｜ %.0f 金/分（比上一档 +%.0f）｜边际回本 %.1f 分" % [
 			str(l["name"]), int(l["cost"]), FishData.lure_vbias(li), _variant_mult(li), gain, delta, payback])
 
-	print("=== 背包扩容 vs 离线 8h 产出（rod=3 蚯蚓）===")
-	var off8 := _income(3, 0) * 8.0 * 60.0 * 0.5
-	print("  离线 8h 估值上限 ≈ %d 金币（实际受背包格数截断）" % int(off8))
-	print("  背包容量/扩容费：20→25(100) 25→30(250) ... 50→55(25000)")
+	print("=== 背包扩容 vs 离线 12h 产出（rod=3 蚯蚓）===")
+	var off12 := _income(3, 0) * 12.0 * 60.0 * 0.5
+	print("  离线 12h 估值上限 ≈ %d 金币（图鉴 ≥145 种扩 24h；溢出按 0.5 折兑金）" % int(off12))
+	print("  背包容量/扩容费：20→25(100) ... 50→55(90000) ... 90→100(9500000)，共 14 档")
 
 	print("=== 全装满 vs 全裸 产出对比（含钩/变体维度）===")
 	var bare := _income(1, 0) * (1.0 + float(FishData.HOOKS[0]["double"])) * _variant_mult(0)

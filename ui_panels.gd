@@ -1492,9 +1492,11 @@ static func fill_fish_detail(g: CornerFishing, v: VBoxContainer) -> void:
 	vcol.add_theme_constant_override("separation", 6)
 	vmar.add_child(vcol)
 	var vtitle := Label.new()
-	vtitle.text = "变体墙　%d / %d" % [vgot, FishData.VARIANT_NAMES.size()]
+	vtitle.text = "变体墙　%d / %d　·　鳞 %d/%d/%d" % [vgot, FishData.VARIANT_NAMES.size(),
+		int(g.scales[0]), int(g.scales[1]), int(g.scales[2])]
 	vtitle.add_theme_font_size_override("font_size", 12)
 	vtitle.add_theme_color_override("font_color", Color(0.50, 0.47, 0.40))
+	vtitle.tooltip_text = "重复钓到已点亮的变体折 1 枚同档鳞（斑斓鳞/鎏金鳞/七彩鳞）；\n同档鳞可定向点亮已收录鱼的同档缺格（按品阶 3/4/5 枚一格）"
 	vcol.add_child(vtitle)
 	var vrow := HBoxContainer.new()
 	vrow.add_theme_constant_override("separation", 6)
@@ -1522,16 +1524,31 @@ static func fill_fish_detail(g: CornerFishing, v: VBoxContainer) -> void:
 		snm.add_theme_font_size_override("font_size", 12)
 		snm.add_theme_color_override("font_color", vc.darkened(0.2) if got else Color(0.5, 0.47, 0.42, 0.6))
 		sbox.add_child(snm)
-		var sst := Label.new()
-		sst.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		sst.add_theme_font_size_override("font_size", 11)
-		if got:
-			sst.text = "已遇" if vi == 0 else "✓ ×%d" % int(FishData.VARIANT_MULTS[vi])
-			sst.add_theme_color_override("font_color", vc.darkened(0.1))
+		if got or vi == 0 or rec.is_empty():
+			var sst := Label.new()
+			sst.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			sst.add_theme_font_size_override("font_size", 11)
+			if got:
+				sst.text = "已遇" if vi == 0 else "✓ ×%d" % int(FishData.VARIANT_MULTS[vi])
+				sst.add_theme_color_override("font_color", vc.darkened(0.1))
+			else:
+				sst.text = "待捕"
+				sst.add_theme_color_override("font_color", Color(0.5, 0.47, 0.42, 0.5))
+			sbox.add_child(sst)
 		else:
-			sst.text = "待捕"
-			sst.add_theme_color_override("font_color", Color(0.5, 0.47, 0.42, 0.5))
-		sbox.add_child(sst)
+			# 已收录鱼的缺失变体格：同档鳞定向兑换入口（点亮收集位，不发鱼）
+			var rcost := FishData.scale_cost(FishData.tier_of(id))
+			var have: int = int(g.scales[vi - 1])
+			var rb := Button.new()
+			rb.text = "兑 %d鳞" % rcost
+			rb.add_theme_font_size_override("font_size", 11)
+			rb.custom_minimum_size = Vector2(0, 24)
+			rb.disabled = have < rcost
+			rb.tooltip_text = "花 %d 枚%s点亮此格（现有 %d）" % [rcost, FishData.SCALE_NAMES[vi - 1], have]
+			apply_button_skin(rb, false)
+			if not rb.disabled:
+				rb.pressed.connect(g._redeem_variant.bind(id, vi))
+			sbox.add_child(rb)
 		vrow.add_child(slot)
 	col.add_child(vwrap)
 
@@ -1683,8 +1700,9 @@ static func fill_dex_tab(g: CornerFishing, v: VBoxContainer) -> void:
 				vc += 1
 	var vtotal := FishData.FISH.size() * (FishData.VARIANT_NAMES.size() - 1)
 	var stat := Label.new()
-	stat.text = "收集 %d/%d　·　变体 %d/%d　·　渔获 %d" % [
-		g.dex.size(), FishData.FISH.size(), vc, vtotal, g.lifetime_catches]
+	stat.text = "收集 %d/%d　·　变体 %d/%d　·　鳞 %d/%d/%d　·　渔获 %d" % [
+		g.dex.size(), FishData.FISH.size(), vc, vtotal,
+		int(g.scales[0]), int(g.scales[1]), int(g.scales[2]), g.lifetime_catches]
 	stat.add_theme_font_size_override("font_size", DT.FS_XS)
 	stat.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 	v.add_child(stat)
@@ -1930,11 +1948,15 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 	list.add_theme_constant_override("separation", DT.SP_2)
 	sc.add_child(list)
 
-	# 鱼竿（线性升级）。等待折扣 0.04/级在 Lv16 封顶——之后升级不再更快咬钩，文案如实收敛
+	# 鱼竿（线性升级）。数字明牌：当前值 → 下一级值（概率型升级不亮数字就永远"无感"）
 	var rc := g._rod_cost()
-	var rod_gain := "咬钩更快，鱼价 +%d%%" if g.rod_level < 16 else "鱼价 +%d%%"
-	var rod := list_row("res://assets/art/equipment/rod_carbon.png", "鱼竿 Lv.%d" % g.rod_level,
-		("决定稀有度 · 越高级越易上高阶鱼，" + rod_gain) % int((g.rod_level - 1) * 8), true)
+	var rod_sub := "咬钩 %.1fs · 卖价 +%d%%" % [g._avg_wait_for(g.rod_level), (g.rod_level - 1) * 8]
+	if g.rod_level < 16:
+		rod_sub += "　→ 升级后 %.1fs · +%d%%" % [g._avg_wait_for(g.rod_level + 1), g.rod_level * 8]
+	else:
+		rod_sub += "　→ 升级后 +%d%%（咬钩已封顶）" % (g.rod_level * 8)
+	var rod := list_row("res://assets/art/equipment/rod_carbon.png", "鱼竿 Lv.%d" % g.rod_level, rod_sub, true)
+	rod[0].tooltip_text = "决定稀有度：越高级越易上高阶鱼"
 	_equip_btn(rod[1], "升级 %d" % rc, g.coins >= rc, true, g._try_upgrade_rod)
 	list.add_child(rod[0])
 
@@ -1943,9 +1965,13 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 	for i in FishData.BAITS.size():
 		var b: Dictionary = FishData.BAITS[i]
 		var probs: Array = b["probs"]
-		var sub := "%s · 上品率 %d%%" % [b.get("desc", ""), int(float(probs[1]) * 100.0)]
+		var bp1 := float(probs[1])
+		var bp2 := float(probs[2])
+		var bp3 := float(probs[3])
+		var sub := "★ %d%% · ★★ %.1f%% · ★★★ %.2f%%" % [bp1 * 100.0, bp1 * bp2 * 100.0, bp1 * bp2 * bp3 * 100.0]
 		var cur := i == g.bait_level
 		var rw := list_row("res://assets/art/equipment/bait_jar.png", str(b["name"]), sub, cur)
+		rw[0].tooltip_text = str(b.get("desc", ""))
 		if cur:
 			rw[1].add_child(make_pill("使用中", DT.GOLD, DT.INK_ON_GOLD))
 		elif i == g.bait_level + 1:
@@ -1975,13 +2001,18 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 			rw[1].add_child(make_pill("🔒 %d" % int(h["cost"]), DT.GLASS_ROW, DT.TEXT_FAINT_GLASS))
 		list.add_child(rw[0])
 
-	# 诱饵 / 窝料（决定稀有变体几率）
-	_section(list, "诱饵 · 决定稀有变体几率（斑斓/鎏金/七彩，卖价 ×2/×5/×12）")
+	# 诱饵 / 窝料（变体收集杠杆——段头用收集口径，卖价倍率下沉到行内，防按金币回本误判性价比）
+	_section(list, "诱饵 · 变体收集杠杆（越稀有的花色提升越多；重复变体折彩鳞）")
 	for i in FishData.LURES.size():
 		var lu: Dictionary = FishData.LURES[i]
-		var lsub := "%s · 变体几率 ×%.1f" % [lu.get("desc", ""), 1.0 + float(lu["vbias"])]
+		var lvb := float(lu["vbias"])
+		var lsub := "斑斓 %.1f%% · 鎏金 %.2f%% · 七彩 %.3f%%" % [
+			float(FishData.VARIANT_PROBS[1]) * FishData.variant_scale(1, lvb) * 100.0,
+			float(FishData.VARIANT_PROBS[2]) * FishData.variant_scale(2, lvb) * 100.0,
+			float(FishData.VARIANT_PROBS[3]) * FishData.variant_scale(3, lvb) * 100.0]
 		var lcur := i == g.lure_level
 		var lrw := list_row("res://assets/art/equipment/tackle_box.png", str(lu["name"]), lsub, lcur)
+		lrw[0].tooltip_text = str(lu.get("desc", ""))
 		if lcur:
 			lrw[1].add_child(make_pill("使用中", DT.GOLD, DT.INK_ON_GOLD))
 		elif i == g.lure_level + 1:
@@ -2641,7 +2672,8 @@ static func fill_offline_report(g: CornerFishing, v: VBoxContainer) -> void:
 		nm.add_theme_color_override("font_color", g._ui_tier_color(t, true))
 		info.add_child(nm)
 		var meta := Label.new()
-		meta.text = "%.2fkg · %d 金币" % [float(top["w"]), int(top["v"])]
+		meta.text = "%.2fkg · %d 金币%s" % [float(top["w"]), int(top["v"]),
+			"（已折价兑金，不在篓中）" if bool(rep.get("top_folded", false)) else ""]
 		meta.add_theme_font_size_override("font_size", 12)
 		meta.add_theme_color_override("font_color", Color(0.5, 0.46, 0.4))
 		info.add_child(meta)
@@ -2665,7 +2697,9 @@ static func fill_offline_report(g: CornerFishing, v: VBoxContainer) -> void:
 	var notable: Array = rep.get("notable", [])
 	if not notable.is_empty():
 		var nlbl := Label.new()
-		nlbl.text = "其中珍稀 %d 条：" % notable.size()
+		var n_total := int(rep.get("notable_n", notable.size()))
+		nlbl.text = ("其中珍稀 %d 条，价值最高的 %d 条：" % [n_total, notable.size()]) \
+			if n_total > notable.size() else ("其中珍稀 %d 条：" % n_total)
 		nlbl.add_theme_font_size_override("font_size", DT.FS_XS)
 		nlbl.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 		v.add_child(nlbl)
@@ -2675,8 +2709,9 @@ static func fill_offline_report(g: CornerFishing, v: VBoxContainer) -> void:
 				break
 			var t2 := FishData.tier_of(str(c["id"]))
 			var rl := Label.new()
-			rl.text = "· %s%s%s %.2fkg" % [FishData.quality_label(int(c.get("q", 0))),
-				FishData.TIER_NAMES[t2] + "·", FishData.display_name(str(c["id"])), float(c["w"])]
+			rl.text = "· %s%s%s %.2fkg%s" % [FishData.quality_label(int(c.get("q", 0))),
+				FishData.TIER_NAMES[t2] + "·", FishData.display_name(str(c["id"])), float(c["w"]),
+				"（已兑金）" if bool(c.get("folded", false)) else ""]
 			rl.add_theme_font_size_override("font_size", 12)
 			rl.add_theme_color_override("font_color", g._ui_tier_color(t2, false))
 			v.add_child(rl)

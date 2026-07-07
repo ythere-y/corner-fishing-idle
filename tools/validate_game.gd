@@ -47,6 +47,12 @@ func _run() -> void:
 	print("=== 鱼贩合约（自动贩卖）===")
 	await _check_autosell()
 
+	print("=== 彩鳞与长线成就（数值 P1）===")
+	await _check_p1_scales()
+
+	print("=== 试竿保底（升级体感）===")
+	await _check_showcase()
+
 	print("=== 成就系统 ===")
 	await _check_achievements_feature()
 
@@ -581,23 +587,30 @@ func _check_focus_reward() -> void:
 	g._window_focused = false
 	g._tick_focus(g.FOCUS_T1 + 1.0)
 	_assert(g.focus_pending >= 1, "失焦满 25 分钟应挂起专注奖励")
-	_assert(g.focus_reward_today == 1, "应计一次每日奖励")
+	_assert(g.focus_reward_today == 0, "P1 额度按兑现计：发放时不占每日额度")
 	_assert(g.focus_minutes_total >= 25.0, "应累计专注分钟，实际 %.1f" % g.focus_minutes_total)
-	# 下一竿强制升级（保底极品★★），并清空挂起
+	# 下一竿强制升级（保底极品★★），并清空挂起；此刻才占每日额度
 	g.inventory = []
 	g._do_catch()
 	_assert(g.focus_pending == 0, "上钩后应消费掉专注奖励")
+	_assert(g.focus_reward_today == 1, "兑现时才占每日额度（同段 T1+T2 合并算 1 次）")
 	_assert(int(g.inventory.back()["q"]) >= 2,
 		"专注奖励应保底高星（q>=2），实际 %d" % int(g.inventory.back()["q"]))
-	# 切回窗口即清零当前这段（不可连刷）
+	# 切回窗口 → 60s 宽限窗（不清零）；宽限窗外操作 → 折算保留 80%
+	g._focus_away_t = 0.0
 	g._window_focused = false
 	g._tick_focus(60.0)
 	_assert(g._focus_away_t > 0.0, "失焦应累计专注段")
+	var seg: float = g._focus_away_t
 	g._notification(g.NOTIFICATION_APPLICATION_FOCUS_IN)
-	_assert(g._focus_away_t == 0.0, "切回窗口应清零当前专注段")
+	_assert(absf(g._focus_away_t - seg) < 0.01, "切回窗口不清零专注段（宽限窗启动）")
+	_assert(g._focus_grace_t > 0.0, "回焦应开启宽限窗")
+	g._focus_grace_t = 0.0   # 快进：宽限窗过期
+	g._fold_focus_streak()   # 宽限窗外点击（_input 路径同函数）
+	_assert(absf(g._focus_away_t - seg * 0.8) < 0.01, "宽限窗外操作应折算保留 80%")
 	# 50 分钟档：保底鎏金变体（var>=2）
 	g._window_focused = false
-	g._focus_t1_done = true   # 直接验证 50 分钟档
+	g._focus_granted = 1   # 直接验证 50 分钟档
 	g._tick_focus(g.FOCUS_T2 + 1.0)
 	_assert(g.focus_pending == 2, "失焦满 50 分钟应保底鎏金（pending=2），实际 %d" % g.focus_pending)
 	g.inventory = []
@@ -605,7 +618,8 @@ func _check_focus_reward() -> void:
 	_assert(int(g.inventory.back().get("var", 0)) >= 2, "50 分钟奖励应保底鎏金变体（var>=2）")
 	# 每日封顶：达上限后不再发奖励
 	g.focus_reward_today = g.FOCUS_REWARD_DAILY_CAP
-	g._reset_focus_streak()
+	g._focus_away_t = 0.0
+	g._focus_granted = 0
 	g._window_focused = false
 	g._tick_focus(g.FOCUS_T1 + 1.0)
 	_assert(g.focus_pending == 0, "达每日封顶后不应再发奖励")
@@ -747,7 +761,7 @@ func _check_save_v11() -> void:
 	_assert(g3.focus_minutes_total == 0.0 and g3.pet_steals == 0 and g3.focus_pending == 0,
 		"v10→v11 专注/宠物计数应默认零")
 	_assert(g3.lure_level == 0, "旧档无 lure 字段 → 应默认无窝料(0)")
-	_assert(g3.max_fps == 30, "旧档无帧率字段 → 应默认 30")
+	_assert(g3.max_fps == 120, "旧档无帧率字段 → 应默认 120（v16 起流畅优先）")
 	_assert(is_equal_approx(g3.ui_scale, 1.0), "旧档无界面缩放字段 → 应默认 1.0")
 	print("  存档 v11/v12：dex首捕/专注/宠物/诱饵 往返 + 旧档无损迁移 通过")
 	g3.queue_free()
@@ -914,7 +928,7 @@ func _check_daily_order() -> void:
 	_assert(is_instance_valid(game._panel), "订单页签应能正常打开")
 	# 多类型订单匹配
 	game.inventory = [
-		{"id": "koi", "w": 4.0, "v": 300, "q": 3},
+		{"id": "koi", "w": 4.0, "v": 300, "q": 0},
 		{"id": "crucian", "w": 0.4, "v": 5, "q": 0},
 		{"id": "carp", "w": 2.5, "v": 30, "q": 1},
 	]
@@ -924,11 +938,20 @@ func _check_daily_order() -> void:
 	game.daily_order = {"date": game._today_key(), "kind": "weight", "fish": "carp", "tier": 1, "need": 1, "minw": 2.0, "done": false}
 	var wi: Array = game._daily_order_indices()
 	_assert(wi.size() == 2, "重量订单应匹配 ≥2.0kg 的 koi+carp，实际 %d" % wi.size())
+	# 完美订单只匹配 q3（perfect 单豁免珍稀排除）
+	game.inventory.append({"id": "koi", "w": 4.0, "v": 900, "q": 3})
 	game.daily_order = {"date": game._today_key(), "kind": "perfect", "fish": "koi", "tier": 1, "need": 1, "minw": 1.0, "done": false}
 	var pi: Array = game._daily_order_indices()
 	_assert(pi.size() == 1 and int(game.inventory[pi[0]]["q"]) == 3, "完美订单应只匹配 q3")
 	_assert(game._order_short() == "完美★" and game._order_title().begins_with("收"), "订单标题/短标签应可生成")
-	print("  每日订单：生成 / 锁定跳过 / 交付 ×2.5 / 跨日刷新 / 多类型匹配 通过")
+	# 珍稀排除（P1）：非 perfect 单不自动交付 q3/鎏金+七彩变体
+	game.daily_order = {"date": game._today_key(), "kind": "species", "fish": "koi", "tier": 1, "need": 1, "minw": 1.0, "done": false}
+	var si: Array = game._daily_order_indices()
+	_assert(si.size() == 1 and int(game.inventory[si[0]].get("q", 0)) == 0,
+		"species 单应排除珍稀（★★★ 不自动交付），只留普通 koi")
+	game.inventory.append({"id": "koi", "w": 4.0, "v": 600, "q": 0, "var": 3})
+	_assert(game._daily_order_indices().size() == 1, "七彩变体不应进自动交单池")
+	print("  每日订单：生成 / 锁定跳过 / 交付 ×2.5 / 跨日刷新 / 多类型匹配 / 珍稀排除 通过")
 	game.queue_free()
 	await process_frame
 
@@ -987,7 +1010,7 @@ func _check_autosell() -> void:
 	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
 	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 14, "存档版本应为 v14")
+	_assert(int(d["ver"]) == 16, "存档版本应为 v16")
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0
@@ -1002,6 +1025,119 @@ func _check_autosell() -> void:
 	_assert(not g.auto_sell_bought and not g.auto_sell_on and g.auto_sold_n == 0 and g.auto_sold_v == 0,
 		"旧档迁移应默认未签约、计数归零")
 	print("  鱼贩合约：签约/最便宜杂鱼/六道护栏独立命中/订单done解除/开关/往返+旧档迁移 通过")
+	g.queue_free()
+	await process_frame
+
+
+## 数值 P1：重复变体折彩鳞 / 定向兑换（点亮 vmask、扣鳞、边界）/ vgrid·comp_wins 成就 / v15 往返。
+func _check_p1_scales() -> void:
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	# 首见变体不折鳞；重复折 1 枚「同档鳞」（三币种：防低档金流刷穿七彩格）
+	g.dex.clear()
+	g.scales = [0, 0, 0]
+	g._dex_record("carp", 1.0, false, false, 1)
+	_assert(int(g.scales[0]) == 0, "首见变体不应折鳞")
+	g._dex_record("carp", 1.0, false, false, 1)
+	_assert(int(g.scales[0]) == 1 and int(g.scales[2]) == 0, "重复斑斓应折 1 枚斑斓鳞")
+	g._dex_record("carp", 1.0, false, false, 3)
+	g._dex_record("carp", 1.0, false, false, 3)
+	_assert(int(g.scales[2]) == 1 and int(g.scales[0]) == 1, "重复七彩应折 1 枚七彩鳞（不混档）")
+	# 定向兑换：扣同档鳞 + 点亮；余额不足/异档鳞再多也不动/已点亮不扣
+	g.scales = [99, 2, 0]
+	g._redeem_variant("carp", 2)   # carp tier1 → 需 3 枚鎏金鳞，只有 2
+	_assert((int(g.dex["carp"]["vmask"]) & (1 << 2)) == 0 and int(g.scales[1]) == 2,
+		"同档鳞不足不应兑换（异档鳞不可代用）")
+	g.scales = [0, 3, 0]
+	g._redeem_variant("carp", 2)
+	_assert((int(g.dex["carp"]["vmask"]) & (1 << 2)) != 0, "兑换应点亮鎏金位")
+	_assert(int(g.scales[1]) == 0, "兑换应扣 3 枚鎏金鳞，余 %d" % int(g.scales[1]))
+	g.scales = [0, 0, 9]
+	g._redeem_variant("carp", 3)   # 首见七彩时已点亮 → 不扣
+	_assert(int(g.scales[2]) == 9, "已点亮格不应重复扣鳞")
+	_assert(FishData.scale_cost(1) == 3 and FishData.scale_cost(4) == 4 and FishData.scale_cost(5) == 5,
+		"分层定价应为 3/4/5 枚同档鳞")
+	# vgrid 成就：34 种 ×3 位 = 102 格
+	g.dex.clear()
+	for id in FishData.FISH.keys().slice(0, 34):
+		g.dex[str(id)] = {"n": 1, "w": 1.0, "big": false, "perf": false, "vmask": 0b1110, "fd": ""}
+	_assert(g._vgrid_count() == 102, "vgrid 计数应 102，实际 %d" % g._vgrid_count())
+	g._check_achievements()
+	_assert(g.achievements_done.has("vgrid_100"), "点亮 ≥100 格应解锁 vgrid_100")
+	# comp_wins：夺金累计跨周携带 + 成就（经 main 薄壳调用，避免编译期把 main.gd 拖进 -s 时序竞争）
+	g.competition = {"week": -99, "fish": "carp", "best": 0.0, "claimed": false, "reward": 100, "wins": 4}
+	g._ensure_competition()
+	_assert(int(g.competition.get("wins", 0)) == 4, "跨周重建应携带累计夺金")
+	g.competition["wins"] = 5
+	g._check_achievements()
+	_assert(g.achievements_done.has("comp_wins_5"), "累计夺金 5 次应解锁 comp_wins_5")
+	# v15 往返：scales 三元数组 / yest_income / competition.wins
+	g.scales = [7, 2, 1]
+	g.yest_income = 12345
+	var d: Dictionary = SaveSystem.collect(g)
+	g.scales = [0, 0, 0]
+	g.yest_income = 0
+	g.competition = {}
+	SaveSystem.apply(g, d)
+	_assert(int(g.scales[0]) == 7 and int(g.scales[1]) == 2 and int(g.scales[2]) == 1 \
+		and g.yest_income == 12345 and int(g.competition.get("wins", 0)) == 5,
+		"v15 字段应随档往返（scales[]/yest_income/wins）")
+	# 过渡档兼容：scales 为旧 int 形态 → 归零不崩
+	var od2: Dictionary = d.duplicate()
+	od2["scales"] = 41
+	SaveSystem.apply(g, od2)
+	_assert(g.scales == [0, 0, 0], "int 形态的过渡 scales 应安全归零")
+	print("  彩鳞折算 / 定向兑换与边界 / 分层价 / vgrid·comp_wins 成就 / v15 往返 通过")
+	g.queue_free()
+	await process_frame
+
+
+## 试竿保底：四条升级线购买后下一竿的保底展示（挂起/消费/效果/存档往返）。
+func _check_showcase() -> void:
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	g.daily_order = {}
+	g.focus_mode = true   # 关宠物偷鱼，保证条数断言确定
+	g.coins = 99999999
+	g.bag_level = 8
+	# 鱼饵：升到红虫 → 下一竿保底 ★
+	g.bait_level = 0
+	g._try_upgrade_bait()
+	_assert(g.showcase_pending == "bait", "升级鱼饵应挂起试竿")
+	g.inventory = []
+	g._do_catch()
+	_assert(g.showcase_pending == "", "试竿应被消费（一次性）")
+	_assert(int(g.inventory[0].get("q", 0)) >= 1, "鱼饵试竿应保底 ★，实际 q=%d" % int(g.inventory[0].get("q", 0)))
+	# 窝料：保底斑斓
+	g._try_upgrade_lure()
+	_assert(g.showcase_pending == "lure", "升级窝料应挂起试竿")
+	g.inventory = []
+	g._do_catch()
+	_assert(int(g.inventory[0].get("var", 0)) >= 1, "窝料试竿应保底斑斓变体")
+	# 鱼钩：必双钩
+	g.hook_level = 0
+	g._try_upgrade_hook()
+	_assert(g.showcase_pending == "hook", "升级鱼钩应挂起试竿")
+	g.inventory = []
+	g._do_catch()
+	_assert(g.inventory.size() == 2, "鱼钩试竿应必出双钩，实际 %d 条" % g.inventory.size())
+	# 鱼竿：高运气一竿（概率性，不断言品阶，只验挂起与消费）
+	g._try_upgrade_rod()
+	_assert(g.showcase_pending == "rod", "升级鱼竿应挂起试竿")
+	g.inventory = []
+	g._do_catch()
+	_assert(g.showcase_pending == "", "鱼竿试竿应被消费")
+	# 存档往返：升级后未钓即退出也不丢
+	g.showcase_pending = "hook"
+	var d: Dictionary = SaveSystem.collect(g)
+	g.showcase_pending = ""
+	SaveSystem.apply(g, d)
+	_assert(g.showcase_pending == "hook", "试竿挂起应随档往返")
+	print("  试竿保底：四线挂起/消费/保底效果/往返 通过")
 	g.queue_free()
 	await process_frame
 
@@ -1300,7 +1436,20 @@ func _check_variants() -> void:
 		if FishData.roll_variant(rb, 2.0) >= 1:
 			biased_v += 1
 	print("  变体出现率 bias0=%d / bias2=%d（/5万）" % [base_v, biased_v])
-	_assert(biased_v > base_v * 2, "vbias=2 应显著抬高变体出现率（杠杆生效）")
+	# P1 分档杠杆后 vbias=2 的总出现率 ≈×1.6（斑斓只吃 1/4 偏置；顶档才吃满，杠杆重心移向稀有档）
+	_assert(biased_v > int(float(base_v) * 1.4), "vbias=2 应显著抬高变体出现率（杠杆生效）")
+	# 分档差异化：偏置对七彩的抬升倍数应高于斑斓（顶级窝料的卖点是稀有档）
+	rb.seed = 11
+	var hi_base := 0
+	for i in 50000:
+		if FishData.roll_variant(rb) == 3:
+			hi_base += 1
+	rb.seed = 11
+	var hi_biased := 0
+	for i in 50000:
+		if FishData.roll_variant(rb, 2.0) == 3:
+			hi_biased += 1
+	_assert(hi_biased >= hi_base * 2, "vbias=2 对七彩档应有 ≥2 倍抬升（分档杠杆重心正确）")
 	# roll_catch 带 var 字段，且会出现变体
 	var seen := false
 	for i in 20000:
@@ -1517,11 +1666,16 @@ func _check_offline() -> void:
 	# 钉死时段：离线结算的 day_phase 在 _ready 内部取真实时钟（测试插手不到），
 	# 不钉死则出鱼池/价值系数随开发机时间漂移——本函数所有断言必须保持相位无关或钉死后再加。
 	Weather.force_phase = "day"
+	# 预置全部成就为已达成：离线结算后会补 _check_achievements()（P1），随机钓到稀有时
+	# 成就发金币会污染"coins 只来自兜底折价"的断言（且随机 → flaky）
+	var all_ach: Array = []
+	for a in AchievementData.LIST:
+		all_ach.append(str(a["id"]))
 	# —— 子用例 1：离线时长不足以装满 → 全部入篓，不触发折价、不直接产金币 ——
 	var short_save := {
 		"ver": 2, "coins": 0, "rod_level": 1, "bag_level": 1,
 		"inv": [["ghostfish", 1.0, 10], ["carp", 2.0, 30]],  # 未知鱼种过滤；v2 三元组 → q=0
-		"lt_coins": 0, "lt_catches": 0, "dex": [], "opacity": 1.0,
+		"lt_coins": 0, "lt_catches": 0, "dex": [], "opacity": 1.0, "ach": all_ach,
 		"ts": Time.get_unix_time_from_system() - 60.0,  # 仅 1 分钟 → est 远小于空格
 	}
 	var f := FileAccess.open(TEST_SAVE, FileAccess.WRITE)
@@ -1547,7 +1701,7 @@ func _check_offline() -> void:
 	var long_save := {
 		"ver": 2, "coins": 0, "rod_level": 1, "bag_level": 1,
 		"inv": [["carp", 2.0, 30]],
-		"lt_coins": 0, "lt_catches": 0, "dex": [], "opacity": 1.0,
+		"lt_coins": 0, "lt_catches": 0, "dex": [], "opacity": 1.0, "ach": all_ach,
 		"ts": Time.get_unix_time_from_system() - 3600.0,  # 1 小时 → est 远超 20 格
 	}
 	f = FileAccess.open(TEST_SAVE, FileAccess.WRITE)
@@ -1564,10 +1718,24 @@ func _check_offline() -> void:
 	_assert(g2.coins == int(g2._offline_report.get("overflow_v", -1)), "兜底金币应与小结一致")
 	print("  长离线 1h：填满 %d 格 + 折价兑 %d 条 = +%d 金币" % [
 		g2.inventory.size(), int(g2._offline_report.get("overflow_n", 0)), g2.coins])
+	# —— 切片函数不变量（force_phase 复位后直调，覆盖小时回推循环——钉死时段的用例跑不到它）——
+	Weather.force_phase = ""
+	for hrs in [0.5, 3.0, 12.0, 24.0]:
+		var sl: Array = g2._offline_phase_slices(hrs * 3600.0)
+		var sum_sec := 0.0
+		var prev_ph := ""
+		for seg in sl:
+			var ph := str(seg["phase"])
+			_assert(Weather.has(ph), "切片时段应合法：%s" % ph)
+			_assert(ph != prev_ph, "相邻切片时段不应相同（应已合并）")
+			_assert(float(seg["sec"]) > 0.0, "切片秒数应为正")
+			sum_sec += float(seg["sec"])
+			prev_ph = ph
+		_assert(absf(sum_sec - hrs * 3600.0) < 0.01, "切片总秒数应等于离线时长（%.1fh）" % hrs)
+		_assert(sl.size() <= int(hrs) + 2, "切片段数应有限（%.1fh → %d 段）" % [hrs, sl.size()])
 	g2.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_SAVE))
-	Weather.force_phase = ""
 
 
 ## 满篓兜底核心 _absorb_overflow：留贵兑贱、上锁/订单鱼绝不被兑、折价正确。

@@ -12,6 +12,7 @@ static func week_id() -> int:
 
 ## 确保 g.competition 是当前周的（跨周自动重选目标鱼、清零本周最佳）。
 static func ensure(g: CornerFishing) -> void:
+	Orders.ensure_day_stat(g)   # 重建赛事前先沉淀"昨日收入"锚（与 Orders.ensure_weekly 同理）
 	var wk := week_id()
 	if g.competition.has("week") and int(g.competition.get("week", -1)) == wk \
 			and FishData.FISH.has(str(g.competition.get("fish", ""))):
@@ -34,8 +35,11 @@ static func make(g: CornerFishing, wk: int) -> Dictionary:
 	if cands.is_empty():
 		cands = ids
 	var fish_id: String = str(cands[local.randi() % cands.size()])
+	# 奖励锚定昨日收入 8%（P1）：产出随竿级指数、奖励原是线性，毕业期塌缩成 1 分钟收入；
+	# wins 跨周携带（累计夺金——comp_wins 成就 + 第二收集线的沉淀）。
 	return {"week": wk, "fish": fish_id, "best": 0.0, "claimed": false,
-		"reward": 2500 + g.rod_level * 1200}
+		"reward": maxi(2500 + g.rod_level * 1200, int(float(g.yest_income) * 0.08)),
+		"wins": int(g.competition.get("wins", 0))}
 
 
 ## 本周影子线（达标门槛体重）。
@@ -64,6 +68,7 @@ static func on_catch(g: CornerFishing, c: Dictionary) -> int:
 	if bool(g.competition.get("claimed", false)) or w < shadow_weight(g):
 		return 0
 	g.competition["claimed"] = true
+	g.competition["wins"] = int(g.competition.get("wins", 0)) + 1   # 累计夺金沉淀（跨周携带）
 	var reward := int(g.competition.get("reward", 0))
 	g.coins += reward   # 与 weekly 一致：赛事奖励不计入 lifetime_coins（卖鱼终身收入语义）
 	return reward

@@ -295,39 +295,59 @@ const VARIANT_COLORS := [
 	Color(1.0, 0.84, 0.35),    # 2 鎏金 金
 	Color(0.95, 0.55, 0.95),   # 3 七彩 虹紫
 ]
-# 各稀有变体出现概率（独立判定）：斑斓 6% / 鎏金 1.2% / 七彩 0.2%，其余普通。
-const VARIANT_PROBS := [0.0, 0.06, 0.012, 0.002]
+# 各稀有变体出现概率（独立判定）：斑斓 2.5% / 鎏金 0.4% / 七彩 0.08%，其余普通。
+# 2026-07-07 数值 P1 收敛（原 6%/1.2%/0.2% 使"稀有"沦为背景噪音）：对齐三层惊喜节拍
+# 斑斓≈1/40 竿、鎏金≈1/250、七彩≈1/1250（balance_audit §3.4 / 标准 S8）。
+const VARIANT_PROBS := [0.0, 0.025, 0.004, 0.0008]
 ## 鱼饵：金币永久升级（线性进阶，参考 Melvor 自动化的游戏币门控）。
 ## probs[i] = 从 i-1 星升到 i 星的通过率；P(★)=p1，P(★★)=p1·p2，P(★★★)=p1·p2·p3。
 const BAITS := [
 	{"name": "蚯蚓", "cost": 0, "probs": [1.0, 0.08, 0.05, 0.02], "desc": "河边随手挖的"},
 	{"name": "红虫", "cost": 800, "probs": [1.0, 0.22, 0.10, 0.08], "desc": "冬钓利器，上品率明显提升"},
 	{"name": "活虾", "cost": 5000, "probs": [1.0, 0.45, 0.18, 0.12], "desc": "大鱼爱追活食"},
-	{"name": "秘制饵", "cost": 24000, "probs": [1.0, 0.70, 0.35, 0.18], "desc": "老钓翁的祖传配方"},
+	{"name": "秘制饵", "cost": 60000, "probs": [1.0, 0.70, 0.35, 0.18], "desc": "老钓翁的祖传配方"},
 ]
 
 # —— 鱼钩：第三条成长线，决定「双钩」几率（一次钓上两条）。鱼竿管稀有度、鱼饵管星级、鱼钩管产量。——
 const HOOKS := [
 	{"name": "基础鱼钩", "cost": 0, "double": 0.0, "desc": "普普通通的单钩"},
-	{"name": "宽门钩", "cost": 2000, "double": 0.10, "desc": "钩门更宽，偶尔双钩"},
+	{"name": "宽门钩", "cost": 6000, "double": 0.10, "desc": "钩门更宽，偶尔双钩"},
 	{"name": "倒刺钩", "cost": 12000, "double": 0.20, "desc": "倒刺挂得牢，双钩更常见"},
-	{"name": "双叉钩", "cost": 60000, "double": 0.32, "desc": "一线两钩，常常成对上鱼"},
+	{"name": "双叉钩", "cost": 180000, "double": 0.32, "desc": "一线两钩，常常成对上鱼"},
 ]
 
 # —— 诱饵/窝料：第四条成长线，决定「稀有变体」偏置（vbias）。鱼竿管稀有度、鱼饵管星级、
-# 鱼钩管产量、诱饵管变体——补齐四轴对称。vbias 喂给 roll_variant 按 (1+vbias) 抬高变体率；
-# 0 级（无窝料）vbias=0，与基线逐位一致（不破回归）。作为变体墙收集轴的专属长线 coin sink。——
+# 鱼钩管产量、诱饵管变体——补齐四轴对称。vbias 喂给 roll_variant 经 variant_scale 分档抬高变体率；
+# 0 级（无窝料）vbias=0，与基线逐位一致（不破回归）。作为变体墙收集轴的专属长线 coin sink。
+# ⚠ 本线按「收集杠杆」定价（麝香：七彩 ×4、彩鳞产出 ×~3），P1 变体收敛后金币口径回本 ≈50h
+# 系有意取舍——勿按 S2 回本带宽把它当定价事故来"修"（决策见 BACKLOG 2026-07-07）。——
 const LURES := [
 	{"name": "无窝料", "cost": 0, "vbias": 0.0, "desc": "空钩直钓，花色全凭运气"},
-	{"name": "碎米窝", "cost": 3000, "vbias": 0.6, "desc": "撒把碎米打窝，斑斓鱼更常照面"},
-	{"name": "酒米窝", "cost": 18000, "vbias": 1.5, "desc": "发酵酒米，鎏金鱼明显变勤"},
-	{"name": "麝香窝料", "cost": 90000, "vbias": 3.0, "desc": "老饵师麝香配方，七彩亦偶现身"},
+	{"name": "碎米窝", "cost": 30000, "vbias": 0.6, "desc": "撒把碎米打窝，斑斓鱼更常照面"},
+	{"name": "酒米窝", "cost": 45000, "vbias": 1.5, "desc": "发酵酒米，鎏金鱼明显变勤"},
+	{"name": "麝香窝料", "cost": 400000, "vbias": 3.0, "desc": "老饵师麝香配方，七彩亦偶现身"},
 ]
 
 
 ## 诱饵/窝料等级 -> 变体偏置 vbias（喂给 roll_variant）。越界自动夹取。
 static func lure_vbias(lure_idx: int) -> float:
 	return float(LURES[clampi(lure_idx, 0, LURES.size() - 1)]["vbias"])
+
+
+# —— 彩鳞（P1 变体兑换货币，balance_audit §3.4）：重复变体折「同档鳞」、定向点亮 657 格缺格，
+# 把收集轴尾部的纯赌命（T5×七彩单格期望 ~90h）压回可规划区间（目标 1~3h/格）。
+# ⚠ 分三种币、同档兑同档（S8「重复稀有 3~5 换 1 定向」的严格口径）：对抗审查证明单一货币会让
+# 高频的斑斓/鎏金重复金流直接供给最稀缺的七彩格，T5 格塌缩到分钟级——七彩格只认重复七彩。——
+const SCALE_NAMES := ["斑斓鳞", "鎏金鳞", "七彩鳞"]   # 下标 = 变体档 − 1
+
+
+## 定向点亮一格 vi 档变体所需的「同档鳞」枚数：按鱼品阶分层（t0~2=3 / t3~4=4 / t5=5）。
+static func scale_cost(tier: int) -> int:
+	if tier >= 5:
+		return 5
+	if tier >= 3:
+		return 4
+	return 3
 
 
 ## 星级抽取：逐级 roll，失败即停。
@@ -348,15 +368,26 @@ static func quality_label(q: int) -> String:
 	return QUALITY_NAMES[clampi(q, 0, 3)] + "★".repeat(q) + "·"
 
 
+## 变体杠杆的分档倍率：越稀有的档吃到的偏置越足——顶级窝料的边际卖点是「七彩更常见」
+## 而不是「斑斓刷屏」（P1 差异化：斑斓 ×(1+0.25b) / 鎏金 ×(1+0.5b) / 七彩 ×(1+b)）。
+## vbias=0 时各档均为 ×1，与基线逐位一致。
+static func variant_scale(vi: int, vbias: float) -> float:
+	var b := clampf(vbias, 0.0, 10.0)
+	match vi:
+		3: return 1.0 + b
+		2: return 1.0 + 0.5 * b
+		1: return 1.0 + 0.25 * b
+	return 1.0
+
+
 ## 稀有变体抽取：从最稀有向常见累加判定，落空则普通。
-## vbias≥0：收集杠杆（诱饵/悬赏/钓点亲和给的偏置），按 (1+vbias) 整体抬高变体概率；
+## vbias≥0：收集杠杆（诱饵/悬赏/钓点亲和给的偏置），经 variant_scale 分档抬高变体概率；
 ## vbias=0 时与原分布逐位一致（保证基线回归不破）。
 static func roll_variant(rng: RandomNumberGenerator, vbias := 0.0) -> int:
-	var scale := 1.0 + clampf(vbias, 0.0, 10.0)
 	var r := rng.randf()
 	var acc := 0.0
 	for vi in range(VARIANT_PROBS.size() - 1, 0, -1):
-		acc += float(VARIANT_PROBS[vi]) * scale
+		acc += float(VARIANT_PROBS[vi]) * variant_scale(vi, vbias)
 		if r < acc:
 			return vi
 	return 0

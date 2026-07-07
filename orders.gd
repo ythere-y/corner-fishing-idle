@@ -15,6 +15,9 @@ static func today_key() -> String:
 static func ensure_day_stat(g: CornerFishing) -> void:
 	var today := today_key()
 	if str(g.day_stat.get("date", "")) != today:
+		if g.day_stat.has("date"):
+			# 跨天：沉淀"昨日"（上个游玩日）卖鱼收入，作周赛/周目标奖励的收入锚（P1）
+			g.yest_income = maxi(0, g.lifetime_coins - int(g.day_stat.get("coins", 0)))
 		g.day_stat = {"date": today, "catches": g.lifetime_catches, "coins": g.lifetime_coins}
 
 
@@ -62,23 +65,26 @@ static func make_daily_order(g: CornerFishing, date_key: String) -> Dictionary:
 	var kind: String = kinds[local.randi() % kinds.size()]
 	var order := {"date": date_key, "kind": kind, "fish": fish_id, "done": false,
 		"need": 1, "tier": 1, "minw": 1.0}
+	# P1 吞吐上调（balance_audit §3.1：原 need 1~5 使订单收入占比 <0.5%，噪声级）：
+	# 目标 = 订单消化渔获 5~15%、收入占比有存在感；need 恒按鱼篓容量封顶（防物理不可能）。
 	match kind:
 		"tier":
 			var mt := local.randi_range(1, max_tier)
 			order["tier"] = mt
-			order["need"] = clampi(4 - mt, 1, 3)
+			order["need"] = maxi(7 - 2 * mt, 2)   # t1:5 / t2:3 / t3:2
 			order["fish"] = rep_fish_of_tier(mt, local, ids)
 		"weight":
 			order["minw"] = [1.0, 2.0, 3.0][local.randi_range(0, 2)]
-			order["need"] = local.randi_range(1, 2)
+			order["need"] = local.randi_range(2, 4)
 		"perfect":
 			order["need"] = 1
 		_:  # species
 			match FishData.tier_of(fish_id):
-				0: order["need"] = local.randi_range(3, 5)
-				1: order["need"] = local.randi_range(2, 3)
-				2: order["need"] = local.randi_range(1, 2)
-				_: order["need"] = 1
+				0: order["need"] = local.randi_range(8, 12)
+				1: order["need"] = local.randi_range(5, 8)
+				2: order["need"] = local.randi_range(3, 5)
+				_: order["need"] = local.randi_range(1, 2)
+	order["need"] = mini(int(order["need"]), maxi(1, g._bag_capacity() - 4))
 	order["spot"] = g._best_spot_for(str(order["fish"]))  # 建议钓点提示
 	return order
 
@@ -143,11 +149,19 @@ static func is_daily_order_target(g: CornerFishing, id: String) -> bool:
 
 static func daily_order_indices(g: CornerFishing) -> Array:
 	ensure_daily_order(g)
+	var perfect_kind := str(g.daily_order.get("kind", "species")) == "perfect"
 	var out: Array = []
 	for i in g.inventory.size():
 		var c: Dictionary = g.inventory[i]
-		if order_matches(g, c) and not bool(c.get("lock", false)):
-			out.append(i)
+		if not order_matches(g, c) or bool(c.get("lock", false)):
+			continue
+		# 珍品不自动交单（P1）：鎏金/七彩变体、完美★★★（perfect 单本身豁免）——
+		# 失焦挂机钓到的七彩不该被一次点击永久交掉（balance_audit §3.7）
+		if int(c.get("var", 0)) >= 2:
+			continue
+		if not perfect_kind and int(c.get("q", 0)) >= 3:
+			continue
+		out.append(i)
 	out.sort_custom(func(a, b):
 		return int(g.inventory[int(a)]["v"]) > int(g.inventory[int(b)]["v"]))
 	return out
@@ -172,7 +186,16 @@ static func try_complete_daily_order(g: CornerFishing) -> void:
 	var need := int(g.daily_order.get("need", 0))
 	var indices := daily_order_indices(g)
 	if indices.size() < need:
-		g._toast("目标鱼还不够", 1.6, Color(1.0, 0.5, 0.4))
+		# 区分"真不够"与"够但含珍稀"（珍稀被排除在自动交单池外）
+		var all_n := 0
+		for c in g.inventory:
+			if order_matches(g, c) and not bool(c.get("lock", false)):
+				all_n += 1
+		if all_n >= need:
+			g._toast("目标鱼够数，但珍稀（鎏金/七彩/★★★）不自动交单——再钓 %d 条普通品相的就行" % (need - indices.size()),
+				3.0, Color(0.95, 0.78, 0.42))
+		else:
+			g._toast("目标鱼还不够", 1.6, Color(1.0, 0.5, 0.4))
 		return
 	var reward := daily_order_reward(g, indices)
 	var chosen := indices.slice(0, need)
@@ -198,6 +221,7 @@ static func week_id() -> int:
 
 
 static func ensure_weekly(g: CornerFishing) -> void:
+	ensure_day_stat(g)   # 重建周字典前先沉淀"昨日收入"锚（防任何调用路径读到过期锚）
 	var wk := week_id()
 	if g.weekly.has("week") and int(g.weekly.get("week", -1)) == wk \
 			and g.weekly.has("kind") and int(g.weekly.get("target", 0)) > 0:
@@ -218,7 +242,7 @@ static func make_weekly(g: CornerFishing, wk: int) -> Dictionary:
 		target = 4000 + g.rod_level * 2500
 		base = g.lifetime_coins
 	return {"week": wk, "kind": kind, "target": target, "base": base,
-		"reward": 3000 + g.rod_level * 1500, "done": false}
+		"reward": maxi(3000 + g.rod_level * 1500, int(float(g.yest_income) * 0.10)), "done": false}
 
 
 static func weekly_progress(g: CornerFishing) -> int:

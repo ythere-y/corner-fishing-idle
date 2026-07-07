@@ -719,12 +719,12 @@ static func fill_decor_tab(g: CornerFishing, v: VBoxContainer) -> void:
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	tip.custom_minimum_size = Vector2(440, 0)
 	upper.add_child(tip)
-	# 活水族箱视图（俯视图）：固定贴底（SIZE_SHRINK_END），不随上方选择界面扩缩上下移动
-	var aq := Aquarium.new()
-	aq.name = "Aquarium"
-	aq.setup(g)
-	aq.size_flags_vertical = Control.SIZE_SHRINK_END
-	v.add_child(aq)
+	# 房间俯视图（内含缩小的缸）：固定贴底（SIZE_SHRINK_END），不随上方选择界面扩缩上下移动
+	var room := RoomView.new()
+	room.name = "RoomView"
+	room.setup(g)
+	room.size_flags_vertical = Control.SIZE_SHRINK_END
+	v.add_child(room)
 
 
 static func decor_pick_row(g: CornerFishing, c: Dictionary, idx: int) -> Control:

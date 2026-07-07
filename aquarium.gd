@@ -41,6 +41,15 @@ func setup(host) -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_glow_tex = _make_glow()
 	_water_tex = _make_water_tex()
+	# 鱼/装饰的构建延后到 _ready，按实际尺寸（可被房间缩小时）布局
+
+
+## 实际尺寸：布局就绪后用 size，否则退回 custom_minimum_size（含被房间缩小的尺寸）。
+func _effective_size() -> Vector2:
+	return size if size.x > 1.0 else custom_minimum_size
+
+
+func _ready() -> void:
 	_build_swimmers()
 	_build_decor()
 	if swimmers.is_empty():
@@ -78,7 +87,7 @@ func _build_swimmers() -> void:
 
 ## 鱼可游动的矩形范围（俯视：整片缸内区，留四周边距即可）。
 func _swim_bounds() -> Rect2:
-	var ir := _inner_of(size if size.x > 1.0 else VIEW_SIZE)
+	var ir := _inner_of(_effective_size())
 	return Rect2(ir.position.x + MARGIN, ir.position.y + MARGIN,
 		ir.size.x - MARGIN * 2.0, ir.size.y - MARGIN * 2.0)
 
@@ -92,7 +101,7 @@ func _build_decor() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	# 水草：多丛散布全缸（俯视：从缸内任一点冒出的草丛，不再贴缸底）
-	var ir0 := _inner_of(VIEW_SIZE)
+	var ir0 := _inner_of(_effective_size())
 	var spots := [0.08, 0.18, 0.3, 0.42, 0.55, 0.68, 0.8, 0.9]
 	for si in spots.size():
 		var s: float = spots[si]
@@ -112,8 +121,8 @@ func _build_decor() -> void:
 			"blades": blades,
 			"back": back,
 		})
-	# 石头：3~4 块，散布全缸
-	for k in rng.randi_range(3, 4):
+	# 石头：2~3 块，散布全缸（降低存在感）
+	for k in rng.randi_range(2, 3):
 		var w := rng.randf_range(22.0, 50.0)
 		rocks.append({
 			"x": rng.randf_range(ir0.position.x + 28.0, ir0.end.x - 28.0),
@@ -136,9 +145,9 @@ func _build_decor() -> void:
 			"x": rng.randf_range(ir0.position.x, ir0.end.x),
 			"y": rng.randf_range(ir0.position.y, ir0.end.y),
 			"r": rng.randf_range(0.6, 1.6),
-			"vx": rng.randf_range(-3.0, 3.0),
-			"vy": rng.randf_range(2.0, 7.0),
-			"a": rng.randf_range(0.06, 0.18),
+		"vx": rng.randf_range(-3.0, 3.0),
+		"vy": rng.randf_range(2.0, 7.0),
+		"a": rng.randf_range(0.03, 0.10),
 		})
 	# 气泡：从缸底零散升起
 	for k in 16:
@@ -168,7 +177,7 @@ func _process(delta: float) -> void:
 		return
 	_t += delta
 	var bounds := _swim_bounds()
-	var ir := _inner_of(size if size.x > 1.0 else VIEW_SIZE)
+	var ir := _inner_of(_effective_size())
 	for pf in swimmers:
 		pf.update(delta, bounds, _rng)
 	# 气泡上升 + 横向轻摆；越顶则回到缸底重生
@@ -189,7 +198,7 @@ func _process(delta: float) -> void:
 # ============================ 绘制 ============================
 
 func _draw() -> void:
-	var sz := size if size.x > 1.0 else VIEW_SIZE
+	var sz := _effective_size()
 	var ir := _inner_of(sz)
 	# 0. 缸体投影（俯视：缸像落在桌面上的物件，外环一圈暗影）
 	_draw_tank_shadow(sz)
@@ -206,7 +215,7 @@ func _draw() -> void:
 		var gy := ir.position.y + ir.size.y * (0.18 + 0.09 * i) + cos(_t * 0.2 + i) * 8.0
 		var gr := 60.0 + 16.0 * sin(_t * 0.3 + i)
 		draw_texture_rect(_glow_tex, Rect2(Vector2(gx - gr, gy - gr), Vector2(gr, gr) * 2.0),
-			false, Color(0.75, 0.90, 1.0, 0.06))
+			false, Color(0.75, 0.90, 1.0, 0.04))
 	# 4. 石头（俯视卵石）
 	for r in rocks:
 		_draw_rock(r, ir)
@@ -239,14 +248,14 @@ func _draw_substrate(sz: Rect2) -> void:
 	draw_rect(Rect2(sz.position.x, sz.position.y, sz.size.x, sz.size.y), SAND_COL)
 	var ox := sz.position.x
 	var oy := sz.position.y
-	for i in 5:   # 几片略深斑驳
+	for i in 5:   # 几片略深斑驳（降低存在感）
 		var cx := ox + sz.size.x * (0.15 + 0.18 * i) + sin(i * 2.3) * 14.0
 		var cy := oy + sz.size.y * (0.2 + 0.16 * i)
-		draw_circle(Vector2(cx, cy), 50.0 + 20.0 * sin(i), Color(0.23, 0.24, 0.23, 0.5))
+		draw_circle(Vector2(cx, cy), 50.0 + 20.0 * sin(i), Color(0.23, 0.24, 0.23, 0.28))
 	for i in 30:   # 亮砂点 + 小卵石
 		var gx := ox + fmod(13.0 * i * 1.7 + 5.0, sz.size.x)
 		var gy := oy + fmod(7.0 * i * 2.3 + 11.0, sz.size.y)
-		draw_circle(Vector2(gx, gy), 0.6 + 0.5 * sin(i * 1.3), Color(0.34, 0.34, 0.30, 0.5))
+		draw_circle(Vector2(gx, gy), 0.6 + 0.5 * sin(i * 1.3), Color(0.34, 0.34, 0.30, 0.28))
 
 
 ## 椭圆多边形（CanvasItem 无 draw_ellipse，自绘）。
@@ -258,15 +267,16 @@ func _draw_ellipse(cx: float, cy: float, rx: float, ry: float, col: Color) -> vo
 	draw_colored_polygon(pts, col)
 
 
-## 俯视卵石：从上方看的椭圆 + 暗面 + 高光点。
+## 俯视卵石：从上方看的椭圆 + 暗面 + 高光点（半透，降低存在感）。
 func _draw_rock(r: Dictionary, sz: Rect2) -> void:
 	var cx: float = r["x"]
 	var cy: float = r["y"]
 	var w: float = r["w"]
 	var h: float = r["h"]
-	_draw_ellipse(cx, cy, w * 0.5, h * 0.5, r["col"])
-	_draw_ellipse(cx + w * 0.08, cy + h * 0.08, w * 0.42, h * 0.42, r["col"].darkened(0.18))
-	draw_circle(Vector2(cx - w * 0.12, cy - h * 0.12), w * 0.12, Color(0.32, 0.34, 0.36, 0.4))
+	var rc := Color(r["col"].r, r["col"].g, r["col"].b, 0.72)
+	_draw_ellipse(cx, cy, w * 0.5, h * 0.5, rc)
+	_draw_ellipse(cx + w * 0.08, cy + h * 0.08, w * 0.42, h * 0.42, rc.darkened(0.18))
+	draw_circle(Vector2(cx - w * 0.12, cy - h * 0.12), w * 0.12, Color(0.32, 0.34, 0.36, 0.22))
 
 
 ## 俯视横躺枯枝：沿底质一截弯曲粗线 + 小枝杈 + 附生苔，作为缸中焦点物。
@@ -285,25 +295,25 @@ func _draw_driftwood(sz: Rect2) -> void:
 		var p := base + Vector2(cos(ang), sin(ang)) * (len * f)
 		p += Vector2(-sin(ang), cos(ang)) * bend
 		line.append(p)
-	draw_polyline(line, Color(0.20, 0.14, 0.10), w, true)                    # 木身
-	draw_polyline(line, Color(0.30, 0.22, 0.14), w * 0.5, true)             # 中层
+	draw_polyline(line, Color(0.20, 0.14, 0.10, 0.6), w, true)                    # 木身
+	draw_polyline(line, Color(0.30, 0.22, 0.14, 0.6), w * 0.5, true)             # 中层
 	for k in 2:   # 枝杈
 		var f := 0.4 + 0.3 * k
 		var bp := base + Vector2(cos(ang), sin(ang)) * (len * f) \
 			+ Vector2(-sin(ang), cos(ang)) * sin(f * PI) * 14.0
 		var tw := Vector2(-sin(ang), cos(ang)) * (24.0 if k == 0 else -20.0)
-		draw_line(bp, bp + tw, Color(0.22, 0.16, 0.11), w * 0.5, true)
+		draw_line(bp, bp + tw, Color(0.22, 0.16, 0.11, 0.6), w * 0.5, true)
 	for i in 4:   # 附生苔点
 		var f := 0.3 + 0.16 * i
 		var mp := base + Vector2(cos(ang), sin(ang)) * (len * f) \
 			+ Vector2(-sin(ang), cos(ang)) * sin(f * PI) * 14.0
-		draw_circle(mp, 2.2, Color(0.12, 0.30, 0.20, 0.7))
+		draw_circle(mp, 2.2, Color(0.12, 0.30, 0.20, 0.45))
 
 
 ## 俯视水草丛：以 base 为中心的放射状短叶（绕中心数片、轻微摆动），像从上方看一丛。
 func _draw_plant(p: Dictionary, back: bool) -> void:
 	var base := Vector2(p["x"], p["base_y"])
-	var col := Color(0.07, 0.22, 0.18, 0.55) if back else Color(0.10, 0.32, 0.24, 0.78)
+	var col := Color(0.07, 0.22, 0.18, 0.32) if back else Color(0.10, 0.32, 0.24, 0.45)
 	for bl in p["blades"]:
 		var n := 7
 		var reach: float = bl["h"] * (0.8 if back else 1.0)
@@ -326,9 +336,9 @@ func _draw_bubble(bb: Dictionary) -> void:
 	var x: float = bb["x"] + sin(_t * 1.6 + bb["phase"]) * bb["sway"]
 	var pos := Vector2(x, bb["y"])
 	var r: float = bb["r"]
-	draw_circle(pos, r, Color(0.7, 0.86, 0.9, 0.12))
-	draw_arc(pos, r, 0.0, TAU, 12, Color(0.85, 0.95, 0.98, 0.32), 0.9, true)
-	draw_circle(pos - Vector2(r * 0.3, r * 0.3), r * 0.28, Color(1, 1, 1, 0.4))
+	draw_circle(pos, r, Color(0.7, 0.86, 0.9, 0.08))
+	draw_arc(pos, r, 0.0, TAU, 12, Color(0.85, 0.95, 0.98, 0.20), 0.9, true)
+	draw_circle(pos - Vector2(r * 0.3, r * 0.3), r * 0.28, Color(1, 1, 1, 0.22))
 
 
 ## 四周暗角：各三条递减 alpha 的半透明条，柔化边缘、收拢视线（俯视：四边都压）。

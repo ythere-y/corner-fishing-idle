@@ -73,6 +73,7 @@ static func collect(g) -> Dictionary:
 		# —— v15 数值 P1 ——
 		"scales": g.scales,            # 彩鳞三元数组 [斑斓,鎏金,七彩]（competition.wins 随 competition 整字典走）
 		"yest_income": g.yest_income,  # 昨日卖鱼收入（周赛/周目标奖励锚）
+		"showcase": g.showcase_pending,  # 试竿保底挂起（升级后未钓即退出也不丢）
 		"ts": Time.get_unix_time_from_system(),
 	}
 	if DisplayServer.get_name() != "headless":
@@ -235,6 +236,9 @@ static func apply(g, data: Dictionary) -> void:
 		for i in mini(3, (sc_raw as Array).size()):
 			g.scales[i] = maxi(0, int(sc_raw[i]))
 	g.yest_income = maxi(0, int(data.get("yest_income", 0)))
+	g.showcase_pending = str(data.get("showcase", ""))
+	if not (g.showcase_pending in ["rod", "bait", "hook", "lure"]):
+		g.showcase_pending = ""
 	# —— v14 鱼贩合约（旧档无/字段损坏 → 未购买；先复位再覆盖，保证 apply 完全决定状态）——
 	g.auto_sell_bought = false
 	g.auto_sell_on = false

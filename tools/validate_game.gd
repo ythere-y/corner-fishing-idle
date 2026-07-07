@@ -50,6 +50,9 @@ func _run() -> void:
 	print("=== 彩鳞与长线成就（数值 P1）===")
 	await _check_p1_scales()
 
+	print("=== 试竿保底（升级体感）===")
+	await _check_showcase()
+
 	print("=== 成就系统 ===")
 	await _check_achievements_feature()
 
@@ -1087,6 +1090,54 @@ func _check_p1_scales() -> void:
 	SaveSystem.apply(g, od2)
 	_assert(g.scales == [0, 0, 0], "int 形态的过渡 scales 应安全归零")
 	print("  彩鳞折算 / 定向兑换与边界 / 分层价 / vgrid·comp_wins 成就 / v15 往返 通过")
+	g.queue_free()
+	await process_frame
+
+
+## 试竿保底：四条升级线购买后下一竿的保底展示（挂起/消费/效果/存档往返）。
+func _check_showcase() -> void:
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	g.daily_order = {}
+	g.focus_mode = true   # 关宠物偷鱼，保证条数断言确定
+	g.coins = 99999999
+	g.bag_level = 8
+	# 鱼饵：升到红虫 → 下一竿保底 ★
+	g.bait_level = 0
+	g._try_upgrade_bait()
+	_assert(g.showcase_pending == "bait", "升级鱼饵应挂起试竿")
+	g.inventory = []
+	g._do_catch()
+	_assert(g.showcase_pending == "", "试竿应被消费（一次性）")
+	_assert(int(g.inventory[0].get("q", 0)) >= 1, "鱼饵试竿应保底 ★，实际 q=%d" % int(g.inventory[0].get("q", 0)))
+	# 窝料：保底斑斓
+	g._try_upgrade_lure()
+	_assert(g.showcase_pending == "lure", "升级窝料应挂起试竿")
+	g.inventory = []
+	g._do_catch()
+	_assert(int(g.inventory[0].get("var", 0)) >= 1, "窝料试竿应保底斑斓变体")
+	# 鱼钩：必双钩
+	g.hook_level = 0
+	g._try_upgrade_hook()
+	_assert(g.showcase_pending == "hook", "升级鱼钩应挂起试竿")
+	g.inventory = []
+	g._do_catch()
+	_assert(g.inventory.size() == 2, "鱼钩试竿应必出双钩，实际 %d 条" % g.inventory.size())
+	# 鱼竿：高运气一竿（概率性，不断言品阶，只验挂起与消费）
+	g._try_upgrade_rod()
+	_assert(g.showcase_pending == "rod", "升级鱼竿应挂起试竿")
+	g.inventory = []
+	g._do_catch()
+	_assert(g.showcase_pending == "", "鱼竿试竿应被消费")
+	# 存档往返：升级后未钓即退出也不丢
+	g.showcase_pending = "hook"
+	var d: Dictionary = SaveSystem.collect(g)
+	g.showcase_pending = ""
+	SaveSystem.apply(g, d)
+	_assert(g.showcase_pending == "hook", "试竿挂起应随档往返")
+	print("  试竿保底：四线挂起/消费/保底效果/往返 通过")
 	g.queue_free()
 	await process_frame
 

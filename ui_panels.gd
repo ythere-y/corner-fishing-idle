@@ -1948,11 +1948,15 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 	list.add_theme_constant_override("separation", DT.SP_2)
 	sc.add_child(list)
 
-	# 鱼竿（线性升级）。等待折扣 0.04/级在 Lv16 封顶——之后升级不再更快咬钩，文案如实收敛
+	# 鱼竿（线性升级）。数字明牌：当前值 → 下一级值（概率型升级不亮数字就永远"无感"）
 	var rc := g._rod_cost()
-	var rod_gain := "咬钩更快，鱼价 +%d%%" if g.rod_level < 16 else "鱼价 +%d%%"
-	var rod := list_row("res://assets/art/equipment/rod_carbon.png", "鱼竿 Lv.%d" % g.rod_level,
-		("决定稀有度 · 越高级越易上高阶鱼，" + rod_gain) % int((g.rod_level - 1) * 8), true)
+	var rod_sub := "咬钩 %.1fs · 卖价 +%d%%" % [g._avg_wait_for(g.rod_level), (g.rod_level - 1) * 8]
+	if g.rod_level < 16:
+		rod_sub += "　→ 升级后 %.1fs · +%d%%" % [g._avg_wait_for(g.rod_level + 1), g.rod_level * 8]
+	else:
+		rod_sub += "　→ 升级后 +%d%%（咬钩已封顶）" % (g.rod_level * 8)
+	var rod := list_row("res://assets/art/equipment/rod_carbon.png", "鱼竿 Lv.%d" % g.rod_level, rod_sub, true)
+	rod[0].tooltip_text = "决定稀有度：越高级越易上高阶鱼"
 	_equip_btn(rod[1], "升级 %d" % rc, g.coins >= rc, true, g._try_upgrade_rod)
 	list.add_child(rod[0])
 
@@ -1961,9 +1965,13 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 	for i in FishData.BAITS.size():
 		var b: Dictionary = FishData.BAITS[i]
 		var probs: Array = b["probs"]
-		var sub := "%s · 上品率 %d%%" % [b.get("desc", ""), int(float(probs[1]) * 100.0)]
+		var bp1 := float(probs[1])
+		var bp2 := float(probs[2])
+		var bp3 := float(probs[3])
+		var sub := "★ %d%% · ★★ %.1f%% · ★★★ %.2f%%" % [bp1 * 100.0, bp1 * bp2 * 100.0, bp1 * bp2 * bp3 * 100.0]
 		var cur := i == g.bait_level
 		var rw := list_row("res://assets/art/equipment/bait_jar.png", str(b["name"]), sub, cur)
+		rw[0].tooltip_text = str(b.get("desc", ""))
 		if cur:
 			rw[1].add_child(make_pill("使用中", DT.GOLD, DT.INK_ON_GOLD))
 		elif i == g.bait_level + 1:
@@ -1997,9 +2005,14 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 	_section(list, "诱饵 · 变体收集杠杆（越稀有的花色提升越多；重复变体折彩鳞）")
 	for i in FishData.LURES.size():
 		var lu: Dictionary = FishData.LURES[i]
-		var lsub := "%s · 越稀有的花色提升越多（七彩 ×%.1f）" % [lu.get("desc", ""), 1.0 + float(lu["vbias"])]
+		var lvb := float(lu["vbias"])
+		var lsub := "斑斓 %.1f%% · 鎏金 %.2f%% · 七彩 %.3f%%" % [
+			float(FishData.VARIANT_PROBS[1]) * FishData.variant_scale(1, lvb) * 100.0,
+			float(FishData.VARIANT_PROBS[2]) * FishData.variant_scale(2, lvb) * 100.0,
+			float(FishData.VARIANT_PROBS[3]) * FishData.variant_scale(3, lvb) * 100.0]
 		var lcur := i == g.lure_level
 		var lrw := list_row("res://assets/art/equipment/tackle_box.png", str(lu["name"]), lsub, lcur)
+		lrw[0].tooltip_text = str(lu.get("desc", ""))
 		if lcur:
 			lrw[1].add_child(make_pill("使用中", DT.GOLD, DT.INK_ON_GOLD))
 		elif i == g.lure_level + 1:

@@ -14,6 +14,7 @@ class_name SaveSystem
 ## v14 鱼贩合约：autosell {b:已买断, on:开关, n/v:累计带走条数与入金}。旧档默认未购买，无损迁移。
 ## v15 数值 P1：scales(彩鳞——重复变体折算的定向兑换货币)、yest_income(昨日卖鱼收入——周赛/
 ##     周目标奖励锚)、competition.wins(巨物赛累计夺金，跨周携带)。旧档全部默认 0，无损迁移。
+## v16 帧率默认 30→120：≤v15 档的 max_fps=30 视为旧默认、一次性迁到 120（v16 起选 30 被尊重）。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -27,7 +28,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 15,   # 14→15：数值 P1（彩鳞 / 昨日收入锚 / 巨物赛累计夺金）
+		"ver": 16,   # 15→16：帧率默认 30→120（≤v15 档里的 30 视为旧默认、一次性迁移）
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"bag_level": g.bag_level,
@@ -48,7 +49,7 @@ static func collect(g) -> Dictionary:
 		"giant": g.caught_giant,
 		"ach": g.achievements_done.keys(),
 		"opacity": g._opacity,
-		"max_fps": g.max_fps,           # 帧率上限设置（旧档无 → 载入默认 30）
+		"max_fps": g.max_fps,           # 帧率上限设置（旧档无 → 载入默认 120）
 		"ui_scale": g.ui_scale,         # 界面缩放设置（旧档无 → 载入默认 1.0）
 		"paper_grain": g.paper_grain,   # 水彩纸纹偏好（旧档无 → 载入默认开）
 		"focus": g.focus_mode,
@@ -211,7 +212,12 @@ static func apply(g, data: Dictionary) -> void:
 		}
 	g._opacity = float(data.get("opacity", 1.0))
 	g._set_opacity(g._opacity)
-	g._set_max_fps(int(data.get("max_fps", 30)))   # 校验 + 应用 Engine.max_fps，旧档默认 30
+	# 帧率：默认 120（用户拍板"默认最高"）。≤v15 档里的 30 是旧默认落盘的 → 一次性迁到 120；
+	# v16 起玩家主动选的 30 正常尊重（新档写 ver=16，不会再被迁移）。
+	var fps_saved := int(data.get("max_fps", 120))
+	if int(data.get("ver", 0)) <= 15 and fps_saved == 30:
+		fps_saved = 120
+	g._set_max_fps(fps_saved)
 	g._set_ui_scale(float(data.get("ui_scale", 1.0)))   # 校验 + 应用窗口缩放，旧档默认 1.0
 	g._set_paper_grain(bool(data.get("paper_grain", true)))   # 水彩纸纹偏好，旧档默认开
 	g.seen_intro = bool(data.get("seen_intro", true))  # 有存档=老玩家，默认已看过引导

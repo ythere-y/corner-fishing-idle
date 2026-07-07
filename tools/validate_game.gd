@@ -761,7 +761,7 @@ func _check_save_v11() -> void:
 	_assert(g3.focus_minutes_total == 0.0 and g3.pet_steals == 0 and g3.focus_pending == 0,
 		"v10→v11 专注/宠物计数应默认零")
 	_assert(g3.lure_level == 0, "旧档无 lure 字段 → 应默认无窝料(0)")
-	_assert(g3.max_fps == 30, "旧档无帧率字段 → 应默认 30")
+	_assert(g3.max_fps == 120, "旧档无帧率字段 → 应默认 120（v16 起流畅优先）")
 	_assert(is_equal_approx(g3.ui_scale, 1.0), "旧档无界面缩放字段 → 应默认 1.0")
 	print("  存档 v11/v12：dex首捕/专注/宠物/诱饵 往返 + 旧档无损迁移 通过")
 	g3.queue_free()
@@ -1010,7 +1010,7 @@ func _check_autosell() -> void:
 	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
 	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 15, "存档版本应为 v15")
+	_assert(int(d["ver"]) == 16, "存档版本应为 v16")
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0

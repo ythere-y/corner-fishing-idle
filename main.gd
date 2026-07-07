@@ -97,7 +97,7 @@ var _story_step := 0         # 【新增】开场故事动画当前播放到第�
 var _opacity := 1.0
 var paper_grain := true          # 水彩纸纹层开关（视觉偏好；真值在 main，经 _set_paper_grain 应用到 painter）
 const FPS_OPTIONS := [30, 60, 90, 120]   # 设置里可选的帧率上限
-var max_fps := 30                # 帧率上限：默认 30 挂件省电，可在设置调到 60/90/120
+var max_fps := 120               # 帧率上限：默认 120 流畅优先（用户拍板），可在设置降到 30/60 省电
 const UI_SCALE_OPTIONS := [1.0, 1.25, 1.5]   # 设置里「快捷跳档」按钮（自由拖拽不受这三个值限制）
 const UI_SCALE_MIN := 0.5                    # 自由缩放下限：0.5=520×360，桌面角落挂件可缩到很小；再小手柄/字就难用
 const UI_SCALE_MAX := 2.5                    # 自由缩放绝对上限（实际还会再夹到屏幕可用区）
@@ -202,7 +202,7 @@ const TANK_TAB := 6                    # 鱼篓面板「鱼缸」页签下标（
 
 func _ready() -> void:
 	rng.randomize()
-	Engine.max_fps = max_fps  # 默认 30 挂件省电；存档载入后按玩家设置覆盖
+	Engine.max_fps = max_fps  # 默认 120 流畅优先；存档载入后按玩家设置覆盖
 	get_tree().set_auto_accept_quit(false)  # 退出前存档
 	_setup_theme()
 	_apply_display_mode()   # 按 framed / immersive 布置场景 + 羽化
@@ -2141,7 +2141,7 @@ func _set_paper_grain(on: bool) -> void:
 
 ## 帧率上限：非法值回落到 30；纯设值 + 应用，存档/刷新由调用方负责（同 _set_opacity）。
 func _set_max_fps(val: int) -> void:
-	max_fps = val if val in FPS_OPTIONS else 30
+	max_fps = val if val in FPS_OPTIONS else 120
 	Engine.max_fps = max_fps
 
 

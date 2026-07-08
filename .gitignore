@@ -19,3 +19,4 @@ tmp/
 output/
 .vscode/
 node_modules/
+.reference/

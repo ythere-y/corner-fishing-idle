@@ -13,5 +13,8 @@ docs/img/_*.png
 # Codex 美术预览/临时产物
 tmp/
 
+# 音频生成脚本的 Python 字节码（tools/prepare_catch_and_foley.py 会 import synth_feedback_sfx）
+tools/__pycache__/
+
 # CD 设计系统参考包：入库，便于多机协作（公司/家里）都能拿到设计真值源。
 # Godot 不导入它（design-ref/.gdignore 已屏蔽）。CD 发新 zip 时覆盖该目录后提交即可。

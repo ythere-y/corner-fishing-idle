@@ -2143,6 +2143,23 @@ static func fill_settings(g: CornerFishing, v: VBoxContainer) -> void:
 	audio_slider(col, "主音量", Audio.master_volume, Audio.set_master_volume)
 	audio_slider(col, "音效", Audio.sfx_volume, Audio.set_sfx_volume)
 	audio_slider(col, "环境音", Audio.ambience_volume, Audio.set_ambience_volume)
+	# 背景音乐单独给一个开关：挂机玩家常常想留着水声、只把曲子关掉，
+	# 关掉后音量记忆保留（Audio.music_enabled 与 music_volume 是两个字段）。
+	var music_row := HBoxContainer.new()
+	music_row.add_theme_constant_override("separation", 8)
+	var music_lbl := Label.new()
+	music_lbl.text = "背景音乐"
+	music_lbl.add_theme_font_size_override("font_size", DT.FS_SM)
+	music_lbl.add_theme_color_override("font_color", DT.TEXT_ON_GLASS)
+	music_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	music_row.add_child(music_lbl)
+	var music_btn := CheckButton.new()
+	music_btn.button_pressed = Audio.music_enabled
+	music_btn.focus_mode = Control.FOCUS_NONE
+	music_btn.toggled.connect(func(on: bool) -> void: Audio.set_music_enabled(on))
+	music_row.add_child(music_btn)
+	col.add_child(music_row)
+	audio_slider(col, "音乐音量", Audio.music_volume, Audio.set_music_volume)
 	col.add_child(HSeparator.new())
 
 	# 专注模式

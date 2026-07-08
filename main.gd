@@ -697,7 +697,9 @@ func _action_style(bg: Color, quiet := false) -> StyleBoxFlat:
 
 
 func _on_action_pressed() -> void:
-	if _state == ST_BITE:
+	# 满篓警示优先于起钩：此态按钮文案是「鱼篓满了 · 去兑换」，点击必须开面板（文案与行为同源）；
+	# 满篓时亲手起钩也无收益（预掷会被 _overflow_catch 丢弃），让给开面板零损失。
+	if _state == ST_BITE and not _bag_alert():
 		_manual_hook()   # 亲手起钩：任何咬钩瞬间都可点（自动模式同样生效），只加成不惩罚
 		return
 	if _bag_full():
@@ -917,7 +919,8 @@ func _begin_bite() -> void:
 	# 渔获在咬钩瞬间预掷：稀有（鎏金/七彩/神话）驻留更久 + 浮漂金环，恰好在场的玩家来得及亲手起钩；
 	# 没人看时驻留结束照常自动上鱼，零损失。
 	_pending_catch = _roll_pending()
-	_bite_special = _is_special_catch(_pending_catch)
+	# 满篓（合约在手、篓全珍品）时预掷会被 _overflow_catch 折价兜底丢弃——金环不做空头承诺
+	_bite_special = _is_special_catch(_pending_catch) and not _bag_full()
 	_state_t = maxf(0.12, (SPECIAL_BITE_HOLD if _bite_special else 0.9) / test_speed)
 	painter.add_ripple(painter.bobber_pos(), 44.0 if _bite_special else 22.0)
 	if _bite_special and painter.has_method("bite_glow"):
@@ -933,8 +936,9 @@ func _roll_pending() -> Dictionary:
 	var luck := _catch_luck()
 	# 试竿保底（升级体感）：购买升级后的下一竿保底展示新效果——把"花钱→变强"的回路当场闭合。
 	# 只送一竿，经济影响 ≈0；概率型升级没有保底展示就永远"感觉不出来"（S12 感知阈值）。
+	# 这里只窥视不消费：保底在真实入篓时才兑现（_do_catch 清），满篓兜底丢弃预掷 /
+	# 咬钩中退出存档都不会吞掉承诺（对抗审查 must-fix：恢复旧版"顺延到下一次真结算"语义）。
 	var showcase := showcase_pending
-	showcase_pending = ""
 	if showcase == "rod":
 		luck += 4   # 高运气一竿：亲眼看见"更易上高阶鱼"
 	var c := _roll_one(luck)
@@ -1075,18 +1079,22 @@ func _do_catch() -> void:
 		_overflow_catch()   # 兜底折价兑金（签约后篓全珍品时的常态路径；未签约在线到不了这里——满篓不咬钩）
 		_begin_wait()
 		return
-	# 渔获已在咬钩瞬间预掷（_begin_bite → _roll_pending，试竿保底在预掷时消费）。
-	# 两个兜底重掷：①无预掷（测试直调 _do_catch）；②预掷后玩家又买了升级（试竿保底承诺
-	# "下一竿"，预掷里没吃到 → 弃掷重掷当场兑现）。兜底路径与旧版逻辑逐位一致。
+	# 渔获已在咬钩瞬间预掷（_begin_bite → _roll_pending，试竿保底只窥视、在此处真结算才消费）。
+	# 兜底重掷：①无预掷（测试直调 _do_catch）；②预掷后玩家又买了升级（保底口径变了 → 弃掷
+	# 重掷当场兑现"下一竿保底"）。豁免弃掷：预掷已被玩家亲手起钩（×1.1 不没收）或亮过金环
+	# 承诺（_bite_special：亲手拉起的必须就是金环所指的稀有）——此时保底原样顺延到下一竿。
 	var c: Dictionary
 	if not _pending_catch.is_empty() \
-			and (showcase_pending == "" or str(_pending_catch.get("_showcase", "")) != ""):
+			and (str(_pending_catch.get("_showcase", "")) == showcase_pending \
+				or bool(_pending_catch.get("hand", false)) or _bite_special):
 		c = _pending_catch
 	else:
 		c = _roll_pending()
 	_pending_catch = {}
 	var luck := int(c.get("_luck", 0))
 	var showcase := str(c.get("_showcase", ""))
+	if showcase != "" and showcase_pending == showcase:
+		showcase_pending = ""   # 保底在真实入篓这一刻才算兑现（满篓兜底提前 return 走不到这里）
 	c.erase("_luck")
 	c.erase("_showcase")
 	var hand := bool(c.get("hand", false))
@@ -1198,9 +1206,13 @@ func _rare_ceremony(c: Dictionary) -> void:
 	if painter.has_method("newsflash"):
 		painter.newsflash("号外！钓起%s%s %.2fkg · 全球约 1/%d 竿" % [FishData.variant_label(vr),
 			FishData.display_name(str(c["id"])), float(c["w"]), FishData.variant_odds(vr)])
-	Audio.play_sfx("catch_rare")
-	_capture_card_data = c.duplicate()
-	_open_panel("capture")
+	# 音效由 _do_catch 统一播（catch_rare），此处不重复。
+	# 弹卡只挑不打扰的时机：开场引导链（story/character/intro）不可顶掉（顶了永不重开）、
+	# 玩家正用别的面板不硬抢、沉浸模式不弹（开面板会把整窗穿透切成拦截，违背"不打扰"）。
+	# 跳过弹卡零损失：粒子/号外照放，鱼已入篓，图鉴与鱼篓自会再见到它。
+	if _panel_kind == "" and display_mode != "immersive":
+		_capture_card_data = c.duplicate()
+		_open_panel("capture")
 
 
 ## 把捕获卡面板截成 PNG 存到 user://capture_cards/ 并打开文件夹——玩家自己发群 = 最轻的社交。
@@ -1211,7 +1223,10 @@ func _save_capture_card() -> void:
 	if not is_instance_valid(_panel):
 		return
 	var img := get_viewport().get_texture().get_image()
-	var r := Rect2i(Vector2i(_panel.global_position), Vector2i(_panel.size))
+	# canvas_items 拉伸下视口图是窗口物理像素、面板坐标是画布逻辑坐标（ui_scale≠100% 时两者不同），
+	# 必须过一遍视口最终变换（纯缩放，包围盒即精确结果）再裁剪
+	var xf := get_viewport().get_final_transform()
+	var r := Rect2i(xf * Rect2(_panel.global_position, _panel.size))
 	r = r.intersection(Rect2i(Vector2i.ZERO, img.get_size()))
 	if r.size.x <= 0 or r.size.y <= 0:
 		return

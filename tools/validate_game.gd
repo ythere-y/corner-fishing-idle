@@ -1187,16 +1187,37 @@ func _check_hand_hook() -> void:
 	_assert(not g._is_special_catch({"id": "carp", "var": 0}), "普通不应驻留")
 	# —— 试竿保底不被过期预掷吞掉：预掷后才买升级 → 本竿弃掷重掷、当场兑现 ——
 	g._begin_bite()
+	g._bite_special = false   # 消除 0.5% 稀有驻留豁免的随机性，保证断言确定
 	g.showcase_pending = "rod"
 	g._do_catch()
 	_assert(g.showcase_pending == "", "预掷后新设的试竿保底应在本竿被消费（弃掷重掷）")
-	# —— 存档往返：hand_n ——
+	# —— 亲手豁免弃掷：已被玩家起钩的预掷不没收，保底顺延到下一竿 ——
+	g._begin_bite()
+	g._bite_special = false
+	g.showcase_pending = "bait"
+	var pid := str(g._pending_catch["id"])
+	var n2: int = g.inventory.size()
+	g._manual_hook()
+	_assert(str(g.inventory[n2]["id"]) == pid, "亲手起钩应兑现预掷的那条鱼（豁免弃掷）")
+	_assert(g.showcase_pending == "bait", "亲手豁免时试竿保底应顺延到下一竿")
+	g.showcase_pending = ""
+	# —— 满篓兜底不吞保底：预掷窥视后走 overflow，承诺应存活 ——
+	g.showcase_pending = "lure"
+	while not g._bag_full():
+		g.inventory.append({"id": "carp", "w": 1.0, "v": 10, "q": 0, "lock": true})
+	g._pending_catch = {"id": "carp", "w": 1.0, "v": 10, "q": 0, "var": 0,
+		"_luck": 0, "_showcase": "lure"}
+	g._do_catch()   # 满篓 → _overflow_catch 提前 return，预掷被丢弃
+	_assert(g.showcase_pending == "lure", "满篓兜底不应吞掉试竿保底（顺延到下一次真结算）")
+	g.showcase_pending = ""
+	g.inventory = []
+	# —— 存档往返：hand_n（此前两次亲手起钩 = 2）——
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d.get("hand_n", -1)) == 1, "存档应写入 hand_n")
+	_assert(int(d.get("hand_n", -1)) == 2, "存档应写入 hand_n=2，实际 %d" % int(d.get("hand_n", -1)))
 	g.hand_catches = 0
 	SaveSystem.apply(g, d)
-	_assert(g.hand_catches == 1, "hand_n 应随档往返")
-	print("  预掷消费 / 亲手×1.1 / 稀有驻留判定 / 试竿弃掷重掷 / hand_n 往返 通过")
+	_assert(g.hand_catches == 2, "hand_n 应随档往返")
+	print("  预掷消费 / 亲手×1.1 / 稀有驻留判定 / 试竿弃掷重掷+豁免顺延 / 满篓不吞保底 / hand_n 往返 通过")
 	g.queue_free()
 	await process_frame
 

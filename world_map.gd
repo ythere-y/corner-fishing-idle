@@ -185,7 +185,7 @@ func _recalc_sun() -> void:
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, VIEW), SEA)
 	if _map_tex != null:
-		draw_texture_rect(_map_tex, Rect2(Vector2.ZERO, VIEW), false)
+		_draw_map_tex()
 	else:
 		_draw_graticule()
 		_draw_landmasses()
@@ -193,6 +193,25 @@ func _draw() -> void:
 	_draw_journey()
 	_draw_stations()
 	_draw_caption()
+
+
+## 底图贴图：约定 assets/art/ui/world_map.png 是**标准全球等距圆柱图**（经度 -180~180、
+## 纬度 90~-90，宽高比 2:1），由本函数按视窗经纬度范围裁出对应区域——美术只需交一张
+## 通用世界地图，不必知道我们裁的是哪半个地球。
+## 兼容：若交来的图宽高比明显不是 2:1，视为"已按视窗裁好"，整图铺满。
+func _draw_map_tex() -> void:
+	var ts := _map_tex.get_size()
+	if ts.x <= 0.0 or ts.y <= 0.0:
+		return
+	if absf(ts.x / ts.y - 2.0) > 0.15:
+		draw_texture_rect(_map_tex, Rect2(Vector2.ZERO, VIEW), false)
+		return
+	var x0 := (LON0 + 180.0) / 360.0 * ts.x
+	var x1 := (LON1 + 180.0) / 360.0 * ts.x
+	var y0 := (90.0 - LAT0) / 180.0 * ts.y
+	var y1 := (90.0 - LAT1) / 180.0 * ts.y
+	draw_texture_rect_region(_map_tex, Rect2(Vector2.ZERO, VIEW),
+		Rect2(x0, y0, x1 - x0, y1 - y0))
 
 
 func _draw_graticule() -> void:

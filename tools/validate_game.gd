@@ -3,6 +3,7 @@ extends SceneTree
 ## 运行: godot_console --headless -s tools/validate_game.gd
 
 var failures := 0
+const AnglerEquipmentScript := preload("res://systems/angler/angler_equipment.gd")
 
 
 func _init() -> void:
@@ -34,6 +35,12 @@ func _run() -> void:
 
 	print("=== 鱼竿数值 ===")
 	_check_rod()
+
+	print("=== 速度装备 / 绕线轮 ===")
+	await _check_reel_speed()
+
+	print("=== 角色属性 → 钓鱼属性映射 ===")
+	await _check_attribute_mapping()
 
 	print("=== 鱼饵 / 星级品质 ===")
 	_check_quality()
@@ -830,6 +837,123 @@ func _check_rod() -> void:
 	print("  整体均价 rod1=%.1f rod8=%.1f" % [sum1 / 600.0, sum8 / 600.0])
 
 
+func _check_reel_speed() -> void:
+	_assert(AnglerEquipmentScript.reel_next_cost(10) > AnglerEquipmentScript.reel_next_cost(1),
+		"绕线轮单级成本应随等级递增")
+	_assert(AnglerEquipmentScript.reel_upgrade_cost(0, 10) > AnglerEquipmentScript.reel_upgrade_cost(0, 1),
+		"绕线轮 +10 成本应包含 10 个逐级成本")
+	_assert(AnglerEquipmentScript.reel_wait_mult(100) < AnglerEquipmentScript.reel_wait_mult(0),
+		"绕线轮等级应降低速度等待倍率")
+	_assert(AnglerEquipmentScript.reel_wait_mult(300) < AnglerEquipmentScript.reel_wait_mult(100),
+		"绕线轮曲线应平滑渐近，不能在中高等级硬撞地板")
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	var t0: float = g._avg_wait_for_reel(0)
+	var t50: float = g._avg_wait_for_reel(50)
+	var t100: float = g._avg_wait_for_reel(100)
+	_assert(t50 < t0 and t100 < t50, "绕线轮等级应逐步缩短一竿周期 %.2f/%.2f/%.2f" % [t0, t50, t100])
+	g.coins = 0
+	g._try_upgrade_reel(10)
+	_assert(g.reel_level == 0 and g.coins == 0, "绕线轮正式升级应检查金币，不足时不升级")
+	var unlock_reel_cost: int = g._equipment_unlock_cost("reel")
+	_assert(unlock_reel_cost == AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 30),
+		"绕线轮解锁成本应约等于鱼线 30 级投入")
+	g.coins = unlock_reel_cost
+	g._try_unlock_equipment("reel")
+	_assert(g.reel_level == 1 and g.coins == 0, "绕线轮应通过链式解锁进入 Lv.1")
+	var cost9: int = g._reel_upgrade_cost(9)
+	g.coins = cost9
+	g._try_upgrade_reel(9)
+	_assert(g.reel_level == 10 and g.coins == 0, "绕线轮正式升级应真实扣除金币")
+	var line_cost10: int = g._gear_upgrade_cost("fish_line", 10)
+	g.coins = line_cost10
+	g._try_upgrade_attr_gear("fish_line", 10)
+	var stats = g._angler_stats()
+	_assert(g.fish_line_level == 10 and g.coins == 0 and stats.technique > 0.0 and stats.stability > 0.0,
+		"鱼线应可正式扣费升级，并同时提供技巧/稳定属性")
+	var line700 = AnglerEquipmentScript.attr_equipment_stats("fish_line", 700)
+	var line710 = AnglerEquipmentScript.attr_equipment_stats("fish_line", 710)
+	_assert(absf(float(line710.technique) - float(line700.technique) - 5.5) < 0.001
+			and absf(float(line710.stability) - float(line700.stability) - 4.5) < 0.001,
+		"装备等级→角色属性应持续线性增长，鱼线 700→710 仍应增加技巧 5.5 / 稳定 4.5")
+	TestMode.bump_reel(g, -3)
+	_assert(g.reel_level == 7, "测试台应支持绕线轮降级")
+	TestMode.set_reel(g, 100)
+	_assert(g.reel_level == 100 and g._avg_wait_for_reel(100) < t0, "测试台应支持设定绕线轮等级")
+	g.bobber_level = 2
+	g.sonar_level = 3
+	g.notebook_level = 4
+	g.gloves_level = 5
+	var d: Dictionary = SaveSystem.collect(g)
+	_assert(int(d["ver"]) == 18 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
+		"v18 应保存 reel_level 与五件属性装备等级")
+	g.reel_level = 0
+	g.fish_line_level = 0
+	g.bobber_level = 0
+	g.sonar_level = 0
+	g.notebook_level = 0
+	g.gloves_level = 0
+	SaveSystem.apply(g, d)
+	_assert(g.reel_level == 100 and g.fish_line_level == 10 and g.bobber_level == 2
+			and g.sonar_level == 3 and g.notebook_level == 4 and g.gloves_level == 5,
+		"v18 应恢复 reel_level 与五件属性装备等级")
+	var od := d.duplicate()
+	od.erase("reel_level")
+	od.erase("fish_line_level")
+	od.erase("bobber_level")
+	od.erase("sonar_level")
+	od.erase("notebook_level")
+	od.erase("gloves_level")
+	SaveSystem.apply(g, od)
+	_assert(g.reel_level == 0 and g.fish_line_level == 0 and g.gloves_level == 0,
+		"旧档无属性装备等级应默认 0")
+	print("  属性装备：链式解锁/平滑倍率/扣费升级/测试升降/存档往返 通过")
+	g.queue_free()
+	await process_frame
+
+
+func _check_attribute_mapping() -> void:
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	g.rod_level = 1
+	g.bait_level = 0
+	g.hook_level = 0
+	g.lure_level = 0
+	g.reel_level = 0
+	var base_wait: float = g._avg_wait_for_reel(0)
+	var base_weights: Dictionary = g._effective_tier_weights(0)
+	var base_q: Array = FishData.quality_probs(g.bait_level, g._quality_attr_bonus())
+	var base_vbias: float = g._variant_bias()
+	var base_double: float = g._double_chance()
+	var base_power: float = g._weight_power()
+	g.fish_line_level = 120
+	g.bobber_level = 120
+	g.sonar_level = 120
+	g.notebook_level = 120
+	g.gloves_level = 120
+	var high_wait: float = g._avg_wait_for_reel(0)
+	var high_weights: Dictionary = g._effective_tier_weights(0)
+	var high_q: Array = FishData.quality_probs(g.bait_level, g._quality_attr_bonus())
+	var high_vbias: float = g._variant_bias()
+	var high_double: float = g._double_chance()
+	var high_power: float = g._weight_power()
+	_assert(high_wait < base_wait, "反应属性应缩短一竿周期 %.2f -> %.2f" % [base_wait, high_wait])
+	_assert(float(high_weights[4]) > float(base_weights[4]) and float(high_weights[5]) > float(base_weights[5]),
+		"生态/感知应提高传说/神话品阶权重")
+	_assert(float(high_q[1]) > float(base_q[1]) and float(high_q[2]) > float(base_q[2]),
+		"技巧/稳定应提高星级逐级通过率")
+	_assert(high_vbias > base_vbias, "感知/生态应提高变体 vbias")
+	_assert(high_double > base_double, "反应/技巧应提高双钩率")
+	_assert(high_power < base_power, "力量/稳定应降低体重指数，让大鱼尾部更常见")
+	print("  属性映射：节奏/品阶/星级/变体/双钩/体型 通过")
+	g.queue_free()
+	await process_frame
+
+
 const TEST_SAVE := "user://test_save.json"
 
 
@@ -1010,7 +1134,7 @@ func _check_autosell() -> void:
 	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
 	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 16, "存档版本应为 v16")
+	_assert(int(d["ver"]) == 18, "存档版本应为 v18")
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0
@@ -1862,6 +1986,15 @@ func _check_test_mode() -> void:
 	g._open_panel("set")
 	await process_frame
 	_assert(is_instance_valid(g._panel), "测试模式下设置页（测试台）应正常构建")
+	g._set_dev_attrs_open(true)
+	await process_frame
+	_assert(is_instance_valid(g._dev_attrs_panel) and g._dev_attrs_panel.visible, "测试模式下属性面板应独立构建并显示")
+	g._open_panel("catch")
+	await process_frame
+	_assert(is_instance_valid(g._panel) and is_instance_valid(g._dev_attrs_panel) and g._dev_attrs_panel.visible,
+		"打开鱼篓等玩家面板不应关闭开发属性面板")
+	g._open_panel("set")
+	await process_frame
 	# 改钱 / 给鱼即时生效（仅内存）
 	TestMode.add_coins(g, 1000)
 	_assert(g.coins == 5321, "测试加币应即时生效")
@@ -1886,7 +2019,7 @@ func _check_test_mode() -> void:
 	_assert(g.inventory.is_empty(), "退出测试模式应还原正式档鱼篓（测试给的鱼被丢弃）")
 	_assert(g._forced_phase == "" and is_equal_approx(g.test_speed, 1.0),
 		"退出测试模式应复位强制时段/提速")
-	print("  测试模式：写档冻结/改钱给鱼/强制时段/退出还原正式档 通过")
+	print("  测试模式：写档冻结/独立属性页/改钱给鱼/强制时段/退出还原正式档 通过")
 	g.queue_free()
 	await process_frame
 	for p in [TEST_SAVE, TEST_SAVE + ".bak", TEST_SAVE + ".tmp"]:

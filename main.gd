@@ -37,6 +37,7 @@ const FRAMED_BG := Color(0.105, 0.115, 0.105)   # 带框窗口实底背景（场
 # （Codex 更新美术时同步改 json 即可，不用动代码）；无 json 时用下面实测的回退值。
 # json 格式：{"buttons": {"catch": [x,y]}, "bite_point": [x,y]}
 # 升级（鱼竿/鱼饵/鱼钩）与设置都已并入鱼篓面板页签，主界面只留一个「鱼篓」按钮。
+const AnglerEquipmentScript := preload("res://systems/angler/angler_equipment.gd")
 const UI_LAYOUT_PATHS := ["res://ui_layout.json", "res://assets/art/ui/ui_layout.json"]
 var btn_centers := {
 	"catch": Vector2(452, 371),
@@ -51,6 +52,12 @@ var _started := false
 # —— 存档数据 ——
 var coins := 0
 var rod_level := 1
+var reel_level := 0  # 独立速度装备：绕线轮等级，提供 speed 属性并缩短一竿周期
+var fish_line_level := 0
+var bobber_level := 0
+var sonar_level := 0
+var notebook_level := 0
+var gloves_level := 0
 var bag_level := 1
 var bait_level := 0  # FishData.BAITS 下标，金币永久升级
 var hook_level := 0  # FishData.HOOKS 下标，决定双钩几率
@@ -252,6 +259,8 @@ func _ready() -> void:
 	elif _pending_offline != "":
 		_toast(_pending_offline, 4.5, Color(0.55, 0.85, 0.55))
 		_pending_offline = ""
+	if display_mode != "immersive":
+		_set_dev_attrs_open(true)
 
 
 # ============================ 窗体形态 ============================
@@ -300,6 +309,10 @@ var _chip_dex: Label = null
 var _flag_box: VBoxContainer = null
 var _nav_badges := {}   # 导航徽章 {tab: PanelContainer}（鱼篓满/任务可交付）
 var _nav_bar: PanelContainer = null   # 底栏容器（背景随面板开关切透明/暗，避免与 sheet 断裂）
+var _dev_tools_bar: PanelContainer = null
+var _dev_attrs_panel: PanelContainer = null
+var _dev_attrs_open := true
+var _dev_pet_state := "无"
 
 func _apply_display_mode() -> void:
 	if display_mode == "immersive":
@@ -365,6 +378,14 @@ func _layout_widget() -> void:
 		_nav_bar.position = _widget_point(Vector2(0, ART.y - FRAMED_CONSOLE_H))
 		_nav_bar.size = Vector2(ART.x, FRAMED_CONSOLE_H)
 		_nav_bar.scale = s
+	if is_instance_valid(_dev_tools_bar):
+		_dev_tools_bar.position = Vector2.ZERO
+		_dev_tools_bar.scale = Vector2.ONE
+	if is_instance_valid(_dev_attrs_panel):
+		var attrs_pos := Vector2(104, 0)
+		var attrs_bottom := _stage_size().y
+		_dev_attrs_panel.position = attrs_pos
+		_dev_attrs_panel.size = Vector2(360, maxf(240.0, attrs_bottom - attrs_pos.y))
 	_update_action_button()
 	_layout_resize_grips()
 	if _panel_kind == "":
@@ -394,8 +415,97 @@ func _build_framed_chrome() -> void:
 	_build_hud_chips()
 	_build_status_flags()
 	_build_bottom_nav()
+	_build_dev_tools_bar()
 	_build_action_button()
 	_layout_widget()
+
+
+func _build_dev_tools_bar() -> void:
+	var bar := PanelContainer.new()
+	bar.name = "DevToolsBar"
+	bar.z_index = 40
+	bar.custom_minimum_size = Vector2(96, 42)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.10, 0.11, 0.10, 0.72)
+	sb.corner_radius_bottom_right = 10
+	sb.set_border_width_all(1)
+	sb.border_color = DT.GLASS_ROW_BORDER
+	bar.add_theme_stylebox_override("panel", sb)
+	var mg := MarginContainer.new()
+	mg.add_theme_constant_override("margin_left", 6)
+	mg.add_theme_constant_override("margin_right", 6)
+	mg.add_theme_constant_override("margin_top", 6)
+	mg.add_theme_constant_override("margin_bottom", 6)
+	bar.add_child(mg)
+	var attrs := Button.new()
+	attrs.text = "开发管理"
+	attrs.focus_mode = Control.FOCUS_NONE
+	attrs.custom_minimum_size = Vector2(84, 30)
+	UIPanels.apply_button_skin(attrs, false)
+	attrs.pressed.connect(func() -> void: _set_dev_attrs_open(not _dev_attrs_open))
+	mg.add_child(attrs)
+	ui_root.add_child(bar)
+	_dev_tools_bar = bar
+	_build_dev_attrs_panel()
+
+
+func _build_dev_attrs_panel() -> void:
+	var panel := PanelContainer.new()
+	panel.name = "DevAttrsPanel"
+	panel.z_index = 41
+	panel.custom_minimum_size = Vector2(360, 240)
+	panel.size = Vector2(360, 720)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.09, 0.08, 0.84)
+	sb.corner_radius_top_right = 10
+	sb.corner_radius_bottom_right = 10
+	sb.set_border_width_all(1)
+	sb.border_color = DT.GLASS_BORDER
+	sb.shadow_color = Color(0, 0, 0, 0.28)
+	sb.shadow_size = 12
+	sb.shadow_offset = Vector2(0, 4)
+	panel.add_theme_stylebox_override("panel", sb)
+	ui_root.add_child(panel)
+	_dev_attrs_panel = panel
+	_refresh_dev_attrs_panel()
+	panel.visible = _dev_attrs_open
+
+
+func _set_dev_attrs_open(open: bool) -> void:
+	_dev_attrs_open = open
+	if display_mode == "immersive":
+		return
+	if not is_instance_valid(_dev_attrs_panel):
+		_build_dev_attrs_panel()
+		return
+	_dev_attrs_panel.visible = open
+	if open:
+		_refresh_dev_attrs_panel()
+	_layout_widget()
+
+
+func _refresh_dev_attrs_panel() -> void:
+	if not is_instance_valid(_dev_attrs_panel):
+		return
+	for c in _dev_attrs_panel.get_children():
+		c.free()
+	var mg := MarginContainer.new()
+	mg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	mg.add_theme_constant_override("margin_left", 6)
+	mg.add_theme_constant_override("margin_right", 6)
+	mg.add_theme_constant_override("margin_top", 6)
+	mg.add_theme_constant_override("margin_bottom", 6)
+	_dev_attrs_panel.add_child(mg)
+	var sc := ScrollContainer.new()
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	mg.add_child(sc)
+	var v := VBoxContainer.new()
+	v.name = "V"
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 5)
+	sc.add_child(v)
+	UIPanels.fill_debug_attributes(self, v)
 
 
 ## 图标胶囊：[圆角底 + 图标 + 数值]，返回 [PanelContainer, 数值Label]
@@ -583,8 +693,8 @@ func _build_bottom_nav() -> void:
 		["任务", 2, "res://assets/art/ui/nav_orders.png"],     # 一套水彩导航图标（已就位）；文件缺失时自动只显文字、不显乱占位
 		["钓点", 5, "res://assets/art/ui/nav_spots.png"],
 		["鱼缸", 6, "res://assets/art/ui/nav_fishtank.png"],
-		["设置", 8, "res://assets/art/ui/nav_settings.png"],
 	]
+	navs.append(["设置", 8, "res://assets/art/ui/nav_settings.png"])
 	for n in navs:
 		var tab: int = n[1]
 		var item := VBoxContainer.new()
@@ -624,6 +734,17 @@ func _build_bottom_nav() -> void:
 		item.mouse_exited.connect(func() -> void: item.modulate = Color(1, 1, 1))
 		row.add_child(item)
 	# 「自动垂钓」开关已移入设置页（见 ui_panels.fill_settings），底栏只留导航图标。
+
+
+func _rebuild_bottom_nav() -> void:
+	if display_mode != "framed":
+		return
+	if is_instance_valid(_nav_bar):
+		_nav_bar.queue_free()
+	_nav_badges.clear()
+	_build_bottom_nav()
+	_set_nav_solid(_panel_kind != "")
+	_update_framed_hud()
 
 
 ## 底栏背景上下文切换：开面板=暗(与 sheet 连成一片,无断裂)；关=透明(浮场景)。
@@ -806,6 +927,20 @@ func _update_widget_passthrough() -> void:
 	_ensure_widget_pos()
 	var p := _widget_pos as Vector2
 	var s := _widget_size()
+	if is_instance_valid(_dev_tools_bar):
+		var left := 0.0
+		var top := 0.0
+		var stage := _stage_size()
+		var dev_right := _dev_tools_bar.position.x + _dev_tools_bar.size.x
+		var dev_bottom := _dev_tools_bar.position.y + _dev_tools_bar.size.y
+		if _dev_attrs_open and is_instance_valid(_dev_attrs_panel):
+			dev_right = _dev_attrs_panel.position.x + _dev_attrs_panel.size.x
+			dev_bottom = _dev_attrs_panel.position.y + _dev_attrs_panel.size.y
+		var right := minf(stage.x, maxf(p.x + s.x, dev_right))
+		var bottom := minf(stage.y, maxf(p.y + s.y, dev_bottom))
+		DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
+			Vector2(left, top), Vector2(right, top), Vector2(right, bottom), Vector2(left, bottom)]))
+		return
 	DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
 		p, p + Vector2(s.x, 0), p + s, p + Vector2(0, s.y)]))
 
@@ -896,7 +1031,8 @@ func _process(delta: float) -> void:
 
 func _begin_wait() -> void:
 	_state = ST_WAIT
-	var w := rng.randf_range(3.5, 7.0) * maxf(0.4, 1.0 - float(rod_level - 1) * 0.04)
+	var w := rng.randf_range(3.5, 7.0) * maxf(0.4, 1.0 - float(rod_level - 1) * 0.04) \
+		* _speed_wait_mult() * _reaction_wait_mult()
 	w *= SpotData.wait_mult(current_spot)          # 钓点常驻系数（阶段④起生效）
 	w *= Weather.wait_mult(day_phase)              # 昼夜时段（金色时段咬钩更勤）
 	if active_event != "":
@@ -927,7 +1063,7 @@ func _apply_phase() -> void:
 
 func _begin_bite() -> void:
 	_state = ST_BITE
-	_state_t = maxf(0.12, 0.9 / test_speed)         # 测试提速：test_speed=1 时不变
+	_state_t = maxf(0.12, 0.9 * _speed_wait_mult() * _reaction_wait_mult() / test_speed)         # 测试提速：test_speed=1 时不变
 	painter.add_ripple(painter.bobber_pos(), 22.0)
 	Audio.play_sfx("bite")
 	_update_action_button()
@@ -1016,11 +1152,75 @@ func _catch_value_mult() -> float:
 	return Spots.catch_value_mult(self)
 
 
+## 属性映射采用软上限曲线：早期每级有感，后期不让二级属性盖过鱼竿/鱼饵/鱼钩/窝料主轴。
+func _stat_curve(value: float, softness := 120.0) -> float:
+	return 1.0 - exp(-maxf(0.0, value) / softness)
+
+
+func _reaction_wait_mult() -> float:
+	var stats = _angler_stats()
+	return 1.0 - 0.10 * _stat_curve(stats.reaction, 110.0)
+
+
+func _tier_attr_mults() -> Dictionary:
+	var stats = _angler_stats()
+	var curve := _stat_curve(stats.ecology * 0.75 + stats.perception * 0.25, 125.0)
+	return {
+		0: 1.0 - 0.05 * curve,
+		1: 1.0 - 0.02 * curve,
+		2: 1.0 + 0.08 * curve,
+		3: 1.0 + 0.16 * curve,
+		4: 1.0 + 0.24 * curve,
+		5: 1.0 + 0.32 * curve,
+	}
+
+
+func _effective_tier_weights(luck := 0) -> Dictionary:
+	var weights := FishData.weights_for_rod(rod_level + luck)
+	var mults := _tier_attr_mults()
+	for tier in mults:
+		weights[tier] = maxf(0.01, float(weights.get(tier, 0.0)) * float(mults[tier]))
+	return weights
+
+
+func _quality_attr_bonus() -> Array:
+	var stats = _angler_stats()
+	var curve := _stat_curve(stats.technique * 0.75 + stats.stability * 0.25, 120.0)
+	return [0.0, 0.10 * curve, 0.06 * curve, 0.03 * curve]
+
+
+func _variant_attr_bias() -> float:
+	var stats = _angler_stats()
+	return 1.20 * _stat_curve(stats.perception * 0.70 + stats.ecology * 0.30, 120.0)
+
+
+func _double_chance() -> float:
+	var stats = _angler_stats()
+	var base := float(FishData.HOOKS[clampi(hook_level, 0, FishData.HOOKS.size() - 1)]["double"])
+	var bonus := 0.12 * _stat_curve(stats.reaction * 0.70 + stats.technique * 0.30, 115.0)
+	return clampf(base + bonus, 0.0, 0.70)
+
+
+func _weight_power() -> float:
+	var stats = _angler_stats()
+	var curve := _stat_curve(stats.strength * 0.70 + stats.stability * 0.30, 125.0)
+	return 2.0 - 0.35 * curve
+
+
+func _roll_mods() -> Dictionary:
+	return {
+		"tier_mults": _tier_attr_mults(),
+		"quality_bonus": _quality_attr_bonus(),
+		"weight_power": _weight_power(),
+	}
+
+
 ## 变体偏置累加器（P2 变体杠杆）：各收集杠杆贡献相加，喂给 FishData.roll_variant 抬高变体率。
-## 目前来源：诱饵/窝料成长线（lure_level）。以后加来源（钓点亲和/悬赏等）只在此 += 一行即可。
+## 目前来源：诱饵/窝料成长线（lure_level）+ 角色感知/生态二级属性。
+## 以后加来源（钓点亲和/悬赏等）只在此 += 一行即可。
 ## 0 级窝料 → 0，与基线逐位一致；上不封顶交由 roll_variant 内部 clamp(0,10)。
 func _variant_bias() -> float:
-	return FishData.lure_vbias(lure_level)
+	return FishData.lure_vbias(lure_level) + _variant_attr_bias()
 
 
 ## 钓一条鱼：限定当前钓点鱼池，应用钓点/事件增值系数。
@@ -1028,7 +1228,7 @@ func _variant_bias() -> float:
 ## 传非负值则按显式覆盖（专注奖励等强制场景留口）。
 func _roll_one(luck: int, vbias := -1.0) -> Dictionary:
 	var vb := vbias if vbias >= 0.0 else _variant_bias()
-	var c := FishData.roll_catch(rng, rod_level, bait_level, luck, _spot_pool(), vb)
+	var c := FishData.roll_catch(rng, rod_level, bait_level, luck, _spot_pool(), vb, _roll_mods())
 	var vm := _catch_value_mult()
 	if vm != 1.0:
 		c["v"] = max(1, int(round(float(c["v"]) * vm)))
@@ -1104,8 +1304,9 @@ func _do_catch() -> void:
 	if (q >= 2 or vr >= 3) and painter.has_method("fisher_cheer"):
 		painter.fisher_cheer()
 	# 鱼钩双钩：一定几率再上一条（受背包剩余格数限制）；鱼钩试竿 → 必双钩
-	if hook_level > 0 and not _bag_full() \
-			and (showcase == "hook" or rng.randf() < float(FishData.HOOKS[hook_level]["double"])):
+	var double_chance := _double_chance()
+	if double_chance > 0.0 and not _bag_full() \
+			and (showcase == "hook" or rng.randf() < double_chance):
 		var c2 := _roll_one(luck)
 		inventory.append(c2)
 		lifetime_catches += 1
@@ -1389,6 +1590,8 @@ func _update_order_chip() -> void:
 ## 例外：鱼缸页签开着时不因后台上鱼而重建——否则游动的鱼每几秒被重置。
 ## 放入/捞出鱼等主动操作走 _rebuild_panel() 强制重建。
 func _refresh_panel() -> void:
+	if _dev_attrs_open:
+		_refresh_dev_attrs_panel()
 	if _panel_kind == "":
 		return
 	if _panel_kind == "catch" and _catch_tab == TANK_TAB:
@@ -2086,7 +2289,123 @@ func _check_achievements(silent := false) -> void:
 
 ## 某竿级的平均一竿周期（等待均值 + 咬钩 0.9s）——装备页数字明牌与离线结算共用同一真值。
 func _avg_wait_for(lv: int) -> float:
-	return 5.25 * maxf(0.4, 1.0 - float(lv - 1) * 0.04) + 0.9
+	return (5.25 * maxf(0.4, 1.0 - float(lv - 1) * 0.04) + 0.9) * _speed_wait_mult() * _reaction_wait_mult()
+
+
+func _avg_wait_for_reel(lv: int) -> float:
+	return (5.25 * maxf(0.4, 1.0 - float(rod_level - 1) * 0.04) + 0.9) \
+		* AnglerEquipmentScript.reel_wait_mult(lv) * _reaction_wait_mult()
+
+
+func _speed_wait_mult() -> float:
+	return AnglerEquipmentScript.reel_wait_mult(reel_level)
+
+
+func _reel_speed() -> float:
+	return AnglerEquipmentScript.reel_stats(reel_level).speed
+
+
+func _reel_speed_for(lv: int) -> float:
+	return AnglerEquipmentScript.reel_stats(lv).speed
+
+
+func _reel_upgrade_cost(count: int) -> int:
+	return AnglerEquipmentScript.reel_upgrade_cost(reel_level, count)
+
+
+func _gear_level(id: String) -> int:
+	match id:
+		"fish_line": return fish_line_level
+		"bobber": return bobber_level
+		"sonar": return sonar_level
+		"notebook": return notebook_level
+		"gloves": return gloves_level
+		_: return 0
+
+
+func _set_gear_level(id: String, level: int) -> void:
+	level = maxi(0, level)
+	match id:
+		"fish_line": fish_line_level = level
+		"bobber": bobber_level = level
+		"sonar": sonar_level = level
+		"notebook": notebook_level = level
+		"gloves": gloves_level = level
+
+
+func _gear_upgrade_cost(id: String, count: int) -> int:
+	return AnglerEquipmentScript.attr_equipment_upgrade_cost(_gear_level(id), count)
+
+
+func _gear_stats(id: String, level := -1):
+	var lv := _gear_level(id) if level < 0 else level
+	return AnglerEquipmentScript.attr_equipment_stats(id, lv)
+
+
+func _angler_stats():
+	var stats = AnglerEquipmentScript.reel_stats(reel_level)
+	for id in AnglerEquipmentScript.ATTR_EQUIPMENT_ORDER:
+		stats.add(_gear_stats(str(id)))
+	return stats
+
+
+func _equipment_unlocked(id: String) -> bool:
+	match id:
+		"fish_line": return true
+		"reel": return reel_level > 0
+		_: return _gear_level(id) > 0
+
+
+func _equipment_chain() -> Array:
+	return ["fish_line", "reel", "bobber", "sonar", "notebook", "gloves"]
+
+
+func _equipment_unlock_cost(id: String) -> int:
+	match id:
+		"reel":
+			return AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 30)
+		"bobber":
+			return AnglerEquipmentScript.reel_upgrade_cost(0, 25)
+		"sonar", "notebook", "gloves":
+			return AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 25)
+		_:
+			return 0
+
+
+func _equipment_unlock_note(id: String) -> String:
+	match id:
+		"reel": return "约等于鱼线 30 级投入"
+		"bobber": return "约等于绕线轮 25 级投入"
+		"sonar": return "约等于浮漂 25 级投入"
+		"notebook": return "约等于探鱼器 25 级投入"
+		"gloves": return "约等于钓鱼笔记 25 级投入"
+		_: return ""
+
+
+func _try_unlock_equipment(id: String) -> void:
+	if _equipment_unlocked(id):
+		return
+	var chain := _equipment_chain()
+	var idx := chain.find(id)
+	if idx <= 0 or not _equipment_unlocked(str(chain[idx - 1])):
+		return
+	var cost := _equipment_unlock_cost(id)
+	if coins < cost:
+		Audio.play_ui("ui_error")
+		_toast("金币不足", 1.5, Color(1.0, 0.5, 0.4))
+		return
+	coins -= cost
+	if id == "reel":
+		reel_level = 1
+		_begin_wait()
+	else:
+		_set_gear_level(id, 1)
+	var name := "绕线轮" if id == "reel" else str(AnglerEquipmentScript.ATTR_EQUIPMENT[id]["name"])
+	Audio.play_sfx("upgrade")
+	_update_hud()
+	_toast("%s 已解锁 Lv.1" % name, 2.4, Color(0.72, 0.92, 0.58))
+	_save()
+	_refresh_panel()
 
 
 ## 把一条渔获强制抬到保底品相/变体（重算卖价）。试竿保底与专注奖励共用的抬品逻辑。
@@ -2127,6 +2446,83 @@ func _try_upgrade_rod() -> void:
 		_avg_wait_for(rod_level - 1), _avg_wait_for(rod_level), (rod_level - 1) * 8],
 		2.8, Color(0.5, 0.8, 1.0))
 	_refresh_panel()   # 升级页已是鱼篓面板「装备」页签，原地刷新即可
+
+
+func _try_upgrade_reel(count := 1) -> void:
+	count = maxi(1, count)
+	var before_speed := _reel_speed()
+	var before_interval := _avg_wait_for_reel(reel_level)
+	var cost := _reel_upgrade_cost(count)
+	if coins < cost:
+		Audio.play_ui("ui_error")
+		_toast("金币不足", 1.5, Color(1.0, 0.5, 0.4))
+		return
+	coins -= cost
+	reel_level += count
+	_begin_wait()
+	Audio.play_sfx("upgrade")
+	_update_hud()
+	_toast("绕线轮 Lv.%d！速度 %.1f→%.1f，一竿 %.2fs→%.2fs" % [
+		reel_level, before_speed, _reel_speed(), before_interval, _avg_wait_for_reel(reel_level)],
+		2.8, Color(0.58, 0.80, 0.98))
+	_save()
+	_refresh_panel()
+
+
+func _try_downgrade_reel(count := 1) -> void:
+	count = maxi(1, count)
+	if reel_level <= 0:
+		return
+	var before_speed := _reel_speed()
+	reel_level = maxi(0, reel_level - count)
+	Audio.play_sfx("upgrade")
+	_update_hud()
+	_toast("绕线轮 Lv.%d，速度属性 %.0f→%.0f" % [reel_level, before_speed, _reel_speed()],
+		2.2, Color(0.58, 0.80, 0.98))
+	_save()
+	_refresh_panel()
+
+
+func _try_upgrade_attr_gear(id: String, count := 1) -> void:
+	if not AnglerEquipmentScript.ATTR_EQUIPMENT.has(id):
+		return
+	count = maxi(1, count)
+	var cost := _gear_upgrade_cost(id, count)
+	if coins < cost:
+		Audio.play_ui("ui_error")
+		_toast("金币不足", 1.5, Color(1.0, 0.5, 0.4))
+		return
+	var before_level := _gear_level(id)
+	var before_stats = _gear_stats(id)
+	coins -= cost
+	_set_gear_level(id, before_level + count)
+	Audio.play_sfx("upgrade")
+	_update_hud()
+	var info: Dictionary = AnglerEquipmentScript.ATTR_EQUIPMENT[id]
+	_toast("%s Lv.%d！%s" % [
+		str(info["name"]), _gear_level(id), _gear_delta_text(before_stats, _gear_stats(id))],
+		2.6, Color(0.72, 0.92, 0.58))
+	_save()
+	_refresh_panel()
+
+
+func _gear_delta_text(before, after) -> String:
+	var labels := {
+		"technique": "技巧",
+		"stability": "稳定",
+		"reaction": "反应",
+		"perception": "感知",
+		"ecology": "生态",
+		"tracking": "追踪",
+		"strength": "力量",
+	}
+	var parts: Array[String] = []
+	for key in labels.keys():
+		var b := float(before.get(str(key)))
+		var a := float(after.get(str(key)))
+		if not is_equal_approx(b, a):
+			parts.append("%s %.1f→%.1f" % [labels[key], b, a])
+	return "，".join(parts)
 
 
 func _try_upgrade_bait() -> void:
@@ -2711,6 +3107,7 @@ func _new_save() -> void:
 		if painter:
 			painter.debug_tod = -1.0
 		save_enabled = true
+		_rebuild_bottom_nav()
 	# 全状态复位为默认（空字典 → apply 内每个 .get(key, default) 取默认）
 	SaveSystem.apply(self, {})
 	seen_intro = false        # 全新档：重看引导

@@ -112,6 +112,17 @@ func _run() -> void:
 	_main._open_panel("catch")
 	await _settle(2)
 	_snap("panel_settings.png")
+	_main.test_mode = true
+	_main.reel_level = 50
+	_main.rod_level = 4
+	_main.bait_level = 2
+	_main.hook_level = 2
+	_main.lure_level = 2
+	_main._close_panel()
+	_main._set_dev_attrs_open(true)
+	await _settle(2)
+	_snap("panel_stats_debug.png")
+	_main.test_mode = false
 
 	# 3b) 多钓点：解锁全部 → 钓点页签 + 切到静水湖泊看 HUD 钓点角标
 	_main.lifetime_catches = 400

@@ -15,6 +15,8 @@ class_name SaveSystem
 ## v15 数值 P1：scales(彩鳞——重复变体折算的定向兑换货币)、yest_income(昨日卖鱼收入——周赛/
 ##     周目标奖励锚)、competition.wins(巨物赛累计夺金，跨周携带)。旧档全部默认 0，无损迁移。
 ## v16 帧率默认 30→120：≤v15 档的 max_fps=30 视为旧默认、一次性迁到 120（v16 起选 30 被尊重）。
+## v17 独立速度装备：reel_level(绕线轮等级，提供 speed 属性并缩短一竿周期)。旧档默认 0，无损迁移。
+## v18 属性装备扩展：鱼线/浮漂/探鱼器/钓鱼笔记/钓鱼手套等级。旧档默认 0，无损迁移。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -28,9 +30,15 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 16,   # 15→16：帧率默认 30→120（≤v15 档里的 30 视为旧默认、一次性迁移）
+		"ver": 18,   # 17→18：新增五条属性装备等级线
 		"coins": g.coins,
 		"rod_level": g.rod_level,
+		"reel_level": g.reel_level,
+		"fish_line_level": g.fish_line_level,
+		"bobber_level": g.bobber_level,
+		"sonar_level": g.sonar_level,
+		"notebook_level": g.notebook_level,
+		"gloves_level": g.gloves_level,
 		"bag_level": g.bag_level,
 		"bait": g.bait_level,
 		"hook": g.hook_level,
@@ -128,6 +136,12 @@ static func read_file(path: String) -> Variant:
 static func apply(g, data: Dictionary) -> void:
 	g.coins = int(data.get("coins", 0))
 	g.rod_level = max(1, int(data.get("rod_level", 1)))
+	g.reel_level = maxi(0, int(data.get("reel_level", 0)))
+	g.fish_line_level = maxi(0, int(data.get("fish_line_level", 0)))
+	g.bobber_level = maxi(0, int(data.get("bobber_level", 0)))
+	g.sonar_level = maxi(0, int(data.get("sonar_level", 0)))
+	g.notebook_level = maxi(0, int(data.get("notebook_level", 0)))
+	g.gloves_level = maxi(0, int(data.get("gloves_level", 0)))
 	g.bag_level = max(1, int(data.get("bag_level", 1)))  # v1 无此字段 → 1
 	g.bait_level = clampi(int(data.get("bait", 0)), 0, FishData.BAITS.size() - 1)  # v2 及更早 → 蚯蚓
 	g.hook_level = clampi(int(data.get("hook", 0)), 0, FishData.HOOKS.size() - 1)  # 旧档 → 基础钩

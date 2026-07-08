@@ -116,7 +116,7 @@ func _run() -> void:
 	print("=== 桌面宠物（小馋猫）===")
 	await _check_pet()
 
-	print("=== 存档 v11/v12 往返 / 旧档迁移 ===")
+	print("=== 存档 v11/v12/v17 往返 / 旧档迁移 ===")
 	await _check_save_v11()
 
 	print("=== 主界面入口收敛（点金币开面板）===")
@@ -697,6 +697,7 @@ func _check_pet() -> void:
 
 
 ## 存档 v11：dex 首捕日期 + 专注/宠物计数往返；v10→v11 无损迁移。
+## 存档 v17：dex 破纪录日期 wd 往返；v16(六元组，无 wd)→v17 无损迁移。
 func _check_save_v11() -> void:
 	var path := ProjectSettings.globalize_path(TEST_SAVE)
 	if FileAccess.file_exists(TEST_SAVE):
@@ -706,7 +707,8 @@ func _check_save_v11() -> void:
 	g1.save_path = TEST_SAVE
 	root.add_child(g1)
 	await process_frame
-	g1.dex = {"koi": {"n": 3, "w": 5.0, "big": true, "perf": false, "vmask": (1 << 2), "fd": "2026-06-15"}}
+	g1.dex = {"koi": {"n": 3, "w": 5.0, "big": true, "perf": false, "vmask": (1 << 2),
+		"fd": "2026-06-15", "wd": "2026-06-18"}}   # v17：wd 破纪录日期
 	g1.display = [{"id": "koi", "w": 5.0, "v": 1600, "q": 1, "lock": false, "var": 2}]
 	g1.focus_minutes_total = 137.5
 	g1.focus_reward_today = 2
@@ -725,6 +727,7 @@ func _check_save_v11() -> void:
 	root.add_child(g2)
 	await process_frame
 	_assert(str(g2.dex["koi"].get("fd", "")) == "2026-06-15", "v11 应恢复 dex 首捕日期")
+	_assert(str(g2.dex["koi"].get("wd", "")) == "2026-06-18", "v17 应恢复 dex 破纪录日期（详情卡「破纪录于」）")
 	_assert(g2.display.size() == 1 and str(g2.display[0]["id"]) == "koi", "v11 应恢复缸内鱼")
 	_assert(absf(g2.focus_minutes_total - 137.5) < 0.01, "v11 应恢复累计专注分钟")
 	_assert(g2.focus_reward_today == 2 and g2.focus_pending == 1, "v11 应恢复专注奖励计数/挂起")
@@ -763,7 +766,16 @@ func _check_save_v11() -> void:
 	_assert(g3.lure_level == 0, "旧档无 lure 字段 → 应默认无窝料(0)")
 	_assert(g3.max_fps == 120, "旧档无帧率字段 → 应默认 120（v16 起流畅优先）")
 	_assert(is_equal_approx(g3.ui_scale, 1.0), "旧档无界面缩放字段 → 应默认 1.0")
-	print("  存档 v11/v12：dex首捕/专注/宠物/诱饵 往返 + 旧档无损迁移 通过")
+	_assert(str(g3.dex["kaluga"].get("wd", "x")) == "", "v10 dex 无 wd → 迁移默认空")
+	# v16 → v17 迁移：dex 六元组（有 fd、无 wd）→ wd 默认空串，fd/vmask 无损
+	var v16: Dictionary = SaveSystem.collect(g3)
+	v16["ver"] = 16
+	v16["dex"] = {"kaluga": [2, 81.0, 1, 0, (1 << 3), "2026-06-01"]}   # v16 六元组，无 wd
+	SaveSystem.apply(g3, v16)
+	_assert(str(g3.dex["kaluga"].get("wd", "x")) == "", "v16 dex 无 wd → 迁移默认空")
+	_assert(str(g3.dex["kaluga"].get("fd", "")) == "2026-06-01", "v16→v17 应保留 dex 首捕日期")
+	_assert(int(g3.dex["kaluga"].get("vmask", 0)) == (1 << 3), "v16→v17 应保留 dex 变体掩码")
+	print("  存档 v11/v12/v17：dex首捕+破纪录日期/专注/宠物/诱饵 往返 + 旧档无损迁移 通过")
 	g3.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(path)
@@ -1010,7 +1022,7 @@ func _check_autosell() -> void:
 	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
 	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 16, "存档版本应为 v16")
+	_assert(int(d["ver"]) == 17, "存档版本应为 v17")
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0

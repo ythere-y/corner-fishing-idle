@@ -15,6 +15,8 @@ class_name SaveSystem
 ## v15 数值 P1：scales(彩鳞——重复变体折算的定向兑换货币)、yest_income(昨日卖鱼收入——周赛/
 ##     周目标奖励锚)、competition.wins(巨物赛累计夺金，跨周携带)。旧档全部默认 0，无损迁移。
 ## v16 帧率默认 30→120：≤v15 档的 max_fps=30 视为旧默认、一次性迁到 120（v16 起选 30 被尊重）。
+## v17 修 bug：dex 第 7 元 wd(刷新最大体重的日期，鱼种详情卡「破纪录于」用)。此前只存 6 元、
+##     wd 每次重启即丢，详情卡必显「—」。旧档默认 wd=""，无损迁移（新旧代码可互读）。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -28,7 +30,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 16,   # 15→16：帧率默认 30→120（≤v15 档里的 30 视为旧默认、一次性迁移）
+		"ver": 17,   # 16→17：dex 补第 7 元 wd（破纪录日期，此前漏序列化）
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"bag_level": g.bag_level,
@@ -91,7 +93,8 @@ static func dex_to_save(g) -> Dictionary:
 			1 if bool(r.get("big", false)) else 0,
 			1 if bool(r.get("perf", false)) else 0,
 			int(r.get("vmask", 0)),       # v10：见过的稀有变体位掩码
-			str(r.get("fd", ""))]          # v11：首次捕获日期（水族箱纪录卡）
+			str(r.get("fd", "")),          # v11：首次捕获日期（水族箱纪录卡）
+			str(r.get("wd", ""))]          # v17：刷新最大体重的日期（鱼种详情卡「破纪录于」）
 	return out
 
 
@@ -162,7 +165,8 @@ static func apply(g, data: Dictionary) -> void:
 					"big": e.size() >= 3 and int(e[2]) == 1,
 					"perf": e.size() >= 4 and int(e[3]) == 1,
 					"vmask": int(e[4]) if e.size() >= 5 else 0,   # v10 变体掩码
-					"fd": str(e[5]) if e.size() >= 6 else ""}      # v11 首捕日期
+					"fd": str(e[5]) if e.size() >= 6 else "",      # v11 首捕日期
+					"wd": str(e[6]) if e.size() >= 7 else ""}      # v17 破纪录日期
 	elif dex_raw is Array:                   # v1~v3：仅 id 列表 → 纪录从头积累
 		for id in dex_raw:
 			if FishData.FISH.has(str(id)):

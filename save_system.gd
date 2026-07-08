@@ -80,6 +80,9 @@ static func collect(g) -> Dictionary:
 	if DisplayServer.get_name() != "headless":
 		var wp := DisplayServer.window_get_position()
 		data["win_pos"] = [wp.x, wp.y]
+		if g._widget_pos != null:
+			var gp: Vector2 = g._widget_pos
+			data["widget_pos"] = [gp.x, gp.y]
 	return data
 
 
@@ -259,6 +262,9 @@ static func apply(g, data: Dictionary) -> void:
 	var wp: Variant = data.get("win_pos", null)
 	if wp is Array and wp.size() >= 2:
 		g._saved_win_pos = Vector2i(int(wp[0]), int(wp[1]))
+	var widget_pos: Variant = data.get("widget_pos", null)
+	if widget_pos is Array and widget_pos.size() >= 2:
+		g._widget_pos = Vector2(float(widget_pos[0]), float(widget_pos[1]))
 	apply_spots(g, data)
 
 

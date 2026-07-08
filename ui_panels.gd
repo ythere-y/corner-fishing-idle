@@ -36,9 +36,9 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 	elif kind == "catch" and g.display_mode != "immersive":
 		title_str = _section_name(g._catch_tab)   # 带框 sheet 标题=区名（CD）
 	var card := make_card(g, title_str)
-	# 沉浸模式恢复拖拽位置；带框 sheet 固定锚位不恢复。
+	# 恢复拖拽位置；开场/离线这类引导面板保持居中。
 	# 【修改】story/character 同样是开场引导性质的固定面板，不恢复上次拖拽位置。
-	if g.display_mode == "immersive" and kind != "offline" and kind != "intro" \
+	if kind != "offline" and kind != "intro" \
 			and kind != "story" and kind != "character" and g._panel_saved_pos != null:
 		card.position = clamp_panel_position(g, g._panel_saved_pos, card.custom_minimum_size)
 	var v: VBoxContainer = card.get_node("M/V")
@@ -58,13 +58,8 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 	if keep_scroll > 0:
 		_restore_scroll(g, card, keep_scroll)
 	set_interactive_full(g, true)
-	# 带框 sheet 定位：首次打开从下方滑入；切页签直接就位（不重播动画，否则会停在屏下看不见）。
 	if g.display_mode != "immersive":
 		g._set_nav_solid(true)   # 底栏变暗，与 sheet 连成一片（无断裂）
-		if was_open:
-			card.position.y = 0.0
-		else:
-			_animate_sheet_in(g, card)
 
 
 static func close_panel(g: CornerFishing, keep_interactive := false) -> void:
@@ -124,9 +119,12 @@ static func set_interactive_full(g: CornerFishing, full: bool) -> void:
 	# 带框模式：整窗永远可交互、不做羽化椭圆裁剪。
 	# （否则关面板会 set_interactive_full(false)→裁成椭圆，带框窗"显示不全"复发。）
 	if g.display_mode != "immersive":
-		var wsf := Vector2(DisplayServer.window_get_size())
-		DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
-			Vector2(0, 0), Vector2(wsf.x, 0), wsf, Vector2(0, wsf.y)]))
+		if full:
+			var wsf := Vector2(DisplayServer.window_get_size())
+			DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
+				Vector2(0, 0), Vector2(wsf.x, 0), wsf, Vector2(0, wsf.y)]))
+		else:
+			g._update_widget_passthrough()
 		return
 	if full:
 		var ws := Vector2(DisplayServer.window_get_size())
@@ -298,15 +296,20 @@ static func _make_sheet(g: CornerFishing, title: String) -> Control:
 	var hb := HBoxContainer.new()
 	hb.custom_minimum_size = Vector2(0, 30)
 	hb.add_theme_constant_override("separation", 8)
+	hb.mouse_filter = Control.MOUSE_FILTER_STOP
+	hb.mouse_default_cursor_shape = Control.CURSOR_MOVE
+	hb.gui_input.connect(func(e: InputEvent) -> void: panel_drag_input(g, e, p))
 	var tl := Label.new()
 	tl.text = title
 	tl.add_theme_font_size_override("font_size", DT.FS_TITLE)
 	tl.add_theme_font_override("font", g._serif)
 	tl.add_theme_color_override("font_color", DT.TEXT_TITLE)
 	tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(tl)
 	var sp := Control.new()
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(sp)
 	var cb := Button.new()
 	cb.text = "×"
@@ -346,7 +349,7 @@ static func _section_name(tab: int) -> String:
 
 static func make_card(g: CornerFishing, title: String) -> Control:
 	if g.display_mode != "immersive":
-		return _make_sheet(g, title)
+		return _make_framed_modal(g, title)
 	var p := PanelContainer.new()
 	p.z_index = 50
 	p.position = ((Vector2(g.WIN) - CARD_SIZE) * 0.5).round()
@@ -387,6 +390,61 @@ static func make_card(g: CornerFishing, title: String) -> Control:
 	cb.custom_minimum_size = Vector2(28, 26)
 	cb.add_theme_font_size_override("font_size", 18)
 	cb.add_theme_color_override("font_color", Color(0.78, 0.74, 0.66))
+	cb.pressed.connect(func() -> void: Audio.play_ui("ui_click"))
+	cb.pressed.connect(g._close_panel)
+	hb.add_child(cb)
+	v.add_child(hb)
+	return p
+
+
+static func _make_framed_modal(g: CornerFishing, title: String) -> Control:
+	var modal_size := Vector2(680, 640)
+	var p := PanelContainer.new()
+	p.z_index = 50
+	p.position = ((Vector2(g.WIN) - modal_size) * 0.5).round()
+	p.custom_minimum_size = modal_size
+	p.size = modal_size
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	p.add_theme_stylebox_override("panel", panel_bg_style())
+	var m := MarginContainer.new()
+	m.name = "M"
+	m.set_anchors_preset(Control.PRESET_FULL_RECT)
+	m.add_theme_constant_override("margin_left", 18)
+	m.add_theme_constant_override("margin_top", 16)
+	m.add_theme_constant_override("margin_right", 18)
+	m.add_theme_constant_override("margin_bottom", 16)
+	p.add_child(m)
+	var v := VBoxContainer.new()
+	v.name = "V"
+	v.add_theme_constant_override("separation", 10)
+	m.add_child(v)
+	var hb := HBoxContainer.new()
+	hb.custom_minimum_size = Vector2(0, 30)
+	hb.add_theme_constant_override("separation", 8)
+	hb.mouse_filter = Control.MOUSE_FILTER_STOP
+	hb.mouse_default_cursor_shape = Control.CURSOR_MOVE
+	hb.gui_input.connect(func(e: InputEvent) -> void: panel_drag_input(g, e, p))
+	var tl := Label.new()
+	tl.text = title
+	tl.add_theme_font_size_override("font_size", DT.FS_TITLE)
+	tl.add_theme_font_override("font", g._serif)
+	tl.add_theme_color_override("font_color", DT.TEXT_TITLE)
+	tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(tl)
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(sp)
+	var cb := Button.new()
+	cb.text = "×"
+	cb.flat = true
+	cb.focus_mode = Control.FOCUS_NONE
+	cb.tooltip_text = "关闭"
+	cb.custom_minimum_size = Vector2(30, 30)
+	cb.add_theme_font_size_override("font_size", 18)
+	cb.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 	cb.pressed.connect(func() -> void: Audio.play_ui("ui_click"))
 	cb.pressed.connect(g._close_panel)
 	hb.add_child(cb)

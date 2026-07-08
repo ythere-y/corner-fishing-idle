@@ -8,8 +8,7 @@ class_name CornerFishing
 @onready var coins_label: Label = $HUD/Root/Coins
 @onready var toast_label: Label = $HUD/Root/Toast
 
-# 窗口比美术画布(520x400)更大，多出的空间透明、留给弹出面板自由展开；
-# 场景靠 SCENE_OFF 偏移钉在窗口右下角（视觉上仍是角落小挂件）。
+# 主窗口保持大画布；挂机画面固定在右下角，复杂面板在主窗口中央弹出。
 const WIN := Vector2i(1040, 720)
 const ART := Vector2(520, 400)
 const SCENE_OFF := Vector2(520, 320)  # = WIN - ART，场景绘制/按钮/落水点统一加此偏移
@@ -103,6 +102,7 @@ const UI_SCALE_MIN := 0.5                    # 自由缩放下限：0.5=520×360
 const UI_SCALE_MAX := 2.5                    # 自由缩放绝对上限（实际还会再夹到屏幕可用区）
 var ui_scale := 1.0              # 当前界面缩放倍率（连续值）；带框模式整窗等比缩放
 var _win_resize_guard := false   # 程序内主动改窗口尺寸时置位（仅 _set_ui_scale 用，保留以防误触发监听）
+var _widget_pos = null           # Variant：Vector2 或 null；透明覆盖窗内挂机组件左上角
 # —— 自绘缩放手柄（无边框窗口没有系统边框，照「自绘移动」的思路补一套缩放）——
 var _rz_active := false           # 是否正在拖拽缩放
 var _rz_anchor := Vector2.ZERO    # 锚点归一化坐标（拖动时该点在屏幕上不动）∈ {0, .5, 1}²
@@ -136,6 +136,8 @@ var _saved_win_pos = null   # Variant：Vector2i 或 null（无存档位置则�
 var _panel_dragging := false
 var _panel_drag_offset := Vector2.ZERO
 var _panel_saved_pos = null  # Variant：Vector2 或 null，记住弹出面板被拖到的位置
+var _hud_chips_box: HBoxContainer = null
+var _resize_grips: Array = []
 
 # —— 流动鱼贩（动森 CJ 模式）：随机出现的限时收购，卖价 ×1.5 ——
 const MERCHANT_MULT := 1.5
@@ -185,7 +187,7 @@ var _window_focused := true            # 窗口是否聚焦（FOCUS_IN/OUT 通�
 var _focus_away_t := 0.0               # 当前连续失焦累计秒（宽限窗外操作折算保留 80%）
 var _focus_grace_t := 0.0              # 回焦宽限窗剩余秒：窗内点击不折算专注（容纳快速卖鱼一趟）
 var _focus_granted := 0                # 本段已「实际发放」的最高档（0=无 1=25min 2=50min）——
-                                       # 记事实而非从时长反推：封顶期间越阈未发的档不能被误标已发
+									   # 记事实而非从时长反推：封顶期间越阈未发的档不能被误标已发
 var focus_pending := 0                 # 待兑奖励等级（0 无 / 1 高星 / 2 鎏金），下一竿消费
 var focus_minutes_total := 0.0         # 累计专注分钟（成就/统计）
 var focus_reward_today := 0            # 今日已发奖励次数（封顶）
@@ -219,9 +221,10 @@ func _ready() -> void:
 	# 也保证结算前 Spots/Weather 读到真实时段而非默认白昼。
 	day_phase = Weather.current_phase()
 	_load_save()
+	_layout_widget()
 	_refresh_unlocks()  # 载入期静默补登已满足解锁的钓点
 	_ensure_day_stat()  # 先沉淀"昨日收入"锚再重建周字典——跨周首启是周奖励重建的主路径，
-	                    # 顺序反了会把锚读成"上上个游玩日"（对抗审查 should-fix）
+						# 顺序反了会把锚读成"上上个游玩日"（对抗审查 should-fix）
 	_ensure_daily_order()
 	_ensure_weekly()
 	_ensure_competition()
@@ -270,17 +273,21 @@ func _setup_window() -> void:
 			_place_corner()  # 无存档位置 / 离屏 → 回右下角
 		_update_passthrough()
 	else:
-		# 带框普通窗口：不透明、带边框标题栏、不置顶、不穿透、居中
-		RenderingServer.set_default_clear_color(FRAMED_BG)
-		w.transparent_bg = false
-		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false)
-		w.borderless = false
-		w.always_on_top = false
-		UIPanels.set_interactive_full(self, true)  # 整窗矩形穿透：复位窗口区域、永不裁椭圆
+		# 透明覆盖窗：普通无边框窗口铺满当前屏幕可用区，不触发 macOS 系统全屏 Space。
+		RenderingServer.set_default_clear_color(Color(0, 0, 0, 0))
+		w.transparent_bg = true
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true)
+		w.borderless = true
+		w.always_on_top = true
 		await get_tree().process_frame
-		var scr := DisplayServer.screen_get_usable_rect()
-		var ws := DisplayServer.window_get_size()
-		DisplayServer.window_set_position(scr.position + (Vector2i(scr.size) - ws) / 2)
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		var usable := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
+		DisplayServer.window_set_position(usable.position)
+		DisplayServer.window_set_size(usable.size)
+		await get_tree().process_frame
+		_widget_pos = null
+		_layout_widget()
+		UIPanels.set_interactive_full(self, false)
 
 
 # —— 显示模式布置 ——
@@ -305,14 +312,63 @@ func _apply_display_mode() -> void:
 			fmat.set_shader_parameter("core", FEATHER_CORE)
 	else:
 		painter.material = null   # 关羽化，场景实心填窗
-		# 场景向四周各溢出 FRAMED_OVERSCAN 像素：原本左/右/底边正好压在窗口边缘，
-		# 在分数 DPI / 分数缩放的显示器上，那一列会被线性采样拉成一条浅"描边"接缝
-		# （双屏中只有缩放为分数的那台出现）。把边缘推到屏外 → 可见边永远是内部内容，无缝。
-		var os := FRAMED_OVERSCAN
-		var s := (float(WIN.x) + 2.0 * os) / ART.x   # 横向铺满窗宽 + 两侧各溢出 os
-		painter.scale = Vector2(s, s)
-		# 底对齐窗口底（场景铺到导航后面，底栏浮在场景上、无深色板）；左/底各溢出 os。
-		painter.position = Vector2(-os, float(WIN.y) + os - ART.y * s)
+		_layout_widget()
+
+
+func _stage_size() -> Vector2:
+	return Vector2(WIN)
+
+
+func _widget_size() -> Vector2:
+	return ART * ui_scale
+
+
+func _default_widget_pos() -> Vector2:
+	var margin := Vector2(24, 24)
+	return _stage_size() - _widget_size() - margin
+
+
+func _clamp_widget_pos(pos: Vector2) -> Vector2:
+	var max_pos := _stage_size() - _widget_size()
+	return Vector2(clampf(pos.x, 0.0, maxf(0.0, max_pos.x)),
+		clampf(pos.y, 0.0, maxf(0.0, max_pos.y)))
+
+
+func _ensure_widget_pos() -> void:
+	if _widget_pos == null:
+		_widget_pos = _default_widget_pos()
+	_widget_pos = _clamp_widget_pos(_widget_pos)
+
+
+func _widget_point(p: Vector2) -> Vector2:
+	_ensure_widget_pos()
+	return (_widget_pos as Vector2) + p * ui_scale
+
+
+func _layout_widget() -> void:
+	if display_mode == "immersive":
+		return
+	_ensure_widget_pos()
+	var s := Vector2(ui_scale, ui_scale)
+	painter.scale = s
+	painter.position = _widget_pos as Vector2
+	toast_label.position = _widget_point(Vector2((ART.x - 440.0) * 0.5, ART.y - FRAMED_CONSOLE_H - 120.0))
+	toast_label.scale = s
+	if is_instance_valid(_hud_chips_box):
+		_hud_chips_box.position = _widget_point(Vector2(16, 12))
+		_hud_chips_box.scale = s
+	if is_instance_valid(_flag_box):
+		_flag_box.position = _widget_point(Vector2(0, 12))
+		_flag_box.size = Vector2(ART.x - 16.0, 0)
+		_flag_box.scale = s
+	if is_instance_valid(_nav_bar):
+		_nav_bar.position = _widget_point(Vector2(0, ART.y - FRAMED_CONSOLE_H))
+		_nav_bar.size = Vector2(ART.x, FRAMED_CONSOLE_H)
+		_nav_bar.scale = s
+	_update_action_button()
+	_layout_resize_grips()
+	if _panel_kind == "":
+		UIPanels.set_interactive_full(self, false)
 
 
 ## 场景内 art 坐标 → 屏幕坐标（含带框缩放/偏移），飘字/落水定位用。
@@ -335,11 +391,11 @@ func _setup_immersive_hud() -> void:
 # —— 带框 App 外壳：底部导航 console + 起竿按钮 + 顶部 HUD ——
 func _build_framed_chrome() -> void:
 	coins_label.visible = false   # 带框用图标胶囊替代纯文字 HUD
-	toast_label.position = Vector2((float(WIN.x) - 440) * 0.5, float(WIN.y) - FRAMED_CONSOLE_H - 120)
 	_build_hud_chips()
 	_build_status_flags()
 	_build_bottom_nav()
 	_build_action_button()
+	_layout_widget()
 
 
 ## 图标胶囊：[圆角底 + 图标 + 数值]，返回 [PanelContainer, 数值Label]
@@ -382,9 +438,9 @@ func _make_hud_chip(icon_path: String) -> Array:
 
 func _build_hud_chips() -> void:
 	var box := HBoxContainer.new()
-	box.position = Vector2(16, 12)
 	box.add_theme_constant_override("separation", 8)
 	ui_root.add_child(box)
+	_hud_chips_box = box
 	var coin := _make_hud_chip("res://assets/art/ui/icon_coin.png")
 	box.add_child(coin[0])
 	_chip_coin = coin[1]
@@ -450,10 +506,8 @@ func _build_status_flags() -> void:
 	var box := VBoxContainer.new()
 	box.name = "FlagBox"
 	box.add_theme_constant_override("separation", 5)
-	box.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	box.offset_left = 0
-	box.offset_right = -16
-	box.offset_top = 12
+	box.custom_minimum_size = Vector2(ART.x - 16.0, 0)
+	box.size = Vector2(ART.x - 16.0, 0)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_root.add_child(box)
 	_flag_box = box
@@ -507,9 +561,8 @@ func _update_framed_hud() -> void:
 func _build_bottom_nav() -> void:
 	var bar := PanelContainer.new()
 	bar.name = "BottomNav"
-	bar.position = Vector2(0, float(WIN.y) - FRAMED_CONSOLE_H)
-	bar.custom_minimum_size = Vector2(float(WIN.x), FRAMED_CONSOLE_H)
-	bar.size = Vector2(float(WIN.x), FRAMED_CONSOLE_H)
+	bar.custom_minimum_size = Vector2(ART.x, FRAMED_CONSOLE_H)
+	bar.size = Vector2(ART.x, FRAMED_CONSOLE_H)
 	bar.add_theme_stylebox_override("panel", _nav_idle_sb())  # 闲置半透明暗底，图标不再糊进浅色场景
 	ui_root.add_child(bar)
 	_nav_bar = bar
@@ -540,6 +593,7 @@ func _build_bottom_nav() -> void:
 		item.add_theme_constant_override("separation", 2)
 		item.mouse_filter = Control.MOUSE_FILTER_STOP
 		item.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		item.tooltip_text = n[0]
 		# 图标：用 CenterContainer 保证水平居中；TextureRect 固定尺寸 + 等比不变形（不再用绝对定位）
 		var icon_box := CenterContainer.new()
 		icon_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -558,17 +612,6 @@ func _build_bottom_nav() -> void:
 				ic.add_child(badge)
 				_nav_badges[tab] = badge
 		item.add_child(icon_box)
-		var lbl := Label.new()
-		lbl.text = n[0]
-		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL   # 满宽 → 文字真正居中在该 tab 下方
-		lbl.add_theme_font_override("font", _font_bold)
-		lbl.add_theme_font_size_override("font_size", 11)   # CD .nav button 11
-		lbl.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
-		lbl.add_theme_color_override("font_outline_color", Color(0.04, 0.05, 0.04, 0.92))
-		lbl.add_theme_constant_override("outline_size", 4)
-		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		item.add_child(lbl)
 		item.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 				Audio.play_ui("ui_click")
@@ -632,7 +675,6 @@ func _build_action_button() -> void:
 	b.name = "ActionBtn"
 	b.custom_minimum_size = Vector2(220, 48)
 	b.size = Vector2(220, 48)
-	b.position = Vector2((float(WIN.x) - 220) * 0.5, float(WIN.y) - FRAMED_CONSOLE_H - 66)
 	b.focus_mode = Control.FOCUS_NONE
 	b.add_theme_font_override("font", _font_bold)       # weight 700 → embolden（落地变通）
 	b.add_theme_font_size_override("font_size", 15)     # CD .action 15
@@ -699,8 +741,9 @@ func _update_action_button() -> void:
 	var bh := 26.0 if quiet else 48.0
 	_action_btn.custom_minimum_size = Vector2(bw, bh)
 	_action_btn.size = Vector2(bw, bh)
-	_action_btn.position = Vector2((float(WIN.x) - bw) * 0.5,
-		float(WIN.y) - FRAMED_CONSOLE_H - 66.0 + (11.0 if quiet else 0.0))
+	_action_btn.position = _widget_point(Vector2((ART.x - bw) * 0.5,
+		ART.y - FRAMED_CONSOLE_H - 66.0 + (11.0 if quiet else 0.0)))
+	_action_btn.scale = Vector2(ui_scale, ui_scale)
 	_action_btn.add_theme_font_size_override("font_size", 12 if quiet else 15)
 	_action_btn.text = txt
 	_action_btn.add_theme_color_override("font_color", fg)
@@ -757,6 +800,16 @@ func _update_passthrough() -> void:
 	DisplayServer.window_set_mouse_passthrough(pts)
 
 
+func _update_widget_passthrough() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	_ensure_widget_pos()
+	var p := _widget_pos as Vector2
+	var s := _widget_size()
+	DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
+		p, p + Vector2(s.x, 0), p + s, p + Vector2(0, s.y)]))
+
+
 # 任意操作刷新"无操作"计时；宽限窗外的点击/按键把当前专注段折算保留 80%（你回来动手了，
 # 但一趟快速卖鱼不该没收全部进度——回焦 60s 宽限窗见 _notification 的 FOCUS_IN 分支）。
 func _input(event: InputEvent) -> void:
@@ -781,20 +834,34 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 
-# 拖动窗口：在场景空白处按住左键拖拽（按钮/面板会先消费事件，不会误触发）。
+# 拖动挂机组件：在场景空白处按住左键拖拽（按钮/面板会先消费事件，不会误触发）。
 func _unhandled_input(event: InputEvent) -> void:
 	if DisplayServer.get_name() == "headless":
 		return
-	# 两种模式都允许「按住场景空白处拖动窗口」（带框也常没标题栏可拖；面板/导航会先消费点击）。
+	if display_mode == "immersive":
+		# 沉浸模式仍保留旧的整窗拖动。
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				_dragging = true
+				_drag_grab = DisplayServer.mouse_get_position() - DisplayServer.window_get_position()
+			elif _dragging:
+				_dragging = false
+				_save()
+		elif event is InputEventMouseMotion and _dragging:
+			DisplayServer.window_set_position(DisplayServer.mouse_get_position() - _drag_grab)
+		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
-			_dragging = true
-			_drag_grab = DisplayServer.mouse_get_position() - DisplayServer.window_get_position()
+			var mp := get_viewport().get_mouse_position()
+			if Rect2(_widget_pos as Vector2, _widget_size()).has_point(mp):
+				_dragging = true
+				_drag_grab = Vector2i(mp - (_widget_pos as Vector2))
 		elif _dragging:
 			_dragging = false
 			_save()
 	elif event is InputEventMouseMotion and _dragging:
-		DisplayServer.window_set_position(DisplayServer.mouse_get_position() - _drag_grab)
+		_widget_pos = _clamp_widget_pos(get_viewport().get_mouse_position() - Vector2(_drag_grab))
+		_layout_widget()
 
 
 # ============================ 钓鱼循环 ============================
@@ -2149,8 +2216,8 @@ func _set_max_fps(val: int) -> void:
 func _max_scale_for_screen() -> float:
 	if DisplayServer.get_name() == "headless":
 		return UI_SCALE_MAX
-	var u := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
-	var fit := minf(float(u.size.x) / float(WIN.x), float(u.size.y) / float(WIN.y)) * 0.98
+	var st := _stage_size()
+	var fit := minf(st.x / ART.x, st.y / ART.y) * 0.98
 	return clampf(fit, UI_SCALE_MIN, UI_SCALE_MAX)
 
 
@@ -2158,23 +2225,14 @@ func _max_scale_for_screen() -> float:
 ## 以原中心为锚夹到屏幕。canvas_items 拉伸 → 成品图整体缩放，含小字一起变大，布局不变、不溢出。
 ## 沉浸模式的羽化/穿透按设计空间标定，不在此缩放（避免裁切错位）。自由拖拽缩放见 _build_resize_grips。
 func _set_ui_scale(val: float) -> void:
-	if DisplayServer.get_name() == "headless" or display_mode != "framed":
+	if DisplayServer.get_name() == "headless" or display_mode == "immersive":
 		ui_scale = clampf(val, UI_SCALE_MIN, UI_SCALE_MAX)
 		return
+	_ensure_widget_pos()
+	var center := (_widget_pos as Vector2) + _widget_size() * 0.5
 	ui_scale = clampf(val, UI_SCALE_MIN, _max_scale_for_screen())
-	var old_size := DisplayServer.window_get_size()
-	var center := Vector2(DisplayServer.window_get_position()) + Vector2(old_size) * 0.5   # 以原中心为锚
-	var new_size := Vector2i(Vector2(WIN) * ui_scale)
-	_win_resize_guard = true
-	DisplayServer.window_set_size(new_size)
-	_win_resize_guard = false
-	var usable := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
-	var pos := Vector2i(center - Vector2(new_size) * 0.5)
-	pos.x = clampi(pos.x, usable.position.x, usable.position.x + maxi(0, usable.size.x - new_size.x))
-	pos.y = clampi(pos.y, usable.position.y, usable.position.y + maxi(0, usable.size.y - new_size.y))
-	DisplayServer.window_set_position(pos)
-	_saved_win_pos = null
-	UIPanels.set_interactive_full(self, true)   # 整窗交互区跟随新尺寸
+	_widget_pos = _clamp_widget_pos(center - _widget_size() * 0.5)
+	_layout_widget()
 
 
 ## 自绘缩放手柄：无边框窗口没有系统边框可拖，于是在画布四边四角放隐形热区 Control。
@@ -2184,8 +2242,8 @@ func _build_resize_grips() -> void:
 		return
 	var t := 6.0    # 边热区厚度
 	var c := 16.0   # 角热区边长
-	var w := float(WIN.x)
-	var h := float(WIN.y)
+	var w := ART.x
+	var h := ART.y
 	# [pos_x, pos_y, size_x, size_y, 光标, 锚点归一化(拖动不动点), 驱动轴向]
 	var defs := [
 		[0.0, c, t, h - 2 * c,        Control.CURSOR_HSIZE,     Vector2(1, 0.5), Vector2(-1, 0)],   # 左
@@ -2199,51 +2257,61 @@ func _build_resize_grips() -> void:
 	]
 	for d in defs:
 		var grip := Control.new()
-		grip.position = Vector2(d[0], d[1])
-		grip.size = Vector2(d[2], d[3])
 		grip.mouse_filter = Control.MOUSE_FILTER_STOP
 		grip.mouse_default_cursor_shape = d[4]
+		grip.set_meta("base_pos", Vector2(d[0], d[1]))
+		grip.set_meta("base_size", Vector2(d[2], d[3]))
 		grip.gui_input.connect(_on_grip_input.bind(d[5], d[6], d[4]))
 		ui_root.add_child(grip)
+		_resize_grips.append(grip)
+	_layout_resize_grips()
+
+
+func _layout_resize_grips() -> void:
+	if _resize_grips.is_empty():
+		return
+	for grip in _resize_grips:
+		if not is_instance_valid(grip):
+			continue
+		var bp: Vector2 = grip.get_meta("base_pos")
+		var bs: Vector2 = grip.get_meta("base_size")
+		grip.position = _widget_point(bp)
+		grip.size = bs * ui_scale
 
 
 ## 手柄被按下 → 记录锚点/轴向/起始几何，进入缩放拖拽（后续移动/松手在 _input 全局处理）。
 func _on_grip_input(event: InputEvent, anchor_norm: Vector2, dir: Vector2, cursor: int) -> void:
-	if _rz_active or display_mode != "framed":
+	if _rz_active or display_mode == "immersive":
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		_rz_active = true
 		_rz_anchor = anchor_norm
 		_rz_dir = dir
-		_rz_start_mouse = DisplayServer.mouse_get_position()
-		_rz_start_pos = DisplayServer.window_get_position()
-		_rz_start_size = DisplayServer.window_get_size()
+		_rz_start_mouse = Vector2i(get_viewport().get_mouse_position())
+		_rz_start_pos = Vector2i(_widget_pos as Vector2)
+		_rz_start_size = Vector2i(_widget_size())
 		Input.set_default_cursor_shape(cursor)
 
 
 ## 拖拽缩放：按驱动轴推算等比缩放，锚点（拖动不动的那角/边）屏幕坐标保持不变。
 ## 我们自己接管鼠标 → 无系统模态循环，实时改尺寸不打架。
 func _apply_grip_resize(mouse_global: Vector2i) -> void:
-	var delta := Vector2(mouse_global - _rz_start_mouse)
+	var delta := get_viewport().get_mouse_position() - Vector2(_rz_start_mouse)
 	var raw_w := float(_rz_start_size.x) + _rz_dir.x * delta.x
 	var raw_h := float(_rz_start_size.y) + _rz_dir.y * delta.y
 	var sc := ui_scale
 	if _rz_dir.x != 0.0 and _rz_dir.y != 0.0:
-		sc = maxf(raw_w / float(WIN.x), raw_h / float(WIN.y))   # 角：取较大轴，跟手
+		sc = maxf(raw_w / ART.x, raw_h / ART.y)   # 角：取较大轴，跟手
 	elif _rz_dir.x != 0.0:
-		sc = raw_w / float(WIN.x)
+		sc = raw_w / ART.x
 	else:
-		sc = raw_h / float(WIN.y)
+		sc = raw_h / ART.y
 	sc = clampf(sc, UI_SCALE_MIN, _max_scale_for_screen())
 	ui_scale = sc
-	var new_size := Vector2i(Vector2(WIN) * sc)
+	var new_size := Vector2(ART) * sc
 	var anchor_global := Vector2(_rz_start_pos) + Vector2(_rz_start_size) * _rz_anchor
-	var new_pos := Vector2i(anchor_global - Vector2(new_size) * _rz_anchor)
-	_win_resize_guard = true
-	DisplayServer.window_set_size(new_size)
-	DisplayServer.window_set_position(new_pos)
-	_win_resize_guard = false
-	UIPanels.set_interactive_full(self, true)
+	_widget_pos = _clamp_widget_pos(anchor_global - new_size * _rz_anchor)
+	_layout_widget()
 
 
 ## 专注/安静模式：停小动物事件 + 抑制飘字（_popup 已守卫）+ 场景轻微变暗。
@@ -2484,7 +2552,7 @@ func _offline_catch(elapsed: float) -> int:
 	var notable: Array = []
 	var lim_counts := {}
 	var oid := 0   # 本次结算的临时序号：结算尾部按"仍在篓中"回填 folded（_absorb_overflow 会换鱼入篓，
-	               # 折价路径 ≠ 真的被卖掉——按调用前满篓判定会把换进篓的珍稀错标"已兑金"）
+				   # 折价路径 ≠ 真的被卖掉——按调用前满篓判定会把换进篓的珍稀错标"已兑金"）
 	for s in _offline_phase_slices(elapsed):
 		var est_i := int(float(s["sec"]) / avg_interval * OFFLINE_EFFICIENCY)
 		if est_i <= 0:

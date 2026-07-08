@@ -29,7 +29,8 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 	close_panel(g, true)
 	# 【修改】新增 story / character 两个开场专用面板标题（背包客人设开场流程）；intro 标题随新项目名调整。
 	var titles := {"catch": "垂钓手册", "rod": "鱼竿 · 升级", "set": "设置", "offline": "离线小结",
-		"intro": "欢迎来到背包钓鱼手记", "story": "在开始之前……", "character": "这次是谁在路上？"}
+		"intro": "欢迎来到背包钓鱼手记", "story": "在开始之前……", "character": "这次是谁在路上？",
+		"capture": "号外 · 稀有入手！"}
 	var title_str := str(titles.get(kind, ""))
 	if kind == "fishdetail":
 		title_str = FishData.display_name(str(g._detail_fish)) + " · 详情"
@@ -51,6 +52,7 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 		"story": fill_story(g, v)          # 【新增】开场世界观动画
 		"character": fill_character(g, v)  # 【新增】选择背包客角色
 		"fishdetail": fill_fish_detail(g, v)
+		"capture": fill_capture_card(g, v)  # 稀有捕获卡（P0 好玩补丁）
 	g.ui_root.add_child(card)
 	g._panel = card
 	g._panel_kind = kind
@@ -516,6 +518,7 @@ static func fill_stats_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		["最大渔获", biggest],
 		["巨物纪录", "已钓到" if g.caught_giant else "尚无"],
 		["累计专注", "%d 分钟" % int(g.focus_minutes_total)],
+		["亲手起钩", "%d 条" % g.hand_catches],
 		["猫税", "被叼走 %d 条" % g.pet_steals],
 		["鱼贩合约", ("带走 %d 条 · +%d 金币" % [g.auto_sold_n, g.auto_sold_v]) if g.auto_sell_bought else "未签约"],
 		["鱼篓容量", "%d 格" % g._bag_capacity()],
@@ -667,10 +670,82 @@ static func spot_card(g: CornerFishing, sid: String) -> Control:
 		info.text = line
 		info.add_theme_color_override("font_color", DT.POSITIVE)
 	else:
-		info.text = "🔒 %s" % SpotData.unlock_text(sid)
+		# near-miss 可见化：静态解锁条件 + 当前进度「还差 N」——目标梯度效应，越接近越想挂
+		var lock_line := "🔒 %s" % SpotData.unlock_text(sid)
+		var up := SpotData.unlock_progress_pair(sid, g.lifetime_catches, g.lifetime_coins, g.dex.size())
+		if up.size() == 2 and int(up[1]) > 0:
+			lock_line += "　·　%d/%d，还差 %d" % [int(up[0]), int(up[1]),
+				maxi(0, int(up[1]) - int(up[0]))]
+		info.text = lock_line
 		info.add_theme_color_override("font_color", DT.BAG_FULL)
 	box.add_child(info)
 	return cell
+
+
+# ============================ 稀有捕获卡（P0 好玩补丁）============================
+
+## 鎏金/七彩入手的仪式面板：大图 + 衬线名 + 「1 in X」赔率徽章 + 保存 PNG。
+## 数据在 g._capture_card_data（_rare_ceremony 灌入）；只展示不结算——鱼已按正常流程入篓。
+static func fill_capture_card(g: CornerFishing, v: VBoxContainer) -> void:
+	var c: Dictionary = g._capture_card_data
+	if c.is_empty():
+		return
+	var vr := int(c.get("var", 0))
+	var q := int(c.get("q", 0))
+	var vcol := FishData.variant_color(vr)
+	var id := str(c.get("id", ""))
+	v.add_theme_constant_override("separation", DT.SP_2)
+
+	var icon := TextureRect.new()
+	icon.texture = g._fish_texture(id)
+	icon.custom_minimum_size = Vector2(0, 96)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	v.add_child(icon)
+
+	var nm := Label.new()
+	nm.text = FishData.variant_label(vr) + FishData.display_name(id)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.add_theme_font_size_override("font_size", DT.FS_HEAD + 4)
+	nm.add_theme_font_override("font", g._serif)
+	nm.add_theme_color_override("font_color", vcol)
+	v.add_child(nm)
+
+	var pills := HBoxContainer.new()
+	pills.alignment = BoxContainer.ALIGNMENT_CENTER
+	pills.add_theme_constant_override("separation", DT.CHIP_GAP)
+	pills.add_child(make_pill("全球约 1 / %d 竿" % FishData.variant_odds(vr), vcol, DT.INK_ON_GOLD))
+	if bool(c.get("hand", false)):
+		pills.add_child(make_pill("🎣 亲手起钩", DT.BRONZE, DT.INK_ON_GOLD))
+	v.add_child(pills)
+
+	v.add_child(_kv_row("体重", "%.2f kg%s" % [float(c.get("w", 0.0)),
+		("　·　" + FishData.size_tag(id, c["w"]).trim_suffix("·")) if FishData.size_tag(id, c["w"]) != "" else ""]))
+	v.add_child(_kv_row("卖价", "%d 金币" % int(c.get("v", 0))))
+	if q > 0:
+		v.add_child(_kv_row("品相", FishData.quality_label(q).trim_suffix("·")))
+	v.add_child(_kv_row("入手", Time.get_date_string_from_system()))
+
+	var btns := HBoxContainer.new()
+	btns.alignment = BoxContainer.ALIGNMENT_CENTER
+	btns.add_theme_constant_override("separation", DT.SP_3)
+	var keep := Button.new()
+	keep.text = "收下"
+	keep.custom_minimum_size = Vector2(120, 36)
+	apply_button_skin(keep, true)
+	keep.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		close_panel(g))
+	btns.add_child(keep)
+	var snap := Button.new()
+	snap.text = "📸 保存捕获卡"
+	snap.custom_minimum_size = Vector2(140, 36)
+	apply_button_skin(snap, false)
+	snap.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		g._save_capture_card())
+	btns.add_child(snap)
+	v.add_child(btns)
 
 
 # ============================ 鱼缸页（活水族箱）============================
@@ -1023,6 +1098,7 @@ static func fill_tasks_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		["最高品相", (str(FishData.QUALITY_NAMES[clampi(q, 0, 3)]) + "★".repeat(q)) if q > 0 else "普通"],
 		["巨物纪录", "已钓到" if g.caught_giant else "尚无"],
 		["累计专注", "%d 分钟" % int(g.focus_minutes_total)],
+		["亲手起钩", "%d 条" % g.hand_catches],
 		["猫税", "被叼走 %d 条" % g.pet_steals],
 		["鱼贩合约", ("带走 %d 条 · +%d 金币" % [g.auto_sold_n, g.auto_sold_v]) if g.auto_sell_bought else "未签约"],
 		["鱼篓容量", "%d 格" % g._bag_capacity()],
@@ -1707,6 +1783,15 @@ static func fill_dex_tab(g: CornerFishing, v: VBoxContainer) -> void:
 	stat.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 	v.add_child(stat)
 
+	# near-miss：本水域图鉴缺口一行金字（就差几种！），集齐则安静地不显示
+	var sp := spot_species_progress(g, g.current_spot)
+	if int(sp[1]) > 0 and int(sp[0]) < int(sp[1]):
+		var near := Label.new()
+		near.text = "🎯 %s还差 %d 种集齐" % [SpotData.display_name(g.current_spot), int(sp[1]) - int(sp[0])]
+		near.add_theme_font_size_override("font_size", DT.FS_XS)
+		near.add_theme_color_override("font_color", DT.GOLD)
+		v.add_child(near)
+
 	# 品阶筛选 seg（CD：全部 + 6 品阶，品阶 pill 用品阶色）
 	var tier_names := ["普通", "优良", "稀有", "史诗", "传说", "神话"]
 	var seg := HBoxContainer.new()
@@ -2106,6 +2191,12 @@ static func fill_settings(g: CornerFishing, v: VBoxContainer) -> void:
 		g._update_action_button())
 	cast_row.add_child(cast_btn)
 	col.add_child(cast_row)
+	var cast_hint := Label.new()
+	cast_hint.text = "咬钩的瞬间点「起钩！」可亲手起钩（体重 +10%）；稀有鱼会多挣扎几秒等你。不点也照常自动上鱼，永不惩罚。"
+	cast_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cast_hint.add_theme_font_size_override("font_size", DT.FS_2XS)
+	cast_hint.add_theme_color_override("font_color", DT.TEXT_FAINT_GLASS)
+	col.add_child(cast_hint)
 	col.add_child(HSeparator.new())
 
 	# 自动卖鱼（付费占位）

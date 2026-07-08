@@ -1383,6 +1383,21 @@ func _check_decor() -> void:
 
 ## 活水族箱：开缸视图、游鱼数量、后台上鱼不重建、捞回鱼篓。
 func _check_aquarium() -> void:
+	var koi_sp := ProcFishSpecies.from_catch("koi", 3, 5.0, 3)
+	var eel_sp := ProcFishSpecies.from_catch("eel", 0, 1.0, 0)
+	var ray_sp := ProcFishSpecies.from_catch("manta_ray", 0, 80.0, 0)
+	var deep_sp := ProcFishSpecies.from_catch("lanternfish", 0, 0.02, 2)
+	var small_carp := ProcFishSpecies.from_catch("carp", 0, 1.0, 0)
+	var big_carp := ProcFishSpecies.from_catch("carp", 0, 8.0, 0)
+	_assert(koi_sp.pattern == ProcFishSpecies.Pattern.RINGS, "锦鲤应生成环纹花色")
+	_assert(eel_sp.swim_mode == ProcFishSpecies.SwimMode.EEL, "鳗类应使用蛇形游动")
+	_assert(ray_sp.swim_mode == ProcFishSpecies.SwimMode.GLIDE, "鳐类应使用滑翔游动")
+	_assert(deep_sp.pattern == ProcFishSpecies.Pattern.BIOLUMEN and deep_sp.glow_mult > 0.0,
+		"深海发光鱼应生成发光点与柔光")
+	_assert(big_carp.body_len > small_carp.body_len, "同种鱼体重更大时程序体长应更大")
+	_assert(koi_sp.sparkle_mult > small_carp.sparkle_mult and koi_sp.glow_mult > small_carp.glow_mult,
+		"高星级/七彩变体应提升粒子与柔光强度")
+
 	var g: Node = load("res://main.tscn").instantiate()
 	g.save_enabled = false
 	root.add_child(g)

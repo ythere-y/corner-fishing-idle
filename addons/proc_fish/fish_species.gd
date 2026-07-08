@@ -8,7 +8,8 @@ extends RefCounted
 ##   · 加花纹 → 在 Pattern 枚举加一项，并在 ProcFish._draw_pattern 里加一个绘制分支。
 ##   · 定制某条鱼 → 在 from_catch 末尾按 id 覆盖字段即可（具名特例）。
 
-enum Pattern { NONE, STRIPES, SPOTS }
+enum Pattern { NONE, STRIPES, SPOTS, BLOTCHES, LATERAL_LINE, RINGS, BIOLUMEN }
+enum SwimMode { CRUISE, DART, EEL, HOVER, GLIDE, DEEP_DRIFT }
 
 # 身体关节数固定为 10（尾鳍另占 2 节，合计 12），与参考 Fish.pde 的索引约定一致。
 const BODY_JOINTS := 10
@@ -49,7 +50,11 @@ var fin_color: Color = Color(0.51, 0.76, 0.84)
 var belly_color: Color = Color(0.72, 0.86, 0.90)
 var pattern: int = Pattern.NONE
 var pattern_color: Color = Color(1, 1, 1, 0.25)
+var pattern_density: float = 1.0
+var pattern_scale: float = 1.0
 var variant: int = 0                                        # 0 普通 / 1 斑斓 / 2 鎏金 / 3 七彩
+var quality: int = 0                                        # 0..3 星级；控制高光/细节，不覆盖变体识别
+var swim_mode: int = SwimMode.CRUISE
 var body_len: float = 50.0                                  # 头→尾大致像素长度（命中判定 / 布局用）
 var speed_mult: float = 1.0                                  # 运动性格：速度倍率
 var turn_rate_mult: float = 1.0                              # 运动性格：转向角速度倍率
@@ -59,12 +64,15 @@ var pectoral_mult: float = 1.0                                # 部位特征：�
 var dorsal_mult: float = 1.0                                  # 部位特征：背鳍高度
 var tail_mult: float = 1.0                                    # 部位特征：尾鳍展开
 var eye_mult: float = 1.0                                     # 部位特征：眼睛大小
+var glow_mult: float = 0.0                                    # 星级/深海/变体带来的柔光强度
+var sparkle_mult: float = 0.0                                 # 高品质/高变体粒子强度
 
 
 ## 从一条渔获（id + 变体 + 体重）派生物种蓝图。weight<0 时取该鱼种体重区间中点。
-static func from_catch(id: String, var_index: int = 0, weight: float = -1.0) -> ProcFishSpecies:
+static func from_catch(id: String, var_index: int = 0, weight: float = -1.0, quality_index: int = 0) -> ProcFishSpecies:
 	var sp := new()
 	sp.variant = var_index
+	sp.quality = clampi(quality_index, 0, 3)
 	var tier := FishData.tier_of(id)
 	var f: Dictionary = FishData.FISH.get(id, {})
 	var wmin := float(f.get("wmin", 0.1))
@@ -76,6 +84,7 @@ static func from_catch(id: String, var_index: int = 0, weight: float = -1.0) -> 
 
 	# ① 体型模板
 	var key := _pick_profile(id, name, tags, wmax)
+	sp.swim_mode = _pick_swim_mode(id, name, tags, key, wmax)
 	if key == "slender":
 		sp.wiggle_mult = 1.18
 		sp.turn_rate_mult = 1.18
@@ -98,6 +107,29 @@ static func from_catch(id: String, var_index: int = 0, weight: float = -1.0) -> 
 		sp.speed_mult *= 0.92
 	if tags.has("cold") or tags.has("polar"):
 		sp.tail_freq_mult *= 0.88
+	match sp.swim_mode:
+		SwimMode.DART:
+			sp.speed_mult *= 1.18
+			sp.turn_rate_mult *= 1.20
+			sp.tail_freq_mult *= 1.16
+		SwimMode.EEL:
+			sp.wiggle_mult *= 1.32
+			sp.turn_rate_mult *= 1.08
+			sp.tail_freq_mult *= 0.94
+		SwimMode.HOVER:
+			sp.speed_mult *= 0.78
+			sp.wiggle_mult *= 0.82
+			sp.turn_rate_mult *= 1.12
+		SwimMode.GLIDE:
+			sp.speed_mult *= 0.86
+			sp.wiggle_mult *= 0.56
+			sp.turn_rate_mult *= 0.72
+			sp.tail_freq_mult *= 0.72
+		SwimMode.DEEP_DRIFT:
+			sp.speed_mult *= 0.72
+			sp.wiggle_mult *= 0.70
+			sp.turn_rate_mult *= 0.62
+			sp.tail_freq_mult *= 0.70
 	_apply_part_traits(sp, id, name, tags, key)
 	var profile: Array = PROFILES[key]
 
@@ -167,18 +199,39 @@ static func from_catch(id: String, var_index: int = 0, weight: float = -1.0) -> 
 		sp.body_color = sp.body_color.lerp(vc, mix * 0.65)
 		sp.fin_color = sp.fin_color.lerp(vc, mix)
 		sp.belly_color = sp.belly_color.lerp(vc, mix * 0.5)
+	if sp.quality >= 2:
+		var qmix := 0.08 * float(sp.quality - 1)
+		sp.belly_color = sp.belly_color.lightened(qmix)
+		sp.fin_color = sp.fin_color.lightened(qmix * 0.7)
 
 	# ⑥ 花纹：优先从生态/名称取意，再用 id 稳定补足，让同缸的鱼看着各不相同。
 	var h := absi(int(id.hash()))
 	var stripe_hint := _text_has_any(id + name, ["stripe", "bar", "tiger", "斑", "鲈", "鲭"])
 	var spot_hint := _text_has_any(id + name, ["spot", "dot", "puffer", "grouper", "星", "点", "鳜"])
-	if tags.has("reef") or spot_hint:
+	var line_hint := _text_has_any(id + name, ["salmon", "trout", "taimen", "tuna", "mackerel", "鲑", "鳟", "金枪", "鲭", "鲹"])
+	var ring_hint := _text_has_any(id + name, ["koi", "goldfish", "clownfish", "锦鲤", "金鱼", "小丑"])
+	var bio_hint := tags.has("deep") or tags.has("cavern") or _text_has_any(id + name,
+		["lanternfish", "bristlemouth", "dragonfish", "anglerfish", "hatchetfish", "blind", "cave", "灯笼", "钻光", "巨口", "鮟鱇", "盲", "洞"])
+	if bio_hint:
+		sp.pattern = Pattern.BIOLUMEN
+		sp.pattern_color = sp.belly_color.lightened(0.35).lerp(Color(0.55, 0.88, 1.0), 0.35)
+		sp.pattern_color.a = 0.54
+		sp.glow_mult += 0.32
+	elif ring_hint:
+		sp.pattern = Pattern.RINGS
+		sp.pattern_color = sp.fin_color.lightened(0.2)
+		sp.pattern_color.a = 0.46
+	elif tags.has("reef") or spot_hint:
 		sp.pattern = Pattern.SPOTS
 		sp.pattern_color = sp.belly_color.lightened(0.1)
 		sp.pattern_color.a = 0.42
 	elif tags.has("stream") or stripe_hint:
 		sp.pattern = Pattern.STRIPES
 		sp.pattern_color = sp.body_color.darkened(0.32)
+		sp.pattern_color.a = 0.50
+	elif line_hint:
+		sp.pattern = Pattern.LATERAL_LINE
+		sp.pattern_color = sp.fin_color.lightened(0.12)
 		sp.pattern_color.a = 0.50
 	else:
 		match h % 3:
@@ -189,9 +242,18 @@ static func from_catch(id: String, var_index: int = 0, weight: float = -1.0) -> 
 				sp.pattern_color = sp.body_color.darkened(0.32)
 				sp.pattern_color.a = 0.46
 			2:
-				sp.pattern = Pattern.SPOTS
-				sp.pattern_color = sp.belly_color.lightened(0.1)
-				sp.pattern_color.a = 0.36
+				sp.pattern = Pattern.BLOTCHES
+				sp.pattern_color = sp.body_color.darkened(0.20).lerp(sp.fin_color, 0.25)
+				sp.pattern_color.a = 0.34
+	sp.pattern_density = clampf(0.80 + float(tier) * 0.08 + float(var_index) * 0.18 + float(sp.quality) * 0.05, 0.75, 1.75)
+	sp.pattern_scale = clampf(0.92 + float(h % 7) * 0.035, 0.90, 1.16)
+	if var_index >= 1:
+		sp.pattern_color = sp.pattern_color.lerp(FishData.variant_color(var_index), 0.18 + 0.08 * float(var_index))
+		sp.pattern_color.a = clampf(sp.pattern_color.a + 0.08 * float(var_index), 0.25, 0.72)
+	sp.glow_mult += 0.08 * float(sp.quality)
+	if var_index >= 2:
+		sp.glow_mult += 0.28 + 0.12 * float(var_index - 2)
+	sp.sparkle_mult = 0.10 * float(maxi(sp.quality - 1, 0)) + 0.18 * float(var_index)
 
 	return sp
 
@@ -241,6 +303,21 @@ static func _pick_profile(id: String, name: String, tags: Array, wmax: float) ->
 	if tags.has("deep") and wmax >= 15.0:
 		return "heavy"
 	return "standard"
+
+
+static func _pick_swim_mode(id: String, name: String, tags: Array, profile_key: String, wmax: float) -> int:
+	var key_text := id + name
+	if profile_key == "slender" and _text_has_any(key_text, ["eel", "loach", "oarfish", "hairtail", "鳗", "鳝", "鳅", "皇带", "带鱼"]):
+		return SwimMode.EEL
+	if profile_key == "flat" or _text_has_any(key_text, ["ray", "skate", "flounder", "halibut", "鳐", "鲼", "鲆", "庸鲽"]):
+		return SwimMode.GLIDE
+	if tags.has("deep") or tags.has("cavern") or tags.has("protected") or wmax >= 80.0:
+		return SwimMode.DEEP_DRIFT
+	if tags.has("reef") or _text_has_any(key_text, ["puffer", "boxfish", "butterfly", "angelfish", "鲀", "箱", "蝶", "神仙"]):
+		return SwimMode.HOVER
+	if tags.has("stream") or _text_has_any(key_text, ["minnow", "zacco", "dace", "马口", "鱲", "雅罗"]):
+		return SwimMode.DART
+	return SwimMode.CRUISE
 
 
 static func _habitat_color(id: String, name: String, tags: Array) -> Color:

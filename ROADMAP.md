@@ -12,7 +12,7 @@
 > 1. 参赛材料:演示视频 / 项目说明,突出 AI 多智能体工作流(数值审计+对抗审查+自动回归)
 > 2. 演示观感:两张缺失背景图(雪线溪谷/下山进城,演示前 2 小时可达)+ 219 鱼美术补齐
 
-> **HuChao 高优先级专项:程序化鱼动画**(详见下方「⭐ HuChao 专项」块)。
+> **HuChao 专项:程序化鱼动画已封存**(风格不符合当前方向,不再作为当前开发主线)。
 > 其余待办(不占当前 WIP):Steam 修 validate/创建 App;219 鱼美术补齐。
 
 *数据快照(2026-07-07):219 鱼(99 有专属图标)· 10 钓点(仅 3 个有背景图)· 存档 v16 · 41 成就 · 7 事件 · origin/main `a5e9371`*
@@ -61,18 +61,10 @@
 - [ ] 商店页文案/截图(760×560 透明窗 → 1080p 桌面合成图)/接入 Steam 成就
 - [ ] 商店页公开满 2 周 → **用户点发布**
 
-## ⭐ HuChao 专项 · 程序化鱼动画 ◐ 进行中(高优先级)
+## ⭐ HuChao 专项 · 程序化鱼动画 ⏸ 已封存
 
-> Owner: **HuChao**。把鱼缸(活水族箱)的鱼从「PNG 贴图正弦游动」升级为「脊椎链程序化动画」,
-> 算法参考 `.reference/animal-proc-anim`(Chain 脊椎链 + Fish 剖面绘制)。
-> 架构目标:**数据驱动的物种蓝图 + 通用绘制引擎**,方便后续加不同种类 / 花纹的鱼。
-
-- [ ] `addons/proc_fish/fish_spine.gd`(`ProcFishSpine`):移植 Chain.pde + Util 角度约束,纯几何脊椎链(类名已 `FishSpine→ProcFishSpine`)
-- [ ] `addons/proc_fish/fish_species.gd`(`ProcFishSpecies`):物种蓝图(体型剖面 / 配色 / 花纹枚举)+ `from_catch(id, variant)` 工厂(按品阶 × 生态标签 × 变体派生)(类名已 `FishSpecies→ProcFishSpecies`)
-- [ ] `addons/proc_fish/proc_fish.gd`(`ProcFish`):一条自主游动的鱼(换目标 / 边界反弹 / spine 推进)+ `draw()` 参数化移植 Fish.display
-- [ ] 集成进 `aquarium.gd`:用 ProcFish 替换 PNG swimmer;**缸景(背景)已改俯视图**(沙底 / 椭圆卵石 / 横卧沉木 / 俯视水草丛 / 焦散,铺满整缸),鱼的绘制动画未改;气泡 / 水草 / 点鱼看纪录全部保留;UI 顺序改为「鱼选择列表在上、鱼缸在下」
-- [ ] 变体特效 MVP(斑斓 / 鎏金 / 七彩:配色混入 + 基础光晕)
-- [ ] `validate_game.gd` 跑 0 失败(本机无 Godot,需 HuChao 本地验证)
+> 曾尝试把鱼缸鱼从贴图游动改为脊椎链程序化动画,并探索 RoomView 房间化鱼缸展示。
+> 结论:程序化鱼的视觉风格不符合当前项目方向,本分支仅作为实验备份保存;后续开发转向其他方案。
 
 ## M4 上线后大版本 ☐ 未开始
 

@@ -81,7 +81,7 @@ func _build_swimmers() -> void:
 		var c: Dictionary = g.display[i]
 		var id := str(c["id"])
 		var vr := int(c.get("var", 0))
-		var sp := ProcFishSpecies.from_catch(id, vr, float(c.get("w", -1.0)))
+		var sp := ProcFishSpecies.from_catch(id, vr, float(c.get("w", -1.0)), int(c.get("q", 0)))
 		var origin := Vector2(
 			_rng.randf_range(bounds.position.x + 20.0, bounds.end.x - 20.0),
 			_rng.randf_range(bounds.position.y + 20.0, bounds.end.y - 20.0))

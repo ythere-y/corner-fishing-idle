@@ -74,6 +74,9 @@ func _run() -> void:
 	print("=== 多钓点：切换 / 鱼池 / 解锁 ===")
 	await _check_spots()
 
+	print("=== 旅行地图（投影 / 晨昏线 / 站点布局）===")
+	await _check_world_map()
+
 	print("=== 水族箱/陈列系统 ===")
 	await _check_decor()
 
@@ -1214,6 +1217,75 @@ func _check_achievements_feature() -> void:
 	g2.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(path)
+
+
+## 旅行地图：经纬度数据完整性 / 等距圆柱投影 / NOAA 晨昏线数学 / 站点防重叠布局。
+## 全部是纯静态函数，不需要实例化 WorldMap（它是 Control，无头下不便渲染）。
+func _check_world_map() -> void:
+	# —— ① 十站经纬度齐全、落在视窗内 ——
+	for sid in SpotData.SPOT_ORDER:
+		var geo: Vector2 = SpotData.geo_of(sid)
+		_assert(geo != Vector2.ZERO, "钓点 %s 缺经纬度 GEO" % sid)
+		_assert(geo.x >= -180.0 and geo.x <= 180.0, "%s 经度越界：%f" % [sid, geo.x])
+		_assert(geo.y >= -90.0 and geo.y <= 90.0, "%s 纬度越界：%f" % [sid, geo.y])
+		_assert(geo.x >= WorldMap.LON0 and geo.x <= WorldMap.LON1
+			and geo.y <= WorldMap.LAT0 and geo.y >= WorldMap.LAT1,
+			"%s 落在地图视窗外（会被裁掉看不见）：%s" % [sid, str(geo)])
+
+	# —— ② 投影：四角映射到视窗四角，且经度/纬度单调 ——
+	var tl := WorldMap.project(WorldMap.LON0, WorldMap.LAT0)
+	var br := WorldMap.project(WorldMap.LON1, WorldMap.LAT1)
+	_assert(tl.is_equal_approx(Vector2.ZERO), "视窗左上角应映射到 (0,0)，实际 %s" % str(tl))
+	_assert(br.is_equal_approx(WorldMap.VIEW), "视窗右下角应映射到 VIEW，实际 %s" % str(br))
+	_assert(WorldMap.project(0.0, 0.0).x < WorldMap.project(90.0, 0.0).x, "经度增大 x 应增大（向东为右）")
+	_assert(WorldMap.project(0.0, 40.0).y < WorldMap.project(0.0, 0.0).y, "纬度增大 y 应减小（向北为上）")
+
+	# —— ③ 太阳：直射点每小时西移 15°，赤纬落在 ±23.5° 内 ——
+	var t0 := 1751000000.0   # 任一固定时刻（2025-06-27 UTC 前后），避免依赖当前时钟
+	var s0: Dictionary = WorldMap.sun_params(t0)
+	var s1: Dictionary = WorldMap.sun_params(t0 + 3600.0)
+	var d_lam: float = fposmod(float(s0["lam"]) - float(s1["lam"]) + 540.0, 360.0) - 180.0
+	_assert(absf(d_lam - 15.0) < 0.5, "直射点应每小时西移约 15°，实际 %.3f°" % d_lam)
+	_assert(absf(rad_to_deg(float(s0["decl"]))) <= 23.5, "太阳赤纬应在 ±23.5° 内")
+
+	# —— ④ 昼夜判定：直射点必是白昼，其对跖点必是黑夜 ——
+	var decl: float = s0["decl"]
+	var lam: float = s0["lam"]
+	var sub_lat := rad_to_deg(decl)
+	_assert(not WorldMap.is_night(lam, sub_lat, decl, lam), "太阳直射点应是白昼")
+	var anti_lon: float = fposmod(lam + 360.0, 360.0) - 180.0
+	_assert(WorldMap.is_night(anti_lon, -sub_lat, decl, lam), "直射点的对跖点应是黑夜")
+
+	# —— ⑤ 晨昏线：线上任一点的太阳天顶角≈90°（既不算白昼也不算黑夜的边界）——
+	for lon in [-30.0, 0.0, 60.0, 120.0, 179.0]:
+		var plat: float = WorldMap.terminator_lat(lon, decl, lam)
+		var zen := sin(deg_to_rad(plat)) * sin(decl) \
+			+ cos(deg_to_rad(plat)) * cos(decl) * cos(deg_to_rad(lon - lam))
+		_assert(absf(zen) < 0.02, "λ=%.0f° 处晨昏线应满足天顶角 90°，实际余弦 %.4f" % [lon, zen])
+
+	# —— ⑥ 分点日（δ→0）不产生 NaN：晨昏线退化成经线是物理正确的 ——
+	var eq_lat: float = WorldMap.terminator_lat(45.0, 1e-9, 0.0)
+	_assert(not is_nan(eq_lat) and absf(eq_lat) <= 89.0, "分点日晨昏线应被 clamp 而非 NaN")
+
+	# —— ⑦ 站点布局：互不重叠（可点中），且没被推到别的国家去 ——
+	var nodes: Dictionary = WorldMap.layout_nodes()
+	_assert(nodes.size() == SpotData.SPOT_ORDER.size(), "站点布局应覆盖全部 %d 站" % SpotData.SPOT_ORDER.size())
+	var min_d := 9999.0
+	for a in nodes:
+		for b in nodes:
+			if a == b:
+				continue
+			min_d = minf(min_d, (nodes[a] as Vector2).distance_to(nodes[b]))
+	_assert(min_d >= WorldMap.NODE_MIN_SEP - 0.5,
+		"站点最小间距应 ≥ %.1fpx（否则点不中），实际 %.2fpx" % [WorldMap.NODE_MIN_SEP, min_d])
+	var max_push := 0.0
+	for sid in nodes:
+		var geo: Vector2 = SpotData.geo_of(sid)
+		max_push = maxf(max_push, (nodes[sid] as Vector2).distance_to(WorldMap.project(geo.x, geo.y)))
+	_assert(max_push <= WorldMap.NODE_MAX_PUSH + 0.5,
+		"防重叠位移应 ≤ %.1fpx（不把站点搬去别的国家），实际 %.2fpx" % [WorldMap.NODE_MAX_PUSH, max_push])
+	print("  投影四角 / 直射点西移 %.2f°每小时 / 晨昏线天顶角 / 站点最小间距 %.1fpx、最大位移 %.1fpx 通过"
+		% [d_lam, min_d, max_push])
 
 
 func _check_spots() -> void:

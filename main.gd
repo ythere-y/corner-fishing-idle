@@ -1319,12 +1319,14 @@ func _update_order_chip() -> void:
 
 
 ## 面板开着时数据变了（上鱼/卖鱼/扩容），原地重建内容。
-## 例外：鱼缸页签开着时不因后台上鱼而重建——否则游动的鱼每几秒被重置。
+## 例外：鱼缸页签、旅行地图开着时不因后台上鱼而重建——否则游动的鱼/晨昏线每几秒被重置。
 ## 放入/捞出鱼等主动操作走 _rebuild_panel() 强制重建。
 func _refresh_panel() -> void:
 	if _panel_kind == "":
 		return
 	if _panel_kind == "catch" and _catch_tab == TANK_TAB:
+		return
+	if _panel_kind == "worldmap":
 		return
 	_open_panel(_panel_kind)
 

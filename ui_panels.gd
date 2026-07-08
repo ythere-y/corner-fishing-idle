@@ -29,7 +29,8 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 	close_panel(g, true)
 	# 【修改】新增 story / character 两个开场专用面板标题（背包客人设开场流程）；intro 标题随新项目名调整。
 	var titles := {"catch": "垂钓手册", "rod": "鱼竿 · 升级", "set": "设置", "offline": "离线小结",
-		"intro": "欢迎来到背包钓鱼手记", "story": "在开始之前……", "character": "这次是谁在路上？"}
+		"intro": "欢迎来到背包钓鱼手记", "story": "在开始之前……", "character": "这次是谁在路上？",
+		"worldmap": "旅行地图"}
 	var title_str := str(titles.get(kind, ""))
 	if kind == "fishdetail":
 		title_str = FishData.display_name(str(g._detail_fish)) + " · 详情"
@@ -51,6 +52,7 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 		"story": fill_story(g, v)          # 【新增】开场世界观动画
 		"character": fill_character(g, v)  # 【新增】选择背包客角色
 		"fishdetail": fill_fish_detail(g, v)
+		"worldmap": fill_world_map(g, v)   # 旅行地图（离线：晨昏线 + 旅程）
 	g.ui_root.add_child(card)
 	g._panel = card
 	g._panel_kind = kind
@@ -566,7 +568,53 @@ static func spot_species_progress(g: CornerFishing, sid: String) -> Array:
 	return [got, pool.size()]
 
 
+# ============================ 旅行地图（离线：晨昏线 + 旅程）============================
+
+## 手记里的世界地图页：一张会走的晨昏线 + 你踩点点亮的十站。零联网、零后端。
+static func fill_world_map(g: CornerFishing, v: VBoxContainer) -> void:
+	v.add_theme_constant_override("separation", DT.SP_2)
+	var wm := WorldMap.new()
+	wm.name = "WorldMap"
+	wm.setup(g)
+	v.add_child(wm)
+
+	var tip := Label.new()
+	tip.text = "点亮的是你钓过鱼的地方。悬停看站名，点已解锁的站可直接前往。"
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tip.add_theme_font_size_override("font_size", DT.FS_2XS)
+	tip.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	v.add_child(tip)
+
+	# 有意为之的语义澄清：晨昏线走 UTC 天文真实，而游戏昼夜跟着你本机的钟。
+	var note := Label.new()
+	note.text = "地图是此刻的地球；你的夜晚，是你自己的夜晚。"
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.add_theme_font_size_override("font_size", DT.FS_2XS)
+	note.add_theme_font_override("font", g._serif)
+	note.add_theme_color_override("font_color", DT.TEXT_FAINT_GLASS)
+	v.add_child(note)
+
+	var back := Button.new()
+	back.text = "← 返回钓点"
+	back.custom_minimum_size = Vector2(0, 32)
+	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	apply_button_skin(back, false)
+	back.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		g._set_catch_tab(5))
+	v.add_child(back)
+
+
 static func fill_spot_tab(g: CornerFishing, v: VBoxContainer) -> void:
+	var mapb := Button.new()
+	mapb.text = "🗺  打开旅行地图"
+	mapb.custom_minimum_size = Vector2(0, 34)
+	mapb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	apply_button_skin(mapb, true)
+	mapb.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		g._open_panel("worldmap"))
+	v.add_child(mapb)
 	var stat := Label.new()
 	stat.text = "钓点 · 已解锁 %d/%d" % [g.unlocked_spots.size(), SpotData.SPOTS.size()]
 	stat.add_theme_font_size_override("font_size", DT.FS_XS)

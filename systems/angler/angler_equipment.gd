@@ -5,12 +5,15 @@ extends RefCounted
 const AnglerStatsScript := preload("res://systems/angler/angler_stats.gd")
 
 const REEL_NAME := "绕线轮"
-const REEL_COST_BASE := 250.0
-const REEL_COST_GROWTH := 1.12
 const SPEED_EFFECT_SOFTNESS := 80.0
 const SPEED_WAIT_MULT_FLOOR := 0.42
-const ATTR_COST_BASE := 250.0
-const ATTR_COST_GROWTH := 1.12
+
+const EQUIPMENT_UNLOCK_ORDER := ["fish_line", "reel", "bobber", "sonar", "notebook", "gloves"]
+const FIRST_EQUIPMENT_BASE_COST := 250.0
+const EQUIPMENT_UNLOCK_ANCHOR_LEVEL := 22
+const EQUIPMENT_COST_GROWTH_BASE := 1.12
+const EQUIPMENT_COST_GROWTH_STEP := 0.005
+const MAX_ECON_VALUE := 1.0e300
 
 const ATTR_EQUIPMENT := {
 	"fish_line": {
@@ -48,15 +51,105 @@ const ATTR_EQUIPMENT := {
 const ATTR_EQUIPMENT_ORDER := ["fish_line", "bobber", "sonar", "notebook", "gloves"]
 
 
-static func reel_next_cost(level: int) -> int:
-	return int(round(REEL_COST_BASE * pow(REEL_COST_GROWTH, maxi(0, level))))
+static func equipment_order() -> Array:
+	return EQUIPMENT_UNLOCK_ORDER.duplicate()
 
 
-static func reel_upgrade_cost(level: int, count: int) -> int:
-	var total := 0
+static func equipment_index(id: String) -> int:
+	return EQUIPMENT_UNLOCK_ORDER.find(id)
+
+
+static func equipment_name(id: String) -> String:
+	if id == "reel":
+		return REEL_NAME
+	if ATTR_EQUIPMENT.has(id):
+		return str(ATTR_EQUIPMENT[id]["name"])
+	return id
+
+
+static func equipment_prev_id(id: String) -> String:
+	var idx := equipment_index(id)
+	if idx <= 0:
+		return ""
+	return str(EQUIPMENT_UNLOCK_ORDER[idx - 1])
+
+
+static func equipment_cost_growth(id: String) -> float:
+	var idx := equipment_index(id)
+	if idx < 0:
+		idx = 0
+	return EQUIPMENT_COST_GROWTH_BASE + EQUIPMENT_COST_GROWTH_STEP * float(idx)
+
+
+static func equipment_base_cost(id: String) -> float:
+	var idx := equipment_index(id)
+	if idx <= 0:
+		return round(FIRST_EQUIPMENT_BASE_COST)
+	var prev := equipment_prev_id(id)
+	return _round_unlock_cost(equipment_next_cost(prev, EQUIPMENT_UNLOCK_ANCHOR_LEVEL - 1))
+
+
+static func equipment_next_cost(id: String, level: int) -> float:
+	var raw := float(equipment_base_cost(id)) * pow(equipment_cost_growth(id), maxi(0, level))
+	return _safe_econ_number(raw)
+
+
+static func equipment_upgrade_cost(id: String, level: int, count: int) -> float:
+	var total := 0.0
 	for i in maxi(0, count):
-		total += reel_next_cost(level + i)
-	return total
+		total += equipment_next_cost(id, level + i)
+		if total >= MAX_ECON_VALUE:
+			return MAX_ECON_VALUE
+	return _safe_econ_number(total)
+
+
+static func equipment_unlock_target(id: String) -> int:
+	var prev := equipment_prev_id(id)
+	if prev == "":
+		return 0
+	return EQUIPMENT_UNLOCK_ANCHOR_LEVEL
+
+
+static func equipment_unlock_cost(id: String) -> float:
+	var prev := equipment_prev_id(id)
+	if prev == "":
+		return 0.0
+	return equipment_next_cost(id, 0)
+
+
+static func equipment_unlock_note(id: String) -> String:
+	var prev := equipment_prev_id(id)
+	if prev == "":
+		return ""
+	return "约等于%s Lv.%d 单次价" % [equipment_name(prev), equipment_unlock_target(id)]
+
+
+static func _round_unlock_cost(raw: float) -> float:
+	if raw < 1000:
+		return round(raw / 10.0) * 10.0
+	if raw < 10000:
+		return round(raw / 500.0) * 500.0
+	if raw < 100000:
+		return round(raw / 5000.0) * 5000.0
+	if raw < 1000000:
+		return round(raw / 50000.0) * 50000.0
+	return round(raw / 100000.0) * 100000.0
+
+
+static func _safe_econ_number(raw: float) -> float:
+	if is_nan(raw) or is_inf(raw) or raw <= 0.0:
+		return 0.0 if not is_inf(raw) else MAX_ECON_VALUE
+	if raw >= MAX_ECON_VALUE:
+		return MAX_ECON_VALUE
+	return round(raw)
+
+
+static func reel_next_cost(level: int) -> float:
+	return equipment_next_cost("reel", level)
+
+
+static func reel_upgrade_cost(level: int, count: int) -> float:
+	return equipment_upgrade_cost("reel", level, count)
 
 
 static func reel_stats(level: int):
@@ -74,15 +167,12 @@ static func reel_wait_mult(level: int) -> float:
 	return speed_wait_mult(reel_stats(level).speed)
 
 
-static func attr_equipment_next_cost(level: int) -> int:
-	return int(round(ATTR_COST_BASE * pow(ATTR_COST_GROWTH, maxi(0, level))))
+static func attr_equipment_next_cost(level: int) -> float:
+	return equipment_next_cost("fish_line", level)
 
 
-static func attr_equipment_upgrade_cost(level: int, count: int) -> int:
-	var total := 0
-	for i in maxi(0, count):
-		total += attr_equipment_next_cost(level + i)
-	return total
+static func attr_equipment_upgrade_cost(level: int, count: int) -> float:
+	return equipment_upgrade_cost("fish_line", level, count)
 
 
 static func attr_equipment_stats(id: String, level: int):

@@ -414,7 +414,8 @@ func _build_framed_chrome() -> void:
 	_build_hud_chips()
 	_build_status_flags()
 	_build_bottom_nav()
-	_build_dev_tools_bar()
+	if test_mode:
+		_build_dev_tools_bar()
 	_build_action_button()
 	_layout_widget()
 

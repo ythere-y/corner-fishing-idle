@@ -480,11 +480,11 @@ static func fill_bag_panel(g: CornerFishing, v: VBoxContainer) -> void:
 	if g.display_mode == "immersive":
 		var tabs := HBoxContainer.new()
 		tabs.add_theme_constant_override("separation", DT.CHIP_GAP)
-		var defs := [["鱼篓", 0], ["装备", 7], ["图鉴", 1], ["任务", 2], ["钓点", 5], ["鱼缸", 6], ["设置", 8]]
+		var defs := g._feature_nav_defs()
 		for d in defs:
-			var id: int = d[1]
+			var id: int = int(d["tab"])
 			var tb := Button.new()
-			tb.text = d[0]
+			tb.text = str(d["label"])
 			tb.add_theme_font_size_override("font_size", DT.FS_XS)
 			apply_tab_skin(tb, id == g._catch_tab)
 			if id != g._catch_tab:

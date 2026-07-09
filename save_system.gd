@@ -17,6 +17,7 @@ class_name SaveSystem
 ## v16 帧率默认 30→120：≤v15 档的 max_fps=30 视为旧默认、一次性迁到 120（v16 起选 30 被尊重）。
 ## v17 独立速度装备：reel_level(绕线轮等级，提供 speed 属性并缩短一竿周期)。旧档默认 0，无损迁移。
 ## v18 属性装备扩展：鱼线/浮漂/探鱼器/钓鱼笔记/钓鱼手套等级。旧档默认 0，无损迁移。
+## v19 功能渐进开放：features(底栏系统开放状态)、feature_spend_equipment(装备消费累计)。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -30,7 +31,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 18,   # 17→18：新增五条属性装备等级线
+		"ver": 19,   # 18→19：新增功能渐进开放状态
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"reel_level": g.reel_level,
@@ -56,6 +57,8 @@ static func collect(g) -> Dictionary:
 		"best_var": g.best_variant,
 		"giant": g.caught_giant,
 		"ach": g.achievements_done.keys(),
+		"features": g.feature_unlocks,
+		"feature_spend_equipment": g.feature_spend_equipment,
 		"opacity": g._opacity,
 		"max_fps": g.max_fps,           # 帧率上限设置（旧档无 → 载入默认 120）
 		"ui_scale": g.ui_scale,         # 界面缩放设置（旧档无 → 载入默认 1.0）
@@ -169,6 +172,13 @@ static func apply(g, data: Dictionary) -> void:
 	g.achievements_done = {}
 	for id in data.get("ach", []):
 		g.achievements_done[str(id)] = true
+	g.feature_unlocks = {"settings": true}
+	var features_raw: Variant = data.get("features", {})
+	if features_raw is Dictionary:
+		for fid in features_raw:
+			g.feature_unlocks[str(fid)] = bool(features_raw[fid])
+	g.feature_unlocks["settings"] = true
+	g.feature_spend_equipment = maxf(0.0, float(data.get("feature_spend_equipment", 0.0)))
 	g.dex = {}
 	var dex_raw: Variant = data.get("dex", [])
 	if dex_raw is Dictionary:                # v4+：{id: [n, w_max, big?, perf?]}

@@ -98,7 +98,10 @@ static func set_speed(g, mult: float) -> void:
 # ============================ 经济 ============================
 
 static func add_coins(g, amount: int) -> void:
-	g.coins = maxi(0, g.coins + amount)
+	if g.has_method("_add_coins_safe"):
+		g._add_coins_safe(amount)
+	else:
+		g.coins = maxi(0, g.coins + amount)
 	# Audio 是 autoload：本模块被工具早期引用时直接写 Audio 会触发未注册编译坑，故经场景树惰性取用。
 	var a = g.get_node_or_null("/root/Audio")
 	if a:

@@ -842,6 +842,10 @@ func _check_reel_speed() -> void:
 		"绕线轮单级成本应随等级递增")
 	_assert(AnglerEquipmentScript.reel_upgrade_cost(0, 10) > AnglerEquipmentScript.reel_upgrade_cost(0, 1),
 		"绕线轮 +10 成本应包含 10 个逐级成本")
+	_assert(AnglerEquipmentScript.equipment_next_cost("reel", 10000) > 0,
+		"高等级装备单级成本不应溢出为负数")
+	_assert(AnglerEquipmentScript.equipment_upgrade_cost("reel", 10000, 100) == AnglerEquipmentScript.MAX_ECON_VALUE,
+		"极高等级装备批量成本应钳制到经济上限")
 	_assert(AnglerEquipmentScript.reel_wait_mult(100) < AnglerEquipmentScript.reel_wait_mult(0),
 		"绕线轮等级应降低速度等待倍率")
 	_assert(AnglerEquipmentScript.reel_wait_mult(300) < AnglerEquipmentScript.reel_wait_mult(100),
@@ -857,12 +861,38 @@ func _check_reel_speed() -> void:
 	g.coins = 0
 	g._try_upgrade_reel(10)
 	_assert(g.reel_level == 0 and g.coins == 0, "绕线轮正式升级应检查金币，不足时不升级")
+	g.rod_level = 1000
+	_assert(g._rod_cost() > 1.0e200 and g._rod_cost() < g.MAX_ECON_VALUE,
+		"高等级鱼竿成本应使用浮点大数而非 64 位钳制，实际 %s" % g._coin_str(g._rod_cost()))
+	g.rod_level = 2000
+	_assert(g._rod_cost() == g.MAX_ECON_VALUE, "极端等级鱼竿成本应钳制到 double 经济上限")
+	_assert(g._coin_str(12345) == "12.3K" and g._coin_str(1234567) == "1.23M"
+			and g._coin_str(1234567890123456) == "1.23Qa" and g._coin_str(1.23e24) == "1.23Sp",
+		"金币显示应使用 K/M/B/T/Qa... 短单位，实际 %s / %s / %s / %s" % [
+			g._coin_str(12345), g._coin_str(1234567), g._coin_str(1234567890123456), g._coin_str(1.23e24)])
+	g.rod_level = 1
+	var chain: Array = g._equipment_chain()
+	_assert(chain == ["fish_line", "reel", "bobber", "sonar", "notebook", "gloves"],
+		"属性装备解锁顺序应由独立顺序表控制")
 	var unlock_reel_cost: int = g._equipment_unlock_cost("reel")
-	_assert(unlock_reel_cost == AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 30),
-		"绕线轮解锁成本应约等于鱼线 30 级投入")
+	var raw_reel_anchor: int = AnglerEquipmentScript.equipment_next_cost(
+		"fish_line", AnglerEquipmentScript.equipment_unlock_target("reel") - 1)
+	_assert(unlock_reel_cost == 2500 and unlock_reel_cost == AnglerEquipmentScript.equipment_next_cost("reel", 0)
+			and AnglerEquipmentScript.equipment_next_cost("reel", 1) > unlock_reel_cost,
+		"绕线轮解锁应购买 Lv.1，价格由鱼线锚点单次价规整得到，raw=%d rounded=%d" % [raw_reel_anchor, unlock_reel_cost])
+	var unlock_bobber_cost: int = g._equipment_unlock_cost("bobber")
+	var raw_bobber_anchor: int = AnglerEquipmentScript.equipment_next_cost(
+		"reel", AnglerEquipmentScript.equipment_unlock_target("bobber") - 1)
+	_assert(unlock_bobber_cost == 30000 and unlock_bobber_cost == AnglerEquipmentScript.equipment_next_cost("bobber", 0)
+			and unlock_bobber_cost > unlock_reel_cost,
+		"浮漂解锁应购买 Lv.1，价格由绕线轮锚点单次价规整得到，raw=%d rounded=%d" % [raw_bobber_anchor, unlock_bobber_cost])
+	_assert(g._visible_equipment_chain() == ["fish_line", "reel"],
+		"属性装备应逐步显露：初始只显示鱼线与绕线轮解锁")
 	g.coins = unlock_reel_cost
 	g._try_unlock_equipment("reel")
 	_assert(g.reel_level == 1 and g.coins == 0, "绕线轮应通过链式解锁进入 Lv.1")
+	_assert(g._visible_equipment_chain() == ["fish_line", "reel", "bobber"],
+		"绕线轮解锁后应显示浮漂解锁，但不能提前显示探鱼器")
 	var cost9: int = g._reel_upgrade_cost(9)
 	g.coins = cost9
 	g._try_upgrade_reel(9)

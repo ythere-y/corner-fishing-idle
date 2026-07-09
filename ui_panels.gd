@@ -565,12 +565,12 @@ static func fill_debug_attributes(g: CornerFishing, v: VBoxContainer) -> void:
 	_debug_compact_label(coins_row, _compact_cost(g.coins), DT.GOLD, 70)
 	var double_btn := _debug_tiny_button("×2")
 	double_btn.pressed.connect(func() -> void:
-		g.coins = maxi(1, g.coins * 2)
+		g.coins = g._safe_econ_number(maxf(1.0, float(g.coins) * 2.0))
 		_debug_source_changed(g))
 	coins_row.add_child(double_btn)
 	var half_btn := _debug_tiny_button("÷2")
 	half_btn.pressed.connect(func() -> void:
-		g.coins = maxi(0, int(floor(float(g.coins) * 0.5)))
+		g.coins = maxf(0.0, floor(float(g.coins) * 0.5))
 		_debug_source_changed(g))
 	coins_row.add_child(half_btn)
 
@@ -901,10 +901,10 @@ static func fill_stats_tab(g: CornerFishing, v: VBoxContainer) -> void:
 	var q_txt: String = (str(FishData.QUALITY_NAMES[clampi(q, 0, 3)]) + "★".repeat(q)) if q > 0 else "普通"
 	var rows := [
 		["今日渔获", "%d 条" % g._today_catches()],
-		["今日卖鱼收入", "%d 金币" % g._today_income()],
+		["今日卖鱼收入", "%s 金币" % g._coin_str(g._today_income())],
 		["终身渔获", "%d 条" % g.lifetime_catches],
-		["终身卖鱼收入", "%d 金币" % g.lifetime_coins],
-		["当前金币", "%d" % g.coins],
+		["终身卖鱼收入", "%s 金币" % g._coin_str(g.lifetime_coins)],
+		["当前金币", g._coin_str(g.coins)],
 		["图鉴收集", "%d / %d 种" % [g.dex.size(), FishData.FISH.size()]],
 		["成就达成", "%d / %d" % [g.achievements_done.size(), AchievementData.LIST.size()]],
 		["最高品相", q_txt],
@@ -912,7 +912,7 @@ static func fill_stats_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		["巨物纪录", "已钓到" if g.caught_giant else "尚无"],
 		["累计专注", "%d 分钟" % int(g.focus_minutes_total)],
 		["猫税", "被叼走 %d 条" % g.pet_steals],
-		["鱼贩合约", ("带走 %d 条 · +%d 金币" % [g.auto_sold_n, g.auto_sold_v]) if g.auto_sell_bought else "未签约"],
+		["鱼贩合约", ("带走 %d 条 · +%s 金币" % [g.auto_sold_n, g._coin_str(g.auto_sold_v)]) if g.auto_sell_bought else "未签约"],
 		["鱼篓容量", "%d 格" % g._bag_capacity()],
 		["当前装备", "鱼竿 Lv.%d · %s · %s · %s" % [
 			g.rod_level, FishData.BAITS[g.bait_level]["name"], FishData.HOOKS[g.hook_level]["name"],
@@ -1419,7 +1419,7 @@ static func fill_tasks_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		["巨物纪录", "已钓到" if g.caught_giant else "尚无"],
 		["累计专注", "%d 分钟" % int(g.focus_minutes_total)],
 		["猫税", "被叼走 %d 条" % g.pet_steals],
-		["鱼贩合约", ("带走 %d 条 · +%d 金币" % [g.auto_sold_n, g.auto_sold_v]) if g.auto_sell_bought else "未签约"],
+		["鱼贩合约", ("带走 %d 条 · +%s 金币" % [g.auto_sold_n, g._coin_str(g.auto_sold_v)]) if g.auto_sell_bought else "未签约"],
 		["鱼篓容量", "%d 格" % g._bag_capacity()],
 		["当前装备", "鱼竿 Lv.%d · %s · %s · %s" % [
 			g.rod_level, FishData.BAITS[g.bait_level]["name"], FishData.HOOKS[g.hook_level]["name"],
@@ -1606,7 +1606,7 @@ static func fill_bag_tab(g: CornerFishing, v: VBoxContainer) -> void:
 	sell_junk.pressed.connect(g._sell_junk)
 	head.add_child(sell_junk)
 	var sell_all := Button.new()
-	sell_all.text = "全部兑换 +%d" % total
+	sell_all.text = "全部兑换 +%s" % g._coin_str(total)
 	sell_all.custom_minimum_size = Vector2(0, 28)
 	sell_all.disabled = unlocked == 0
 	sell_all.tooltip_text = "卖出 %d 条未上锁的鱼%s（锁定的会留下）" % [
@@ -1621,7 +1621,7 @@ static func fill_bag_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		expand.text = "扩容"
 		expand.custom_minimum_size = Vector2(0, 28)
 		expand.disabled = g.coins < cost
-		expand.tooltip_text = "扩到 %d 格，花费 %d 金币" % [g.BAG_CAPS[g.bag_level], cost]
+		expand.tooltip_text = "扩到 %d 格，花费 %s 金币" % [g.BAG_CAPS[g.bag_level], g._coin_str(cost)]
 		expand.add_theme_font_size_override("font_size", DT.FS_XS)
 		apply_button_skin(expand, false)
 		expand.pressed.connect(g._try_expand_bag)
@@ -1854,7 +1854,7 @@ static func fill_fish_detail(g: CornerFishing, v: VBoxContainer) -> void:
 	col.add_child(_kv_card([
 		["生态", "　".join(tags_cn)],
 		["体重", "%.2f – %.2f kg" % [float(info["wmin"]), float(info["wmax"])]],
-		["卖价", "%d – %d 金币" % [int(info["vmin"]), int(info["vmax"])]],
+		["卖价", "%s – %s 金币" % [g._coin_str(int(info["vmin"])), g._coin_str(int(info["vmax"]))]],
 	]))
 
 	# —— 个人纪录 ——
@@ -2351,12 +2351,47 @@ static func _equip_cost_btn(row: HBoxContainer, qty: String, cost: String, enabl
 	row.add_child(box)
 
 
-static func _compact_cost(n: int) -> String:
-	if n >= 100000000:
-		return "%.1f亿" % (float(n) / 100000000.0)
-	if n >= 10000:
-		return "%.1f万" % (float(n) / 10000.0)
-	return _commas_local(n)
+static func _compact_cost(n) -> String:
+	var value := float(n)
+	var abs_n := absf(value)
+	if abs_n >= 10000:
+		return _short_number_cost(value, 3)
+	return _commas_local(int(round(value)))
+
+
+static func _short_number_cost(value: float, sig_digits := 3) -> String:
+	if is_nan(value) or value == 0.0:
+		return "0"
+	var abs_v := absf(value)
+	var tier := int(floor(log(abs_v) / log(1000.0)))
+	if tier <= 0:
+		return _commas_local(int(round(value)))
+	if tier >= CornerFishing.SHORT_NUMBER_UNITS.size():
+		return _sci_cost(value, sig_digits)
+	var suffix: String = CornerFishing.SHORT_NUMBER_UNITS[tier]
+	var scaled := value / pow(1000.0, tier)
+	var abs_scaled := absf(scaled)
+	if abs_scaled >= 100.0:
+		return "%d%s" % [int(round(scaled)), suffix]
+	if abs_scaled >= 10.0:
+		return "%.1f%s" % [snappedf(scaled, 0.1), suffix]
+	return "%.2f%s" % [snappedf(scaled, 0.01), suffix]
+
+
+static func _sci_cost(value: float, sig_digits := 3) -> String:
+	if is_nan(value) or value == 0.0:
+		return "0"
+	var sign := "-" if value < 0.0 else ""
+	var abs_v := absf(value)
+	var exp10 := int(floor(log(abs_v) / log(10.0)))
+	var mant := abs_v / pow(10.0, exp10)
+	var decimals := maxi(0, sig_digits - 1)
+	var rounded := snappedf(mant, pow(10.0, -decimals))
+	if rounded >= 10.0:
+		rounded /= 10.0
+		exp10 += 1
+	var text := ("%.*f" % [decimals, rounded]).rstrip("0").rstrip(".")
+	return "%s%se%d" % [sign, text, exp10]
 
 
 static func _commas_local(n: int) -> String:
@@ -2400,7 +2435,7 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 		rod_sub += "　→ 升级后 +%d%%（咬钩已封顶）" % (g.rod_level * 8)
 	var rod := list_row("res://assets/art/equipment/rod_carbon.png", "鱼竿 Lv.%d" % g.rod_level, rod_sub, true)
 	rod[0].tooltip_text = "决定稀有度：越高级越易上高阶鱼"
-	_equip_btn(rod[1], "升级 %d" % rc, g.coins >= rc, true, g._try_upgrade_rod)
+	_equip_btn(rod[1], "升级 %s" % _compact_cost(rc), g.coins >= rc, true, g._try_upgrade_rod)
 	list.add_child(rod[0])
 
 	_section(list, "属性装备 · 逐步揭露（装备 → 角色属性）")
@@ -2422,11 +2457,11 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 			rw[1].add_child(make_pill("使用中", DT.GOLD, DT.INK_ON_GOLD))
 		elif i == g.bait_level + 1:
 			var bcost := int(b["cost"])
-			_equip_btn(rw[1], "升级 %d" % bcost, g.coins >= bcost, true, g._try_upgrade_bait)
+			_equip_btn(rw[1], "升级 %s" % _compact_cost(bcost), g.coins >= bcost, true, g._try_upgrade_bait)
 		elif i < g.bait_level:
 			rw[1].add_child(make_pill("已超越", DT.GLASS_ROW_HOVER, DT.TEXT_MUTED_GLASS))
 		else:
-			rw[1].add_child(make_pill("🔒 %d" % int(b["cost"]), DT.GLASS_ROW, DT.TEXT_FAINT_GLASS))
+			rw[1].add_child(make_pill("🔒 %s" % _compact_cost(int(b["cost"])), DT.GLASS_ROW, DT.TEXT_FAINT_GLASS))
 		list.add_child(rw[0])
 
 	# 鱼钩（决定双钩几率）
@@ -2440,11 +2475,11 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 			rw[1].add_child(make_pill("使用中", DT.GOLD, DT.INK_ON_GOLD))
 		elif i == g.hook_level + 1:
 			var hcost := int(h["cost"])
-			_equip_btn(rw[1], "升级 %d" % hcost, g.coins >= hcost, true, g._try_upgrade_hook)
+			_equip_btn(rw[1], "升级 %s" % _compact_cost(hcost), g.coins >= hcost, true, g._try_upgrade_hook)
 		elif i < g.hook_level:
 			rw[1].add_child(make_pill("已超越", DT.GLASS_ROW_HOVER, DT.TEXT_MUTED_GLASS))
 		else:
-			rw[1].add_child(make_pill("🔒 %d" % int(h["cost"]), DT.GLASS_ROW, DT.TEXT_FAINT_GLASS))
+			rw[1].add_child(make_pill("🔒 %s" % _compact_cost(int(h["cost"])), DT.GLASS_ROW, DT.TEXT_FAINT_GLASS))
 		list.add_child(rw[0])
 
 	# 诱饵 / 窝料（变体收集杠杆——段头用收集口径，卖价倍率下沉到行内，防按金币回本误判性价比）
@@ -2463,21 +2498,21 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 			lrw[1].add_child(make_pill("使用中", DT.GOLD, DT.INK_ON_GOLD))
 		elif i == g.lure_level + 1:
 			var lcost := int(lu["cost"])
-			_equip_btn(lrw[1], "升级 %d" % lcost, g.coins >= lcost, true, g._try_upgrade_lure)
+			_equip_btn(lrw[1], "升级 %s" % _compact_cost(lcost), g.coins >= lcost, true, g._try_upgrade_lure)
 		elif i < g.lure_level:
 			lrw[1].add_child(make_pill("已超越", DT.GLASS_ROW_HOVER, DT.TEXT_MUTED_GLASS))
 		else:
-			lrw[1].add_child(make_pill("🔒 %d" % int(lu["cost"]), DT.GLASS_ROW, DT.TEXT_FAINT_GLASS))
+			lrw[1].add_child(make_pill("🔒 %s" % _compact_cost(int(lu["cost"])), DT.GLASS_ROW, DT.TEXT_FAINT_GLASS))
 		list.add_child(lrw[0])
 
 	# 鱼贩合约（自动贩卖）：一次性买断 + 开关。只带走杂鱼，珍品/收藏/订单永远留给手动。
 	_section(list, "鱼贩合约 · 满篓自动卖杂鱼（普通花色 · ≤★ · 稀有以下 · 非巨物；收藏/未交付订单不碰）")
 	var asub := "与收鱼郎签长约：在线满篓时按市价自动带走一条最便宜的杂鱼（离线仍走折价兜底）；想留的杂鱼点🔒上锁即不碰"
 	if g.auto_sell_bought:
-		asub = "已签约 · 累计带走 %d 条 / +%d 金币" % [g.auto_sold_n, g.auto_sold_v]
+		asub = "已签约 · 累计带走 %d 条 / +%s 金币" % [g.auto_sold_n, g._coin_str(g.auto_sold_v)]
 	var arw := list_row("res://assets/art/equipment/coin_pouch.png", "鱼贩合约", asub, g._auto_sell_active())
 	if not g.auto_sell_bought:
-		_equip_btn(arw[1], "签约 %d" % g.AUTO_SELL_COST, g.coins >= g.AUTO_SELL_COST, true, g._try_buy_autosell)
+		_equip_btn(arw[1], "签约 %s" % _compact_cost(g.AUTO_SELL_COST), g.coins >= g.AUTO_SELL_COST, true, g._try_buy_autosell)
 	else:
 		arw[1].add_child(make_pill("生效中" if g.auto_sell_on else "已暂停",
 			DT.GOLD if g.auto_sell_on else DT.GLASS_ROW_HOVER,
@@ -2488,15 +2523,12 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 
 
 static func _add_attribute_equipment_rows(g: CornerFishing, list: VBoxContainer) -> void:
-	var chain := g._equipment_chain()
-	for i in chain.size():
-		var id := str(chain[i])
+	for raw_id in g._visible_equipment_chain():
+		var id := str(raw_id)
 		if g._equipment_unlocked(id):
 			_add_unlocked_attribute_equipment_row(g, list, id)
-			continue
-		if i > 0 and g._equipment_unlocked(str(chain[i - 1])):
+		else:
 			_add_locked_attribute_equipment_row(g, list, id)
-		break
 
 
 static func _add_unlocked_attribute_equipment_row(g: CornerFishing, list: VBoxContainer, id: String) -> void:
@@ -2869,8 +2901,8 @@ static func fill_test_console(g: CornerFishing, col: VBoxContainer) -> void:
 	_test_head(box, "金币")
 	var coin_row := _test_row(box)
 	_test_seg(coin_row, "+1k", false, func() -> void: TestMode.add_coins(g, 1000))
-	_test_seg(coin_row, "+1万", false, func() -> void: TestMode.add_coins(g, 10000))
-	_test_seg(coin_row, "+10万", false, func() -> void: TestMode.add_coins(g, 100000))
+	_test_seg(coin_row, "+10k", false, func() -> void: TestMode.add_coins(g, 10000))
+	_test_seg(coin_row, "+100k", false, func() -> void: TestMode.add_coins(g, 100000))
 	_test_seg(coin_row, "清零", false, func() -> void: TestMode.zero_coins(g))
 
 	_test_head(box, "装备 · 背包（上行 +1，下行 拉满）")
@@ -3213,7 +3245,7 @@ static func fill_offline_report(g: CornerFishing, v: VBoxContainer) -> void:
 		nm.add_theme_color_override("font_color", g._ui_tier_color(t, true))
 		info.add_child(nm)
 		var meta := Label.new()
-		meta.text = "%.2fkg · %d 金币%s" % [float(top["w"]), int(top["v"]),
+		meta.text = "%.2fkg · %s 金币%s" % [float(top["w"]), g._coin_str(int(top["v"])),
 			"（已折价兑金，不在篓中）" if bool(rep.get("top_folded", false)) else ""]
 		meta.add_theme_font_size_override("font_size", 12)
 		meta.add_theme_color_override("font_color", Color(0.5, 0.46, 0.4))
@@ -3221,7 +3253,7 @@ static func fill_offline_report(g: CornerFishing, v: VBoxContainer) -> void:
 		row.add_child(info)
 		v.add_child(card)
 	var total := Label.new()
-	total.text = "合计可卖 ≈ %d 金币（已入鱼篓，去卖出变现）" % int(rep.get("value", 0))
+	total.text = "合计可卖 ≈ %s 金币（已入鱼篓，去卖出变现）" % g._coin_str(int(rep.get("value", 0)))
 	total.add_theme_color_override("font_color", Color(0.72, 0.58, 0.28))
 	total.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	total.custom_minimum_size = Vector2(360, 0)
@@ -3229,7 +3261,7 @@ static func fill_offline_report(g: CornerFishing, v: VBoxContainer) -> void:
 	var ov_n := int(rep.get("overflow_n", 0))
 	if ov_n > 0:
 		var ov := Label.new()
-		ov.text = "鱼篓装满后，另有 %d 条折价兑成 +%d 金币（已自动入账）" % [ov_n, int(rep.get("overflow_v", 0))]
+		ov.text = "鱼篓装满后，另有 %d 条折价兑成 +%s 金币（已自动入账）" % [ov_n, g._coin_str(int(rep.get("overflow_v", 0)))]
 		ov.add_theme_font_size_override("font_size", DT.FS_XS)
 		ov.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 		ov.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

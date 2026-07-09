@@ -134,7 +134,7 @@ static func read_file(path: String) -> Variant:
 
 ## 把存档字典恢复到主节点（含各版本迁移）。不含离线结算与成就补登（留在 main）。
 static func apply(g, data: Dictionary) -> void:
-	g.coins = int(data.get("coins", 0))
+	g.coins = float(data.get("coins", 0.0))
 	g.rod_level = max(1, int(data.get("rod_level", 1)))
 	g.reel_level = maxi(0, int(data.get("reel_level", 0)))
 	g.fish_line_level = maxi(0, int(data.get("fish_line_level", 0)))
@@ -161,7 +161,7 @@ static func apply(g, data: Dictionary) -> void:
 				"q": int(e[3]) if e.size() >= 4 else 0,
 				"lock": e.size() >= 5 and int(e[4]) == 1,
 				"var": int(e[5]) if e.size() >= 6 else 0})
-	g.lifetime_coins = int(data.get("lt_coins", 0))
+	g.lifetime_coins = float(data.get("lt_coins", 0.0))
 	g.lifetime_catches = int(data.get("lt_catches", 0))
 	g.best_quality = int(data.get("best_q", 0))
 	g.best_variant = int(data.get("best_var", 0))
@@ -206,7 +206,7 @@ static func apply(g, data: Dictionary) -> void:
 			"week": int(wk_raw.get("week", -1)),
 			"kind": str(wk_raw.get("kind", "catches")),
 			"target": max(1, int(wk_raw.get("target", 1))),
-			"base": int(wk_raw.get("base", 0)),
+			"base": float(wk_raw.get("base", 0.0)),
 			"reward": int(wk_raw.get("reward", 0)),
 			"done": bool(wk_raw.get("done", false)),
 		}
@@ -225,7 +225,7 @@ static func apply(g, data: Dictionary) -> void:
 		g.day_stat = {
 			"date": str(ds_raw.get("date", "")),
 			"catches": int(ds_raw.get("catches", 0)),
-			"coins": int(ds_raw.get("coins", 0)),
+			"coins": float(ds_raw.get("coins", 0.0)),
 		}
 	g._opacity = float(data.get("opacity", 1.0))
 	g._set_opacity(g._opacity)
@@ -258,7 +258,7 @@ static func apply(g, data: Dictionary) -> void:
 	if sc_raw is Array:
 		for i in mini(3, (sc_raw as Array).size()):
 			g.scales[i] = maxi(0, int(sc_raw[i]))
-	g.yest_income = maxi(0, int(data.get("yest_income", 0)))
+	g.yest_income = maxf(0.0, float(data.get("yest_income", 0.0)))
 	g.showcase_pending = str(data.get("showcase", ""))
 	if not (g.showcase_pending in ["rod", "bait", "hook", "lure"]):
 		g.showcase_pending = ""
@@ -266,13 +266,13 @@ static func apply(g, data: Dictionary) -> void:
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0
-	g.auto_sold_v = 0
+	g.auto_sold_v = 0.0
 	var asr: Variant = data.get("autosell", {})
 	if asr is Dictionary:
 		g.auto_sell_bought = bool(asr.get("b", false))
 		g.auto_sell_on = bool(asr.get("on", false)) and g.auto_sell_bought
 		g.auto_sold_n = maxi(0, int(asr.get("n", 0)))
-		g.auto_sold_v = maxi(0, int(asr.get("v", 0)))
+		g.auto_sold_v = maxf(0.0, float(asr.get("v", 0.0)))
 	var wp: Variant = data.get("win_pos", null)
 	if wp is Array and wp.size() >= 2:
 		g._saved_win_pos = Vector2i(int(wp[0]), int(wp[1]))

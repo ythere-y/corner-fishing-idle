@@ -50,7 +50,7 @@ var _state_t := 0.0
 var _started := false
 
 # —— 存档数据 ——
-var coins := 0
+var coins := 0.0
 var rod_level := 1
 var reel_level := 0  # 独立速度装备：绕线轮等级，提供 speed 属性并缩短一竿周期
 var fish_line_level := 0
@@ -66,13 +66,13 @@ var lure_level := 0  # FishData.LURES 下标，决定稀有变体偏置（vbias�
 var auto_sell_bought := false   # 一次性买断（AUTO_SELL_COST）
 var auto_sell_on := false       # 合约开关：买断后默认开，可随时暂停
 var auto_sold_n := 0            # 合约累计带走条数（统计页）
-var auto_sold_v := 0            # 合约累计入金（统计页）
+var auto_sold_v := 0.0          # 合约累计入金（统计页）
 var scales: Array = [0, 0, 0]   # 彩鳞（v15）：斑斓鳞/鎏金鳞/七彩鳞——重复变体折同档鳞（FishData.SCALE_NAMES）
 var showcase_pending := ""      # 试竿保底（v15）：购买升级后的下一竿保底展示新效果（"rod"/"bait"/"hook"/"lure"）
 var yest_income := 0            # 昨日（上个游玩日）卖鱼收入（v15）：周赛/周目标奖励的收入锚
 var inventory: Array = []  # 每条 {"id", "w", "v", "q"(星级)}，一条鱼占一格
 var display: Array = []     # 陈列架上的鱼（离开鱼篓、永久展示），最多 Decor.NUM_SLOTS 件
-var lifetime_coins := 0    # 累计卖鱼所得
+var lifetime_coins := 0.0  # 累计卖鱼所得
 var lifetime_catches := 0
 var dex := {}  # id -> {"n": 累计捕获数, "w": 最大体重纪录}（图鉴纪录轴）
 var best_quality := 0      # 历史最高星级（成就用）
@@ -132,6 +132,8 @@ const OFFLINE_CAP_EXT := 24.0 * 3600.0    # 图鉴 ≥145 种（溶洞站同款�
 const OFFLINE_EFFICIENCY := 0.5           # 离线效率 50%
 const OVERFLOW_SELL_RATE := 0.5       # 满篓兜底：自动折价兑换比例（调研 3.2，避免满篓硬截断惩罚挂机）
 const AUTO_SELL_COST := 60000         # 鱼贩合约（自动贩卖）一次性买断价：中期 coin sink（rod5 无窝料口径约 16~33 分钟收入，视鱼饵档；探针 2026-07-07，变体收敛后各档收入 −7%~−26% 注意标尺漂移）
+const MAX_ECON_VALUE := 1.0e300
+const SHORT_NUMBER_UNITS := ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc", "Ud", "Dd", "Td", "Qad", "Qid", "Sxd", "Spd", "Ocd", "Nod", "Vg", "Uvg", "Dvg", "Tvg", "Qavg", "Qivg", "Sxvg", "Spvg", "Ocvg", "Novg"]
 var _save_t := 10.0
 var _pending_offline := ""               # 仅"满篓没钓到"等无渔获情况用 toast
 var _offline_report := {}                # 离线小结：{dur,count,full,value,top,notable[]}
@@ -167,7 +169,7 @@ var _event_next_t := 0.0                           # 距下一次事件的倒计
 var day_phase := Weather.DEFAULT_PHASE             # 昼夜时段（由真实时钟派生，零存档）
 
 # —— 测试模式（开发期工具，逻辑见 test_mode.gd）：仅本会话生效、不写档；切回游玩即还原正式档 ——
-var test_mode := false           # 是否在测试模式（运行态，不存档；重启天然回正式档）
+@export var test_mode := false   # 可在 Main 节点 Inspector 勾选；启动后读档并冻结写档
 var _forced_phase := ""          # 非空＝测试强制时段，_tick_phase 不再被真实时钟覆盖
 var test_speed := 1.0            # 测试提速：钓鱼等待/咬钩时长除以此值（1=正常）
 var _test_order_nonce := 0       # 测试重置订单的扰动子（绕开当日确定性种子）
@@ -228,6 +230,11 @@ func _ready() -> void:
 	# 也保证结算前 Spots/Weather 读到真实时段而非默认白昼。
 	day_phase = Weather.current_phase()
 	_load_save()
+	if test_mode:
+		if DisplayServer.get_name() == "headless":
+			test_mode = false
+		else:
+			save_enabled = false
 	_layout_widget()
 	_refresh_unlocks()  # 载入期静默补登已满足解锁的钓点
 	_ensure_day_stat()  # 先沉淀"昨日收入"锚再重建周字典——跨周首启是周奖励重建的主路径，
@@ -563,13 +570,51 @@ func _build_hud_chips() -> void:
 	_chip_dex = dexc[1]
 
 
-## 照抄 CD coinStr：≥10万 "Nk"(整) / ≥1万 "N.Nk"(一位) / 否则千分位逗号(toLocaleString)
-func _coin_str(n: int) -> String:
-	if n >= 100000:
-		return "%dk" % int(n / 1000.0)
-	if n >= 10000:
-		return "%.1fk" % (n / 1000.0)
-	return _commas(n)
+## 金币短格式：低位保逗号；高位用 idle 游戏常见 K/M/B/T/Qa/Qi...，超表后降级科学计数。
+func _coin_str(n) -> String:
+	var value := float(n)
+	var abs_n := absf(value)
+	if abs_n >= 10000:
+		return _short_number_str(value, 3)
+	return _commas(int(round(value)))
+
+
+func _short_number_str(value: float, sig_digits := 3) -> String:
+	if is_nan(value):
+		return "0"
+	if value == 0.0:
+		return "0"
+	var abs_v := absf(value)
+	var tier := int(floor(log(abs_v) / log(1000.0)))
+	if tier <= 0:
+		return _commas(int(round(_safe_econ_number(value))))
+	if tier >= SHORT_NUMBER_UNITS.size():
+		return _sci_str(value, sig_digits)
+	var scaled := value / pow(1000.0, tier)
+	var abs_scaled := absf(scaled)
+	if abs_scaled >= 100.0:
+		return "%d%s" % [int(round(scaled)), SHORT_NUMBER_UNITS[tier]]
+	if abs_scaled >= 10.0:
+		return "%.1f%s" % [snappedf(scaled, 0.1), SHORT_NUMBER_UNITS[tier]]
+	return "%.2f%s" % [snappedf(scaled, 0.01), SHORT_NUMBER_UNITS[tier]]
+
+
+func _sci_str(value: float, sig_digits := 3) -> String:
+	if is_nan(value):
+		return "0"
+	if value == 0.0:
+		return "0"
+	var sign := "-" if value < 0.0 else ""
+	var abs_v := absf(value)
+	var exp10 := int(floor(log(abs_v) / log(10.0)))
+	var mant := abs_v / pow(10.0, exp10)
+	var decimals := maxi(0, sig_digits - 1)
+	var rounded := snappedf(mant, pow(10.0, -decimals))
+	if rounded >= 10.0:
+		rounded /= 10.0
+		exp10 += 1
+	var text := ("%.*f" % [decimals, rounded]).rstrip("0").rstrip(".")
+	return "%s%se%d" % [sign, text, exp10]
 
 
 ## 千分位逗号（复刻 JS toLocaleString 的 en-US 行为）
@@ -583,6 +628,34 @@ func _commas(n: int) -> String:
 		if c % 3 == 0 and i > 0:
 			out = "," + out
 	return ("-" + out) if n < 0 else out
+
+
+func _safe_econ_number(raw: float) -> float:
+	if is_nan(raw) or raw <= 0.0:
+		return 0.0
+	if is_inf(raw) or raw >= MAX_ECON_VALUE:
+		return MAX_ECON_VALUE
+	return round(raw)
+
+
+func _safe_econ_int(raw: float) -> float:
+	return _safe_econ_number(raw)
+
+
+func _econ_sum(a, b) -> float:
+	return _safe_econ_number(float(a) + maxf(0.0, float(b)))
+
+
+func _add_coins_safe(amount) -> void:
+	coins = _econ_sum(coins, amount)
+
+
+func _add_lifetime_coins_safe(amount) -> void:
+	lifetime_coins = _econ_sum(lifetime_coins, amount)
+
+
+func _add_auto_sold_value_safe(amount) -> void:
+	auto_sold_v = _econ_sum(auto_sold_v, amount)
 
 
 ## 右上状态标签胶囊（钓点/时段/事件/鱼贩）；纯展示、不挡点击。
@@ -1276,15 +1349,15 @@ func _do_catch() -> void:
 	# 庆祝 toast 门槛（P1 感官治理）：斑斓收敛后仍≈1/40 竿，浮标彩色飘字已够仪式感，
 	# toast 只留鎏金/七彩级惊喜；专注（安静）模式下庆祝类 toast 全部静默（订单进度等事务性提示保留）。
 	if vr >= 2 and not focus_mode:
-		_toast("✨ 变体！%s%s（%.2fkg，%d 金币）" % [FishData.variant_label(vr),
-			FishData.display_name(c["id"]), c["w"], c["v"]], 2.8, FishData.variant_color(vr))
+		_toast("✨ 变体！%s%s（%.2fkg，%s 金币）" % [FishData.variant_label(vr),
+			FishData.display_name(c["id"]), c["w"], _coin_str(int(c["v"]))], 2.8, FishData.variant_color(vr))
 	elif broke_record and not focus_mode:
 		_toast("破纪录！%s %.2fkg，刷新个人最大" % [FishData.display_name(c["id"]), c["w"]],
 			2.6, Color(0.95, 0.82, 0.45))
 	elif (tier >= 3 or q >= 2) and not focus_mode:
-		_toast("%s钓到 %s（%.2fkg，%d 金币）" % [
+		_toast("%s钓到 %s（%.2fkg，%s 金币）" % [
 			(FishData.TIER_NAMES[tier] + "！") if tier >= 3 else "",
-			fname, c["w"], c["v"]], 2.4, col)
+			fname, c["w"], _coin_str(int(c["v"]))], 2.4, col)
 	elif not bool(daily_order.get("done", false)) and _order_matches(c) \
 			and vr < 2 and (str(daily_order.get("kind", "")) == "perfect" or q < 3):
 		# 与自动交单池同口径：珍稀（鎏金/七彩/★★★）不计入订单，进度提示也不该由它触发
@@ -1295,8 +1368,8 @@ func _do_catch() -> void:
 	var comp_win := Competition.on_catch(self, c)   # 巨物赛：本周目标鱼刷新最佳，冲过影子线夺金
 	if comp_win > 0:
 		Audio.play_sfx("coin")
-		_toast("🏆 巨物赛夺金！%s %.2fkg 越过影子线，+%d 金币" % [
-			FishData.display_name(str(c["id"])), float(c["w"]), comp_win], 3.4, Color(1.0, 0.86, 0.32))
+		_toast("🏆 巨物赛夺金！%s %.2fkg 越过影子线，+%s 金币" % [
+			FishData.display_name(str(c["id"])), float(c["w"]), _coin_str(comp_win)], 3.4, Color(1.0, 0.86, 0.32))
 		_flash()
 	if tier >= 5 or vr >= 3 or broke_record:   # 真·稀有（神话/七彩）或破个人纪录才庆祝闪光
 		_flash()
@@ -1322,8 +1395,8 @@ func _do_catch() -> void:
 		var comp_win2 := Competition.on_catch(self, c2)   # 双钩第二条也参与巨物赛
 		if comp_win2 > 0:
 			Audio.play_sfx("coin")
-			_toast("🏆 巨物赛夺金！%s %.2fkg，+%d 金币" % [
-				FishData.display_name(str(c2["id"])), float(c2["w"]), comp_win2], 3.4, Color(1.0, 0.86, 0.32))
+			_toast("🏆 巨物赛夺金！%s %.2fkg，+%s 金币" % [
+				FishData.display_name(str(c2["id"])), float(c2["w"]), _coin_str(comp_win2)], 3.4, Color(1.0, 0.86, 0.32))
 			_flash()
 	if _bag_full() and not _auto_sell_active():   # 签约后收鱼郎代劳腾格，这条建议每竿刷屏且已过时
 		_toast("鱼篓满了，先去卖鱼或扩容～", 3.0, Color(1.0, 0.75, 0.4))
@@ -1338,7 +1411,7 @@ func _do_catch() -> void:
 	if focus_up > 0:  # 专注奖励到手：用最醒目的 toast 收尾（最后调用者覆盖前面的飘字）
 		var rname := FishData.variant_label(int(c.get("var", 0))) + FishData.quality_label(int(c.get("q", 0))) \
 			+ FishData.display_name(str(c["id"]))
-		_toast("🎁 专注奖励到手：%s（%.2fkg，%d 金币）" % [rname, float(c["w"]), int(c["v"])],
+		_toast("🎁 专注奖励到手：%s（%.2fkg，%s 金币）" % [rname, float(c["w"]), _coin_str(int(c["v"]))],
 			4.0, Color(0.74, 0.86, 0.98))
 	_begin_wait()
 
@@ -1380,10 +1453,10 @@ func _overflow_catch() -> void:
 		caught_giant = true
 	_dex_record(c["id"], float(c["w"]), is_big, q >= 3, vr)
 	var gain := _absorb_overflow(c)
-	coins += gain
-	lifetime_coins += gain
+	_add_coins_safe(gain)
+	_add_lifetime_coins_safe(gain)
 	painter.add_ripple(painter.bobber_pos(), 28.0)
-	_popup("满篓兑 +%d" % gain, _scene_pt(painter.bobber_pos()) + Vector2(-22, -8),
+	_popup("满篓兑 +%s" % _coin_str(gain), _scene_pt(painter.bobber_pos()) + Vector2(-22, -8),
 		Color(0.85, 0.72, 0.42))
 	_check_achievements()
 	_update_hud()
@@ -1430,12 +1503,12 @@ func _try_auto_sell() -> bool:
 		return false
 	var c: Dictionary = inventory[idx]
 	inventory.remove_at(idx)
-	coins += idx_v
-	lifetime_coins += idx_v
+	_add_coins_safe(idx_v)
+	_add_lifetime_coins_safe(idx_v)
 	auto_sold_n += 1
-	auto_sold_v += idx_v
+	_add_auto_sold_value_safe(idx_v)
 	_check_achievements()   # 财富线成就与其他卖鱼收入路径同口径，不延迟到下一竿
-	_popup("收鱼郎带走%s +%d" % [FishData.display_name(c["id"]), idx_v],
+	_popup("收鱼郎带走%s +%s" % [FishData.display_name(c["id"]), _coin_str(idx_v)],
 		_scene_pt(painter.bobber_pos()) + Vector2(-22, -8), Color(0.72, 0.66, 0.52))
 	_update_hud()
 	_refresh_panel()
@@ -1504,7 +1577,7 @@ func _update_hud() -> void:
 	if active_event != "" and EventData.hud_text(active_event) != "":
 		evt = "　" + EventData.hud_text(active_event)
 	var tm := "　🧪测试" if test_mode else ""   # 测试模式常驻角标（提醒当前改动不写档）
-	coins_label.text = "金币 %d　%s%s%s%s" % [coins, bag, mer, evt, tm]
+	coins_label.text = "金币 %s　%s%s%s%s" % [_coin_str(coins), bag, mer, evt, tm]
 	var col := Color(0.92, 0.92, 0.9)
 	if active_event != "":
 		col = EventData.color(active_event)
@@ -2075,10 +2148,10 @@ func _sell_one(idx: int) -> void:
 	var c: Dictionary = inventory[idx]
 	inventory.remove_at(idx)
 	var v := _sell_value(c)
-	coins += v
-	lifetime_coins += v
+	_add_coins_safe(v)
+	_add_lifetime_coins_safe(v)
 	Audio.play_sfx("coin")
-	_toast("卖出 %s +%d%s" % [FishData.display_name(c["id"]), v,
+	_toast("卖出 %s +%s%s" % [FishData.display_name(c["id"]), _coin_str(v),
 		"（鱼贩×1.5）" if _merchant_active else ""], 1.5, Color(0.85, 0.7, 0.35))
 	_check_achievements()
 	_update_hud()
@@ -2099,10 +2172,10 @@ func _sell_all() -> void:
 	if n == 0:
 		return
 	inventory = keep
-	coins += total
-	lifetime_coins += total
+	_add_coins_safe(total)
+	_add_lifetime_coins_safe(total)
 	Audio.play_sfx("coin")
-	var msg := "卖出 %d 条鱼 +%d 金币%s" % [n, total, "（鱼贩×1.5）" if _merchant_active else ""]
+	var msg := "卖出 %d 条鱼 +%s 金币%s" % [n, _coin_str(total), "（鱼贩×1.5）" if _merchant_active else ""]
 	if not keep.is_empty():
 		msg += "（%d 条收藏留着）" % keep.size()
 	_toast(msg, 2.2, Color(0.85, 0.7, 0.35))
@@ -2128,10 +2201,10 @@ func _sell_junk() -> void:
 	if n == 0:
 		return
 	inventory = keep
-	coins += total
-	lifetime_coins += total
+	_add_coins_safe(total)
+	_add_lifetime_coins_safe(total)
 	Audio.play_sfx("coin")
-	_toast("卖出杂鱼 %d 条 +%d 金币（订单鱼与收藏保留）" % [n, total], 2.2, Color(0.85, 0.7, 0.35))
+	_toast("卖出杂鱼 %d 条 +%s 金币（订单鱼与收藏保留）" % [n, _coin_str(total)], 2.2, Color(0.85, 0.7, 0.35))
 	_check_achievements()
 	_update_hud()
 	_refresh_panel()
@@ -2280,10 +2353,10 @@ func _check_achievements(silent := false) -> void:
 				continue
 			var reward := int(a.get("reward", 0))
 			if reward > 0:
-				coins += reward
+				_add_coins_safe(reward)
 			var msg := "成就达成：%s" % a["name"]
 			if reward > 0:
-				msg += "（+%d 金币）" % reward
+				msg += "（+%s 金币）" % _coin_str(reward)
 			_toast(msg, 3.0, Color(0.98, 0.85, 0.45))
 
 
@@ -2309,8 +2382,8 @@ func _reel_speed_for(lv: int) -> float:
 	return AnglerEquipmentScript.reel_stats(lv).speed
 
 
-func _reel_upgrade_cost(count: int) -> int:
-	return AnglerEquipmentScript.reel_upgrade_cost(reel_level, count)
+func _reel_upgrade_cost(count: int) -> float:
+	return AnglerEquipmentScript.equipment_upgrade_cost("reel", reel_level, count)
 
 
 func _gear_level(id: String) -> int:
@@ -2333,8 +2406,8 @@ func _set_gear_level(id: String, level: int) -> void:
 		"gloves": gloves_level = level
 
 
-func _gear_upgrade_cost(id: String, count: int) -> int:
-	return AnglerEquipmentScript.attr_equipment_upgrade_cost(_gear_level(id), count)
+func _gear_upgrade_cost(id: String, count: int) -> float:
+	return AnglerEquipmentScript.equipment_upgrade_cost(id, _gear_level(id), count)
 
 
 func _gear_stats(id: String, level := -1):
@@ -2357,29 +2430,29 @@ func _equipment_unlocked(id: String) -> bool:
 
 
 func _equipment_chain() -> Array:
-	return ["fish_line", "reel", "bobber", "sonar", "notebook", "gloves"]
+	return AnglerEquipmentScript.equipment_order()
 
 
-func _equipment_unlock_cost(id: String) -> int:
-	match id:
-		"reel":
-			return AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 30)
-		"bobber":
-			return AnglerEquipmentScript.reel_upgrade_cost(0, 25)
-		"sonar", "notebook", "gloves":
-			return AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 25)
-		_:
-			return 0
+func _visible_equipment_chain() -> Array:
+	var chain := _equipment_chain()
+	var visible := []
+	for i in chain.size():
+		var id := str(chain[i])
+		if _equipment_unlocked(id):
+			visible.append(id)
+			continue
+		if i > 0 and _equipment_unlocked(str(chain[i - 1])):
+			visible.append(id)
+		break
+	return visible
+
+
+func _equipment_unlock_cost(id: String) -> float:
+	return AnglerEquipmentScript.equipment_unlock_cost(id)
 
 
 func _equipment_unlock_note(id: String) -> String:
-	match id:
-		"reel": return "约等于鱼线 30 级投入"
-		"bobber": return "约等于绕线轮 25 级投入"
-		"sonar": return "约等于浮漂 25 级投入"
-		"notebook": return "约等于探鱼器 25 级投入"
-		"gloves": return "约等于钓鱼笔记 25 级投入"
-		_: return ""
+	return AnglerEquipmentScript.equipment_unlock_note(id)
 
 
 func _try_unlock_equipment(id: String) -> void:
@@ -2423,11 +2496,11 @@ func _force_catch_grade(c: Dictionary, min_q: int, min_var: int) -> void:
 	c["v"] = maxi(1, int(round(float(c["v"]) * mult)))
 
 
-func _rod_cost() -> int:
+func _rod_cost() -> float:
 	# 陡成本曲线：让鱼竿成为真正的长期金币去向（旧 40×1.8^n 几乎零成本）。
 	# 400×1.7^n：成本增速(1.7/级) 高于产出增速(~1.1~1.25/级)，回本时间平滑递增形成减速带，
 	# 且不在等待封顶级(Lv16)附近产生回本悬崖（数值依据 docs/balance_audit_2026-07-06.md）。
-	return int(round(400.0 * pow(1.7, rod_level - 1)))
+	return _safe_econ_number(400.0 * pow(1.7, rod_level - 1))
 
 
 func _try_upgrade_rod() -> void:
@@ -2992,8 +3065,8 @@ func _offline_catch(elapsed: float) -> int:
 			if FishData.tier_of(c["id"]) >= 3 or int(c.get("q", 0)) >= 2 or int(c.get("var", 0)) >= 1:
 				notable.append(c.duplicate())   # 副本自带 _oid，尾部统一回填 folded
 	day_phase = phase_before
-	coins += overflow_v
-	lifetime_coins += overflow_v
+	_add_coins_safe(overflow_v)
+	_add_lifetime_coins_safe(overflow_v)
 	# —— 按最终篓内容回填：谁真的留下了、离线新增的在篓价值是多少 ——
 	var kept := {}
 	var stored_v := 0

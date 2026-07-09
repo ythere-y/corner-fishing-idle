@@ -329,8 +329,7 @@ func _apply_display_mode() -> void:
 
 
 func _stage_size() -> Vector2:
-	return Vector2(WIN)
-
+	return get_viewport_rect().size
 
 func _widget_size() -> Vector2:
 	return ART * ui_scale

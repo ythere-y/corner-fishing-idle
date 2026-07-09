@@ -259,8 +259,8 @@ func _ready() -> void:
 	elif _pending_offline != "":
 		_toast(_pending_offline, 4.5, Color(0.55, 0.85, 0.55))
 		_pending_offline = ""
-	if display_mode != "immersive":
-		_set_dev_attrs_open(true)
+if display_mode != "immersive" and test_mode:
+	_set_dev_attrs_open(true)
 
 
 # ============================ 窗体形态 ============================

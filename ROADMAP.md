@@ -80,6 +80,7 @@
 | 工作流硬规矩 / 各模块真值来源 | [CLAUDE.md](CLAUDE.md) |
 | UI 设计系统 | `design-ref/_HANDOFF_INDEX.md` |
 | 鱼扩展方案 | `docs/fish-expansion-plan.md` |
+| **前三钓点联动系统设计（huchao 提案，待排期）** | `docs/three-spot-linkage-design-huchao.md` |
 | 鱼图标美术标准 / 清单 | `docs/fish_icon_art_standard.md` · `docs/fish_icon_manifest.md` |
 | 多车道并行约定 | `docs/parallel-dev-contract.md` |
 | 社区照片墙设计 | `docs/community_photo_wall_design.html` |

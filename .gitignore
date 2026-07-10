@@ -18,3 +18,4 @@ tmp/
 .reference/
 node_modules/
 output/
+.codebuddy/

@@ -412,6 +412,14 @@ static func variant_label(v: int) -> String:
 	return VARIANT_NAMES[clampi(v, 0, VARIANT_NAMES.size() - 1)] + "·"
 
 
+## 「1 in X」显性赔率（Fish It 式可读稀有度）：基线概率的倒数取整（斑斓 40 / 鎏金 250 / 七彩 1250）。
+## 只报基线口径不含窝料偏置——给玩家一个稳定可炫耀的数字，而非随装备漂移的精确值。
+static func variant_odds(v: int) -> int:
+	if v <= 0 or v >= VARIANT_PROBS.size():
+		return 1
+	return int(round(1.0 / float(VARIANT_PROBS[v])))
+
+
 static func variant_color(v: int) -> Color:
 	return VARIANT_COLORS[clampi(v, 0, VARIANT_COLORS.size() - 1)]
 

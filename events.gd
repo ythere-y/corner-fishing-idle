@@ -47,10 +47,14 @@ static func activate_buff(g: CornerFishing, id: String) -> void:
 	g._event_buff_t = g.rng.randf_range(float(dur[0]), float(dur[1]))
 	if EventData.wants_flash(id) and not g.focus_mode:
 		g._flash()
+	Audio.play_sfx("sfx_event_appear")   # buff 类事件进场此前完全无声（7 种里的 6 种）
 	var tin := str(e.get("toast_in", ""))
 	if tin != "":
 		g._toast(tin, 3.5, EventData.color(id))
-	g._begin_wait()
+	# 咬钩中不打断（与 _apply_phase 同约定）：预掷渔获/稀有驻留金环不被事件掐掉，
+	# buff 的节奏变化从本竿结算后的下一次 _begin_wait 自然生效。
+	if g._state != CornerFishing.ST_BITE:
+		g._begin_wait()
 	g._update_hud()
 
 
@@ -72,7 +76,9 @@ static func resolve_instant(g: CornerFishing, id: String) -> void:
 	var reward := int(round(g.rng.randf_range(float(rb[0]), float(rb[1])) * (1.0 + float(g.rod_level - 1) * 0.35)))
 	reward = maxi(1, reward)
 	g.coins += reward  # 拾得/保育奖励：进金币但不计入卖鱼终身收入
-	Audio.play_sfx("coin")
+	# 先响事件进场提示，隔开 0.3s 再落金币——同帧叠两个音会糊，且丢掉"发生了什么→得到什么"的因果。
+	Audio.play_sfx("sfx_event_appear")
+	g.get_tree().create_timer(0.30).timeout.connect(func() -> void: Audio.play_sfx("coin"))
 	var tin := str(e.get("toast_in", ""))
 	if tin != "":
 		g._toast(tin % reward if "%d" in tin else tin, 3.2, EventData.color(id))

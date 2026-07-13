@@ -63,6 +63,9 @@ func _run() -> void:
 	print("=== 试竿保底（升级体感）===")
 	await _check_showcase()
 
+	print("=== 亲手起钩 / 稀有仪式（P0 好玩补丁）===")
+	await _check_hand_hook()
+
 	print("=== 成就系统 ===")
 	await _check_achievements_feature()
 
@@ -84,6 +87,9 @@ func _run() -> void:
 	print("=== 多钓点：切换 / 鱼池 / 解锁 ===")
 	await _check_spots()
 
+	print("=== 旅行地图（投影 / 晨昏线 / 站点布局）===")
+	await _check_world_map()
+
 	print("=== 水族箱/陈列系统 ===")
 	await _check_decor()
 
@@ -95,6 +101,9 @@ func _run() -> void:
 
 	print("=== 昼夜时段系统 ===")
 	await _check_weather()
+
+	print("=== 音频：素材齐全 / 上鱼分级 / 张力 / BGM ===")
+	await _check_audio()
 
 	print("=== 存档 v2 往返 ===")
 	await _check_save_v2()
@@ -126,7 +135,7 @@ func _run() -> void:
 	print("=== 桌面宠物（小馋猫）===")
 	await _check_pet()
 
-	print("=== 存档 v11/v12 往返 / 旧档迁移 ===")
+	print("=== 存档 v11/v12/v19 往返 / 旧档迁移 ===")
 	await _check_save_v11()
 
 	print("=== 主界面入口收敛（点金币开面板）===")
@@ -527,6 +536,117 @@ func _check_hook() -> void:
 
 
 ## 诱饵/窝料（P2 变体杠杆第四成长线）：数据档位 + lure_level→_variant_bias()→_roll_one 端到端接线。
+## 音频回归：manifest 与磁盘/运行时三者一致；上鱼四档映射；张力循环；BGM 昼夜切换。
+## 无头模式下 Godot 用 Dummy 音频驱动——播放不出声，但 stream 加载、loop 标志、
+## player 建立、状态机推进全部照常执行，够抓住"素材缺失 / 键名写错 / 循环没开"这类真错。
+func _check_audio() -> void:
+	# 注意：不能在本文件里直接写 `Audio`。`-s` 跑的 SceneTree 脚本在 autoload 注册之前
+	# 就被编译，会报 "Identifier not found: Audio"（spots.gd 之流没事，因为它们是经
+	# main.tscn 间接加载的，那时 autoload 已就位）。运行时按路径取节点即可绕开。
+	var audio: Node = root.get_node_or_null("/root/Audio")
+	_assert(audio != null, "AudioManager autoload 应挂在 /root/Audio")
+	if audio == null:
+		return
+
+	var raw: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://assets/audio/audio_manifest.json"))
+	_assert(raw is Dictionary, "audio_manifest.json 应可解析为字典")
+	var manifest: Dictionary = raw
+
+	# 1) manifest 里每个 id 的文件都真实存在，且运行时都加载进了 Audio
+	for id in manifest:
+		var path := str(manifest[id]["path"])
+		_assert(ResourceLoader.exists(path), "音频文件缺失：%s -> %s" % [id, path])
+		_assert(audio.has(id), "AudioManager 未加载音频 id：%s" % id)
+
+	# 2) 反向：代码里播的每个 id 都必须在 manifest 里（写错键名会静默变成"没声音"）
+	var must_exist := [
+		"ui_click", "ui_error", "cast", "bobber_splash", "bite", "coin", "upgrade",
+		"catch_common", "catch_good", "catch_rare", "catch_epic",
+		"sfx_new_species", "sfx_record", "sfx_achievement", "sfx_focus_reward",
+		"sfx_cat_steal", "sfx_fish_struggle", "sfx_competition_win", "sfx_spot_unlock",
+		"sfx_event_appear", "sfx_reel_tension", "bgm_day", "bgm_night",
+		# sfx_epic_tail 不在此列：它只是 catch_epic 的合成素材，运行时从不单独播放，
+		# 因此刻意不进 manifest（AudioManager 会 load 每一个 manifest 条目）。
+	]
+	for id in must_exist:
+		_assert(manifest.has(id), "代码会播放但 manifest 里没有：%s" % id)
+
+	# 3) 循环素材的 loop 标志真的被打开了（AudioStreamWAV 忘了设 loop_end 会卡首帧＝无声）
+	for id in manifest:
+		if not bool(manifest[id].get("loop", false)):
+			continue
+		var stream: AudioStream = load(str(manifest[id]["path"]))
+		if stream is AudioStreamWAV:
+			# _configure_stream_looping 在 duplicate 上设标志，磁盘导入档本身可以是 Disabled；
+			# 这里只断言时长非零，真正的 loop 配置在下面的运行时检查里验。
+			_assert(stream.get_length() > 0.0, "循环素材 %s 时长为 0" % id)
+		_assert(audio.has(id), "循环素材 %s 未进入 AudioManager" % id)
+
+	# 4) 上鱼四档映射：越稀有越不能掉档
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+
+	_assert(g._catch_sfx(0, 0, 0) == "catch_common", "普通鱼 ★0 应为 catch_common")
+	_assert(g._catch_sfx(0, 2, 0) == "catch_good", "普通鱼 ★★ 应为 catch_good")
+	_assert(g._catch_sfx(2, 0, 0) == "catch_rare", "稀有鱼应为 catch_rare")
+	_assert(g._catch_sfx(0, 0, 1) == "catch_rare", "斑斓变体应为 catch_rare")
+	_assert(g._catch_sfx(0, 3, 0) == "catch_rare", "极品★★★ 应为 catch_rare")
+	_assert(g._catch_sfx(0, 0, 2) == "catch_epic", "鎏金变体应为 catch_epic")
+	_assert(g._catch_sfx(0, 0, 3) == "catch_epic", "七彩变体应为 catch_epic")
+	_assert(g._catch_sfx(4, 0, 0) == "catch_epic", "传说鱼应为 catch_epic")
+	_assert(g._catch_sfx(5, 3, 3) == "catch_epic", "神话+七彩 应为 catch_epic")
+	# 单调性：品阶/星级/变体各自单调不降档（档位序号越大越强）
+	var rank := {"catch_common": 0, "catch_good": 1, "catch_rare": 2, "catch_epic": 3}
+	for t in range(6):
+		for q in range(4):
+			for v in range(4):
+				var here: int = rank[g._catch_sfx(t, q, v)]
+				if t > 0:
+					_assert(here >= int(rank[g._catch_sfx(t - 1, q, v)]), "品阶升高不应降档 (t=%d q=%d v=%d)" % [t, q, v])
+				if v > 0:
+					_assert(here >= int(rank[g._catch_sfx(t, q, v - 1)]), "变体升高不应降档 (t=%d q=%d v=%d)" % [t, q, v])
+
+	# 5) 张力循环：咬钩拉起、上鱼收掉，且不占用 8 音轨 sfx 池
+	_assert(audio._tension != null, "张力循环 player 应已建立")
+	audio.start_tension(1)
+	_assert(audio._tension.playing, "start_tension 后应在播放")
+	_assert(audio._tension_target == 1.0, "start_tension 应把目标增益推到 1")
+	var pitch_small: float = audio._tension.pitch_scale
+	audio.start_tension(5)
+	_assert(audio._tension.pitch_scale < pitch_small, "高品阶应更低沉（pitch 更低）")
+	audio.stop_tension()
+	_assert(audio._tension_target == 0.0, "stop_tension 应把目标增益推到 0")
+
+	# 6) BGM 昼夜切换 + 开关
+	audio.set_music_scene("day")
+	_assert(audio._music_key == "bgm_day", "白昼应选 bgm_day")
+	audio.set_music_scene("dusk")
+	_assert(audio._music_key == "bgm_day", "黄昏仍用白昼曲")
+	audio.set_music_scene("night")
+	_assert(audio._music_key == "bgm_night", "夜晚应切 bgm_night")
+	_assert(float(audio._music["bgm_night"]["target"]) == 1.0, "夜曲目标增益应为 1")
+	_assert(float(audio._music["bgm_day"]["target"]) == 0.0, "白昼曲应淡出到 0")
+	var vol: float = audio.music_volume
+	audio.set_music_enabled(false)
+	_assert(float(audio._music["bgm_night"]["target"]) == 0.0, "关掉音乐后所有曲目应淡出")
+	_assert(audio.music_volume == vol, "关音乐不应改动音量记忆")
+	audio.set_music_enabled(true)
+	_assert(float(audio._music["bgm_night"]["target"]) == 1.0, "重开音乐应恢复当前时段那条")
+
+	# 7) 静音应同时掐掉张力与 BGM（此前 muted 只挡 play_sfx，持续层会继续响）
+	audio.start_tension(1)
+	audio.set_muted(true)
+	_assert(audio._tension_target == 0.0, "静音应停掉张力循环")
+	_assert(float(audio._music["bgm_night"]["target"]) == 0.0, "静音应停掉 BGM")
+	audio.set_muted(false)
+	_assert(float(audio._music["bgm_night"]["target"]) == 1.0, "解除静音应恢复 BGM")
+
+	g.queue_free()
+	print("  音频：%d 条素材齐全 / 四档映射单调 / 张力变调 / BGM 昼夜与静音 通过" % manifest.size())
+
+
 func _check_lure() -> void:
 	_assert(FishData.LURES.size() == 4, "诱饵应 4 档")
 	_assert(FishData.lure_vbias(0) == 0.0, "无窝料 vbias 应为 0（基线不破）")
@@ -712,6 +832,7 @@ func _check_pet() -> void:
 
 
 ## 存档 v11：dex 首捕日期 + 专注/宠物计数往返；v10→v11 无损迁移。
+## 存档 v19：dex 破纪录日期 wd 往返；v18(六元组，无 wd)→v19 无损迁移。
 func _check_save_v11() -> void:
 	var path := ProjectSettings.globalize_path(TEST_SAVE)
 	if FileAccess.file_exists(TEST_SAVE):
@@ -721,7 +842,8 @@ func _check_save_v11() -> void:
 	g1.save_path = TEST_SAVE
 	root.add_child(g1)
 	await process_frame
-	g1.dex = {"koi": {"n": 3, "w": 5.0, "big": true, "perf": false, "vmask": (1 << 2), "fd": "2026-06-15"}}
+	g1.dex = {"koi": {"n": 3, "w": 5.0, "big": true, "perf": false, "vmask": (1 << 2),
+		"fd": "2026-06-15", "wd": "2026-06-18"}}   # v19：wd 破纪录日期
 	g1.display = [{"id": "koi", "w": 5.0, "v": 1600, "q": 1, "lock": false, "var": 2}]
 	g1.focus_minutes_total = 137.5
 	g1.focus_reward_today = 2
@@ -740,6 +862,7 @@ func _check_save_v11() -> void:
 	root.add_child(g2)
 	await process_frame
 	_assert(str(g2.dex["koi"].get("fd", "")) == "2026-06-15", "v11 应恢复 dex 首捕日期")
+	_assert(str(g2.dex["koi"].get("wd", "")) == "2026-06-18", "v19 应恢复 dex 破纪录日期（详情卡「破纪录于」）")
 	_assert(g2.display.size() == 1 and str(g2.display[0]["id"]) == "koi", "v11 应恢复缸内鱼")
 	_assert(absf(g2.focus_minutes_total - 137.5) < 0.01, "v11 应恢复累计专注分钟")
 	_assert(g2.focus_reward_today == 2 and g2.focus_pending == 1, "v11 应恢复专注奖励计数/挂起")
@@ -778,7 +901,16 @@ func _check_save_v11() -> void:
 	_assert(g3.lure_level == 0, "旧档无 lure 字段 → 应默认无窝料(0)")
 	_assert(g3.max_fps == 120, "旧档无帧率字段 → 应默认 120（v16 起流畅优先）")
 	_assert(is_equal_approx(g3.ui_scale, 1.0), "旧档无界面缩放字段 → 应默认 1.0")
-	print("  存档 v11/v12：dex首捕/专注/宠物/诱饵 往返 + 旧档无损迁移 通过")
+	_assert(str(g3.dex["kaluga"].get("wd", "x")) == "", "v10 dex 无 wd → 迁移默认空")
+	# v18 → v19 迁移：dex 六元组（有 fd、无 wd）→ wd 默认空串，fd/vmask 无损
+	var v18: Dictionary = SaveSystem.collect(g3)
+	v18["ver"] = 18
+	v18["dex"] = {"kaluga": [2, 81.0, 1, 0, (1 << 3), "2026-06-01"]}   # v18 六元组，无 wd
+	SaveSystem.apply(g3, v18)
+	_assert(str(g3.dex["kaluga"].get("wd", "x")) == "", "v18 dex 无 wd → 迁移默认空")
+	_assert(str(g3.dex["kaluga"].get("fd", "")) == "2026-06-01", "v18→v19 应保留 dex 首捕日期")
+	_assert(int(g3.dex["kaluga"].get("vmask", 0)) == (1 << 3), "v18→v19 应保留 dex 变体掩码")
+	print("  存档 v11/v12/v19：dex首捕+破纪录日期/专注/宠物/诱饵 往返 + 旧档无损迁移 通过")
 	g3.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(path)
@@ -925,8 +1057,8 @@ func _check_reel_speed() -> void:
 	g.notebook_level = 4
 	g.gloves_level = 5
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 19 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
-		"v19 应保存 reel_level、五件属性装备等级与功能开放状态")
+	_assert(int(d["ver"]) == 20 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
+		"v20 应保存 reel_level、五件属性装备等级与功能开放状态")
 	g.reel_level = 0
 	g.fish_line_level = 0
 	g.bobber_level = 0
@@ -936,7 +1068,7 @@ func _check_reel_speed() -> void:
 	SaveSystem.apply(g, d)
 	_assert(g.reel_level == 100 and g.fish_line_level == 10 and g.bobber_level == 2
 			and g.sonar_level == 3 and g.notebook_level == 4 and g.gloves_level == 5,
-		"v19 应恢复 reel_level 与五件属性装备等级")
+		"v20 应恢复 reel_level 与五件属性装备等级")
 	var od := d.duplicate()
 	od.erase("reel_level")
 	od.erase("fish_line_level")
@@ -1226,7 +1358,7 @@ func _check_autosell() -> void:
 	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
 	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 19, "存档版本应为 v19")
+	_assert(int(d["ver"]) == 20, "存档版本应为 v20")
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0
@@ -1358,6 +1490,83 @@ func _check_showcase() -> void:
 	await process_frame
 
 
+## P0 好玩补丁：咬钩预掷 / 亲手起钩加成 / 稀有驻留判定 / 试竿不被过期预掷吞掉 / hand_n 往返。
+func _check_hand_hook() -> void:
+	_assert(FishData.variant_odds(1) == 40, "斑斓显性赔率应为 1/40")
+	_assert(FishData.variant_odds(2) == 250, "鎏金显性赔率应为 1/250")
+	_assert(FishData.variant_odds(3) == 1250, "七彩显性赔率应为 1/1250")
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	g.daily_order = {}
+	g.focus_mode = true   # 关宠物偷鱼与庆祝弹卡，保证条数断言确定
+	# —— 预掷消费：注入 pending，_do_catch 应消费它而非重掷 ——
+	g._pending_catch = {"id": "carp", "w": 2.5, "v": 60, "q": 0, "var": 2,
+		"_luck": 0, "_showcase": ""}
+	var n0: int = g.inventory.size()
+	g._do_catch()
+	_assert(g.inventory.size() == n0 + 1, "注入预掷应恰入篓 1 条（新档无双钩）")
+	_assert(str(g.inventory[n0]["id"]) == "carp" and int(g.inventory[n0].get("var", 0)) == 2,
+		"应消费预掷渔获（鎏金鲤鱼）而非重掷")
+	_assert(g._pending_catch.is_empty(), "预掷消费后应清空")
+	# —— 亲手起钩：完整咬钩 → _manual_hook，体重/卖价 ×1.1、hand_n +1、立即回到等待 ——
+	g._begin_bite()
+	_assert(not g._pending_catch.is_empty(), "咬钩瞬间应已预掷渔获")
+	var pw := float(g._pending_catch["w"])
+	var pv := int(g._pending_catch["v"])
+	var n1: int = g.inventory.size()
+	g._manual_hook()
+	_assert(g.inventory.size() == n1 + 1, "亲手起钩应立即结算入篓")
+	_assert(g.hand_catches == 1, "亲手起钩计数应 +1，实际 %d" % g.hand_catches)
+	var hc: Dictionary = g.inventory[n1]
+	_assert(absf(float(hc["w"]) - snappedf(pw * g.HAND_HOOK_MULT, 0.01)) < 0.011,
+		"亲手起钩体重应 ×1.1（%.2f → %.2f）" % [pw, float(hc["w"])])
+	_assert(int(hc["v"]) == maxi(1, int(round(pv * g.HAND_HOOK_MULT))), "亲手起钩卖价应 ×1.1")
+	_assert(g._state == g.ST_WAIT, "亲手起钩结算后应回到等待")
+	_assert(g._pending_catch.is_empty(), "结算后预掷应清空（_begin_wait 兜底）")
+	# —— 稀有驻留判定：鎏金/七彩驻留，斑斓不驻留（频率超感官预算）——
+	_assert(g._is_special_catch({"id": "carp", "var": 2}), "鎏金应触发稀有驻留")
+	_assert(g._is_special_catch({"id": "carp", "var": 3}), "七彩应触发稀有驻留")
+	_assert(not g._is_special_catch({"id": "carp", "var": 1}), "斑斓不应驻留")
+	_assert(not g._is_special_catch({"id": "carp", "var": 0}), "普通不应驻留")
+	# —— 试竿保底不被过期预掷吞掉：预掷后才买升级 → 本竿弃掷重掷、当场兑现 ——
+	g._begin_bite()
+	g._bite_special = false   # 消除 0.5% 稀有驻留豁免的随机性，保证断言确定
+	g.showcase_pending = "rod"
+	g._do_catch()
+	_assert(g.showcase_pending == "", "预掷后新设的试竿保底应在本竿被消费（弃掷重掷）")
+	# —— 亲手豁免弃掷：已被玩家起钩的预掷不没收，保底顺延到下一竿 ——
+	g._begin_bite()
+	g._bite_special = false
+	g.showcase_pending = "bait"
+	var pid := str(g._pending_catch["id"])
+	var n2: int = g.inventory.size()
+	g._manual_hook()
+	_assert(str(g.inventory[n2]["id"]) == pid, "亲手起钩应兑现预掷的那条鱼（豁免弃掷）")
+	_assert(g.showcase_pending == "bait", "亲手豁免时试竿保底应顺延到下一竿")
+	g.showcase_pending = ""
+	# —— 满篓兜底不吞保底：预掷窥视后走 overflow，承诺应存活 ——
+	g.showcase_pending = "lure"
+	while not g._bag_full():
+		g.inventory.append({"id": "carp", "w": 1.0, "v": 10, "q": 0, "lock": true})
+	g._pending_catch = {"id": "carp", "w": 1.0, "v": 10, "q": 0, "var": 0,
+		"_luck": 0, "_showcase": "lure"}
+	g._do_catch()   # 满篓 → _overflow_catch 提前 return，预掷被丢弃
+	_assert(g.showcase_pending == "lure", "满篓兜底不应吞掉试竿保底（顺延到下一次真结算）")
+	g.showcase_pending = ""
+	g.inventory = []
+	# —— 存档往返：hand_n（此前两次亲手起钩 = 2）——
+	var d: Dictionary = SaveSystem.collect(g)
+	_assert(int(d.get("hand_n", -1)) == 2, "存档应写入 hand_n=2，实际 %d" % int(d.get("hand_n", -1)))
+	g.hand_catches = 0
+	SaveSystem.apply(g, d)
+	_assert(g.hand_catches == 2, "hand_n 应随档往返")
+	print("  预掷消费 / 亲手×1.1 / 稀有驻留判定 / 试竿弃掷重掷+豁免顺延 / 满篓不吞保底 / hand_n 往返 通过")
+	g.queue_free()
+	await process_frame
+
+
 func _check_achievements_feature() -> void:
 	_assert(AchievementData.LIST.size() >= 12, "成就至少 12 项")
 	var ids := {}
@@ -1430,6 +1639,75 @@ func _check_achievements_feature() -> void:
 	g2.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(path)
+
+
+## 旅行地图：经纬度数据完整性 / 等距圆柱投影 / NOAA 晨昏线数学 / 站点防重叠布局。
+## 全部是纯静态函数，不需要实例化 WorldMap（它是 Control，无头下不便渲染）。
+func _check_world_map() -> void:
+	# —— ① 十站经纬度齐全、落在视窗内 ——
+	for sid in SpotData.SPOT_ORDER:
+		var geo: Vector2 = SpotData.geo_of(sid)
+		_assert(geo != Vector2.ZERO, "钓点 %s 缺经纬度 GEO" % sid)
+		_assert(geo.x >= -180.0 and geo.x <= 180.0, "%s 经度越界：%f" % [sid, geo.x])
+		_assert(geo.y >= -90.0 and geo.y <= 90.0, "%s 纬度越界：%f" % [sid, geo.y])
+		_assert(geo.x >= WorldMap.LON0 and geo.x <= WorldMap.LON1
+			and geo.y <= WorldMap.LAT0 and geo.y >= WorldMap.LAT1,
+			"%s 落在地图视窗外（会被裁掉看不见）：%s" % [sid, str(geo)])
+
+	# —— ② 投影：四角映射到视窗四角，且经度/纬度单调 ——
+	var tl := WorldMap.project(WorldMap.LON0, WorldMap.LAT0)
+	var br := WorldMap.project(WorldMap.LON1, WorldMap.LAT1)
+	_assert(tl.is_equal_approx(Vector2.ZERO), "视窗左上角应映射到 (0,0)，实际 %s" % str(tl))
+	_assert(br.is_equal_approx(WorldMap.VIEW), "视窗右下角应映射到 VIEW，实际 %s" % str(br))
+	_assert(WorldMap.project(0.0, 0.0).x < WorldMap.project(90.0, 0.0).x, "经度增大 x 应增大（向东为右）")
+	_assert(WorldMap.project(0.0, 40.0).y < WorldMap.project(0.0, 0.0).y, "纬度增大 y 应减小（向北为上）")
+
+	# —— ③ 太阳：直射点每小时西移 15°，赤纬落在 ±23.5° 内 ——
+	var t0 := 1751000000.0   # 任一固定时刻（2025-06-27 UTC 前后），避免依赖当前时钟
+	var s0: Dictionary = WorldMap.sun_params(t0)
+	var s1: Dictionary = WorldMap.sun_params(t0 + 3600.0)
+	var d_lam: float = fposmod(float(s0["lam"]) - float(s1["lam"]) + 540.0, 360.0) - 180.0
+	_assert(absf(d_lam - 15.0) < 0.5, "直射点应每小时西移约 15°，实际 %.3f°" % d_lam)
+	_assert(absf(rad_to_deg(float(s0["decl"]))) <= 23.5, "太阳赤纬应在 ±23.5° 内")
+
+	# —— ④ 昼夜判定：直射点必是白昼，其对跖点必是黑夜 ——
+	var decl: float = s0["decl"]
+	var lam: float = s0["lam"]
+	var sub_lat := rad_to_deg(decl)
+	_assert(not WorldMap.is_night(lam, sub_lat, decl, lam), "太阳直射点应是白昼")
+	var anti_lon: float = fposmod(lam + 360.0, 360.0) - 180.0
+	_assert(WorldMap.is_night(anti_lon, -sub_lat, decl, lam), "直射点的对跖点应是黑夜")
+
+	# —— ⑤ 晨昏线：线上任一点的太阳天顶角≈90°（既不算白昼也不算黑夜的边界）——
+	for lon in [-30.0, 0.0, 60.0, 120.0, 179.0]:
+		var plat: float = WorldMap.terminator_lat(lon, decl, lam)
+		var zen := sin(deg_to_rad(plat)) * sin(decl) \
+			+ cos(deg_to_rad(plat)) * cos(decl) * cos(deg_to_rad(lon - lam))
+		_assert(absf(zen) < 0.02, "λ=%.0f° 处晨昏线应满足天顶角 90°，实际余弦 %.4f" % [lon, zen])
+
+	# —— ⑥ 分点日（δ→0）不产生 NaN：晨昏线退化成经线是物理正确的 ——
+	var eq_lat: float = WorldMap.terminator_lat(45.0, 1e-9, 0.0)
+	_assert(not is_nan(eq_lat) and absf(eq_lat) <= 89.0, "分点日晨昏线应被 clamp 而非 NaN")
+
+	# —— ⑦ 站点布局：互不重叠（可点中），且没被推到别的国家去 ——
+	var nodes: Dictionary = WorldMap.layout_nodes()
+	_assert(nodes.size() == SpotData.SPOT_ORDER.size(), "站点布局应覆盖全部 %d 站" % SpotData.SPOT_ORDER.size())
+	var min_d := 9999.0
+	for a in nodes:
+		for b in nodes:
+			if a == b:
+				continue
+			min_d = minf(min_d, (nodes[a] as Vector2).distance_to(nodes[b]))
+	_assert(min_d >= WorldMap.NODE_MIN_SEP - 0.5,
+		"站点最小间距应 ≥ %.1fpx（否则点不中），实际 %.2fpx" % [WorldMap.NODE_MIN_SEP, min_d])
+	var max_push := 0.0
+	for sid in nodes:
+		var geo: Vector2 = SpotData.geo_of(sid)
+		max_push = maxf(max_push, (nodes[sid] as Vector2).distance_to(WorldMap.project(geo.x, geo.y)))
+	_assert(max_push <= WorldMap.NODE_MAX_PUSH + 0.5,
+		"防重叠位移应 ≤ %.1fpx（不把站点搬去别的国家），实际 %.2fpx" % [WorldMap.NODE_MAX_PUSH, max_push])
+	print("  投影四角 / 直射点西移 %.2f°每小时 / 晨昏线天顶角 / 站点最小间距 %.1fpx、最大位移 %.1fpx 通过"
+		% [d_lam, min_d, max_push])
 
 
 func _check_spots() -> void:

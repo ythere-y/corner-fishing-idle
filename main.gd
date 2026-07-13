@@ -49,6 +49,15 @@ var _state := ST_WAIT
 var _state_t := 0.0
 var _started := false
 
+# —— 亲手起钩（P0 好玩补丁）：渔获在咬钩瞬间预掷，咬钩窗口内点「起钩！」= 亲手钓获加成。
+# 设计宪法：手动只可能加成、绝不惩罚——不点照常自动上鱼，挂机永远是 100% 基线。
+var _pending_catch := {}          # 咬钩时预掷的渔获（空 = 无预掷 → _do_catch 现场掷，兼容测试直调）
+var _bite_special := false        # 本次咬钩是否稀有驻留（鎏金/七彩/神话：多挣扎几秒等你伸手）
+var hand_catches := 0             # 亲手起钩累计（存档 hand_n，旧档默认 0）
+var _capture_card_data := {}      # 稀有捕获卡当前展示的渔获（面板 kind="capture"）
+const HAND_HOOK_MULT := 1.1       # 亲手起钩：体重/卖价 ×1.1
+const SPECIAL_BITE_HOLD := 4.5    # 稀有咬钩驻留秒数（≈0.5% 竿次，平均节奏影响可忽略）
+
 # —— 存档数据 ——
 var coins := 0.0
 var rod_level := 1
@@ -964,6 +973,32 @@ func _update_status_flags() -> void:
 	if _merchant_active:
 		_flag_box.add_child(_make_flag_pill("🐟 鱼贩 ×1.5",
 			DT.MERCHANT, DT.INK_ON_GOLD, 12, 9))
+	# 下一目标（near-miss 常驻可见）：永远只显示一个最近目标，极安静的小字——
+	# 挂机的每一分钟都在逼近某个具体的东西，玩家离开时脑子里带着"快到了"。
+	var goal := _next_goal_text()
+	if goal != "":
+		_flag_box.add_child(_make_flag_pill("🎯 " + goal,
+			Color(0, 0, 0, 0), Color(0.90, 0.80, 0.55, 0.92), 11, 4))
+
+
+## 自动选取"最近的下一个目标"文案：顺序上第一个未解锁钓点的进度；全解锁后看本水域图鉴缺口。
+func _next_goal_text() -> String:
+	for sid in SpotData.SPOT_ORDER:
+		if sid in unlocked_spots:
+			continue
+		var up := SpotData.unlock_progress_pair(sid, lifetime_catches, lifetime_coins, dex.size())
+		if up.size() == 2 and int(up[1]) > 0:
+			var gap := maxi(0, int(up[1]) - int(up[0]))
+			var unit := "条"
+			match str((SpotData.get_spot(sid).get("unlock", {}) as Dictionary).get("kind", "")):
+				"coins": unit = "金币"
+				"species": unit = "种"
+			return "下一站 %s · 还差 %d %s" % [SpotData.display_name(sid), gap, unit]
+		break   # 最近一个锁定钓点无进度可显示（无条件），不再往后看
+	var sp: Array = UIPanels.spot_species_progress(self, current_spot)
+	if int(sp[1]) > 0 and int(sp[0]) < int(sp[1]):
+		return "集齐本水域 · 还差 %d 种" % (int(sp[1]) - int(sp[0]))
+	return ""
 
 
 func _update_framed_hud() -> void:
@@ -1140,11 +1175,15 @@ func _action_style(bg: Color, quiet := false) -> StyleBoxFlat:
 
 
 func _on_action_pressed() -> void:
+	# 满篓警示优先于起钩：此态按钮文案是「鱼篓满了 · 去兑换」，点击必须开面板（文案与行为同源）；
+	# 满篓时亲手起钩也无收益（预掷会被 _overflow_catch 丢弃），让给开面板零损失。
+	if _state == ST_BITE and not _bag_alert():
+		_manual_hook()   # 亲手起钩：任何咬钩瞬间都可点（自动模式同样生效），只加成不惩罚
+		return
 	if _bag_full():
 		_catch_tab = 0
 		_open_panel("catch")   # 满篓 → 直接开鱼篓去兑换
 		return
-	# 手动钓鱼（自动关时的起竿/起钩）task 11 接入；自动模式下点它无操作。
 
 
 func _update_action_button() -> void:
@@ -1159,11 +1198,23 @@ func _update_action_button() -> void:
 	if _bag_alert():
 		txt = "鱼篓满了 · 去兑换"
 		bg = DT.BAG_FULL
+	elif _state == ST_BITE and _bite_special:
+		# 稀有驻留：这一刻值得打扰——完整红按钮 + 驻留窗口 4.5s，亲手拉上来的是鎏金/七彩
+		txt = "起钩！"
+		bg = DT.RUST
+		fg = Color(1.0, 0.969, 0.937)            # #fff7ef
 	elif auto_cast:
-		# 安静态：挂机常态下它只是状态角标（用户反馈按钮形态存在感太强）
-		txt = "· 自动垂钓 ·"
-		bg = Color(0.235, 0.251, 0.220, 0.30)
-		fg = DT.TEXT_FAINT_GLASS
+		# 安静态：挂机常态下它只是状态角标（用户反馈按钮形态存在感太强）。
+		# 普通咬钩不变形不变大（0.9s 一闪即过，膨胀成大红按钮会每竿骚扰一次），
+		# 只换文案与微微泛锈——看着它的人知道此刻可点（亲手起钩），没看的人毫无打扰。
+		if _state == ST_BITE:
+			txt = "· 咬钩了！·"
+			bg = Color(0.42, 0.27, 0.18, 0.42)
+			fg = Color(0.96, 0.84, 0.72)
+		else:
+			txt = "· 自动垂钓 ·"
+			bg = Color(0.235, 0.251, 0.220, 0.30)
+			fg = DT.TEXT_FAINT_GLASS
 		quiet = true
 	elif _state == ST_BITE:
 		txt = "起钩！"
@@ -1184,9 +1235,10 @@ func _update_action_button() -> void:
 	_action_btn.text = txt
 	_action_btn.add_theme_color_override("font_color", fg)
 	_action_btn.add_theme_stylebox_override("normal", _action_style(bg, quiet))
-	# 安静态 hover/pressed 不提亮——没有可点的暗示（自动模式下点它本就无操作）
-	_action_btn.add_theme_stylebox_override("hover", _action_style(bg if quiet else bg.lightened(0.10), quiet))
-	_action_btn.add_theme_stylebox_override("pressed", _action_style(bg if quiet else bg.darkened(0.10), quiet))
+	# 安静态 hover/pressed 平时不提亮（挂机常态点它无操作）；咬钩瞬间例外——此刻可亲手起钩
+	var lift := (not quiet) or _state == ST_BITE
+	_action_btn.add_theme_stylebox_override("hover", _action_style(bg.lightened(0.10) if lift else bg, quiet))
+	_action_btn.add_theme_stylebox_override("pressed", _action_style(bg.darkened(0.10) if lift else bg, quiet))
 
 
 # 探针取可见场景内一点（窗口右下角附近），判断挂件是否落在某块屏幕可见区内。
@@ -1346,6 +1398,10 @@ func _process(delta: float) -> void:
 
 func _begin_wait() -> void:
 	_state = ST_WAIT
+	_pending_catch = {}     # 预掷渔获绝不跨周期存活（满篓兜底等提前返回的路径在此兜底清空）
+	_bite_special = false
+	if painter.has_method("bite_glow_off"):
+		painter.bite_glow_off()
 	var w := rng.randf_range(3.5, 7.0) * maxf(0.4, 1.0 - float(rod_level - 1) * 0.04) \
 		* _speed_wait_mult() * _reaction_wait_mult()
 	w *= SpotData.wait_mult(current_spot)          # 钓点常驻系数（阶段④起生效）
@@ -1378,10 +1434,64 @@ func _apply_phase() -> void:
 
 func _begin_bite() -> void:
 	_state = ST_BITE
-	_state_t = maxf(0.12, 0.9 * _speed_wait_mult() * _reaction_wait_mult() / test_speed)         # 测试提速：test_speed=1 时不变
-	painter.add_ripple(painter.bobber_pos(), 22.0)
+	# 渔获在咬钩瞬间预掷：稀有（鎏金/七彩/神话）驻留更久 + 浮漂金环，恰好在场的玩家来得及亲手起钩；
+	# 没人看时驻留结束照常自动上鱼，零损失。
+	_pending_catch = _roll_pending()
+	# 满篓（合约在手、篓全珍品）时预掷会被 _overflow_catch 折价兜底丢弃——金环不做空头承诺
+	_bite_special = _is_special_catch(_pending_catch) and not _bag_full()
+	# 普通咬钩继承装备的速度/反应修正；稀有咬钩固定驻留，保证玩家有时间亲手起钩。
+	var bite_hold := SPECIAL_BITE_HOLD if _bite_special else 0.9 * _speed_wait_mult() * _reaction_wait_mult()
+	_state_t = maxf(0.12, bite_hold / test_speed)
+	painter.add_ripple(painter.bobber_pos(), 44.0 if _bite_special else 22.0)
+	if _bite_special and painter.has_method("bite_glow"):
+		var vr := int(_pending_catch.get("var", 0))
+		painter.bite_glow(_state_t, FishData.variant_color(vr) if vr >= 2 else Color(1.0, 0.86, 0.45))
 	Audio.play_sfx("bite")
+	# 张力循环填满咬钩→上鱼这 0.9 秒（此前是一片死寂）。音高固定：鱼要到 _do_catch
+	# 才 _roll_one，提前摇会改动 rng 序列、打破 validate 的确定性基线。体型的听觉表达
+	# 交给上鱼那一刻的 sfx_fish_struggle。
+	Audio.start_tension(1)
 	_update_action_button()
+
+
+## 预掷这一竿的渔获（含试竿保底消费）。_do_catch 优先消费预掷；
+## 无预掷（测试直调）则现场掷同一套逻辑，RNG 消费顺序与旧版逐位一致。
+func _roll_pending() -> Dictionary:
+	var luck := _catch_luck()
+	# 试竿保底（升级体感）：购买升级后的下一竿保底展示新效果——把"花钱→变强"的回路当场闭合。
+	# 只送一竿，经济影响 ≈0；概率型升级没有保底展示就永远"感觉不出来"（S12 感知阈值）。
+	# 这里只窥视不消费：保底在真实入篓时才兑现（_do_catch 清），满篓兜底丢弃预掷 /
+	# 咬钩中退出存档都不会吞掉承诺（对抗审查 must-fix：恢复旧版"顺延到下一次真结算"语义）。
+	var showcase := showcase_pending
+	if showcase == "rod":
+		luck += 4   # 高运气一竿：亲眼看见"更易上高阶鱼"
+	var c := _roll_one(luck)
+	if showcase == "bait":
+		_force_catch_grade(c, mini(bait_level, 3), 0)   # 保底展示刚解锁的新星级
+	elif showcase == "lure":
+		_force_catch_grade(c, 0, 1)                     # 保底斑斓：亲眼看见变体杠杆
+	c["_luck"] = luck
+	c["_showcase"] = showcase
+	return c
+
+
+## 稀有咬钩判定：鎏金/七彩变体或神话品阶才驻留（≈0.5% 竿次，感官预算内）。
+func _is_special_catch(c: Dictionary) -> bool:
+	return int(c.get("var", 0)) >= 2 or FishData.tier_of(str(c["id"])) >= 5
+
+
+## 亲手起钩：咬钩窗口内点「起钩！」——体重/卖价 ×1.1 并记「亲手」，随后立即结算。
+## 只加成不惩罚：错过窗口照常自动上鱼（hand_catches 在 _do_catch 消费时才累计，满篓兜底不计）。
+func _manual_hook() -> void:
+	if _state != ST_BITE:
+		return
+	if _pending_catch.is_empty():
+		_pending_catch = _roll_pending()
+	_pending_catch["hand"] = true
+	_pending_catch["w"] = snappedf(float(_pending_catch["w"]) * HAND_HOOK_MULT, 0.01)
+	_pending_catch["v"] = maxi(1, int(round(float(_pending_catch["v"]) * HAND_HOOK_MULT)))
+	Audio.play_ui("ui_click")
+	_do_catch()
 
 
 ## 更新图鉴纪录（捕获数 +1、最大体重取大、巨物/完美徽章）。返回是否打破"既有"纪录：
@@ -1550,25 +1660,48 @@ func _roll_one(luck: int, vbias := -1.0) -> Dictionary:
 	return c
 
 
+## 上鱼音四档。此前所有「优良以上」的鱼共用一个 catch_rare——一条 ×12 的七彩
+## 和一条 ★★ 的普通鱼听起来完全一样，219 鱼 × 4 变体的收集轴在听觉上只有两档。
+## 门槛与 docs/audio_asset_rules.md 的「catch_rare 只给稀有及以上」对齐（★★ 降到 good）。
+func _catch_sfx(tier: int, q: int, vr: int) -> String:
+	if vr >= 2 or tier >= 4:        # 鎏金/七彩，或传说/神话
+		return "catch_epic"
+	if tier >= 2 or vr == 1 or q >= 3:   # 稀有/史诗，或斑斓，或极品★★★
+		return "catch_rare"
+	if q >= 2:                       # ★★
+		return "catch_good"
+	return "catch_common"
+
+
 func _do_catch() -> void:
+	Audio.stop_tension()   # 无论走哪条分支（满篓兜底也算）都要收掉张力循环
 	if _bag_full():
 		_try_auto_sell()   # 鱼贩合约：先按市价带走杂鱼腾格；腾不出（全是珍品）才走折价兜底
 	if _bag_full():
 		_overflow_catch()   # 兜底折价兑金（签约后篓全珍品时的常态路径；未签约在线到不了这里——满篓不咬钩）
 		_begin_wait()
 		return
-	var luck := _catch_luck()
-	# 试竿保底（升级体感）：购买升级后的下一竿保底展示新效果——把"花钱→变强"的回路当场闭合。
-	# 只送一竿，经济影响 ≈0；概率型升级没有保底展示就永远"感觉不出来"（S12 感知阈值）。
-	var showcase := showcase_pending
-	showcase_pending = ""
-	if showcase == "rod":
-		luck += 4   # 高运气一竿：亲眼看见"更易上高阶鱼"
-	var c := _roll_one(luck)
-	if showcase == "bait":
-		_force_catch_grade(c, mini(bait_level, 3), 0)   # 保底展示刚解锁的新星级
-	elif showcase == "lure":
-		_force_catch_grade(c, 0, 1)                     # 保底斑斓：亲眼看见变体杠杆
+	# 渔获已在咬钩瞬间预掷（_begin_bite → _roll_pending，试竿保底只窥视、在此处真结算才消费）。
+	# 兜底重掷：①无预掷（测试直调 _do_catch）；②预掷后玩家又买了升级（保底口径变了 → 弃掷
+	# 重掷当场兑现"下一竿保底"）。豁免弃掷：预掷已被玩家亲手起钩（×1.1 不没收）或亮过金环
+	# 承诺（_bite_special：亲手拉起的必须就是金环所指的稀有）——此时保底原样顺延到下一竿。
+	var c: Dictionary
+	if not _pending_catch.is_empty() \
+			and (str(_pending_catch.get("_showcase", "")) == showcase_pending \
+				or bool(_pending_catch.get("hand", false)) or _bite_special):
+		c = _pending_catch
+	else:
+		c = _roll_pending()
+	_pending_catch = {}
+	var luck := int(c.get("_luck", 0))
+	var showcase := str(c.get("_showcase", ""))
+	if showcase != "" and showcase_pending == showcase:
+		showcase_pending = ""   # 保底在真实入篓这一刻才算兑现（满篓兜底提前 return 走不到这里）
+	c.erase("_luck")
+	c.erase("_showcase")
+	var hand := bool(c.get("hand", false))
+	if hand:
+		hand_catches += 1
 	var focus_up := _apply_focus_reward(c)   # 专注奖励：把这一竿强制升级（保底高星/鎏金）
 	var tier := FishData.tier_of(c["id"])
 	var q := int(c.get("q", 0))
@@ -1582,10 +1715,21 @@ func _do_catch() -> void:
 	var is_big := FishData.size_tag(c["id"], c["w"]) == "巨物·"
 	if is_big:
 		caught_giant = true
+	var is_new_species := not dex.has(c["id"])   # 必须抢在 _dex_record 建条目之前问
 	var broke_record := _dex_record(c["id"], float(c["w"]), is_big, q >= 3, vr)
 	var col: Color = FishData.TIER_COLORS[tier]
-	Audio.play_sfx("catch_rare" if (tier >= 2 or q >= 2 or vr >= 1) else "catch_common")
-	_popup("%s %.2fkg" % [fname, c["w"]], _scene_pt(painter.bobber_pos()) + Vector2(-22, -8),
+	var catch_sfx := _catch_sfx(tier, q, vr)
+	Audio.play_sfx(catch_sfx)
+	# 巨物出水翻腾。epic 自带长尾旋律，再叠一层水声只会糊成一团。
+	if is_big and catch_sfx != "catch_epic":
+		Audio.play_sfx("sfx_fish_struggle")
+	# 首捕 / 破纪录：延后 0.35s 让开水花峰值，否则被淹没。二者天然互斥——首捕时
+	# dex.n=1，而破纪录要求该鱼种已钓 ≥5 条，所以不必在两者间取舍。
+	var milestone := "sfx_new_species" if is_new_species else ("sfx_record" if broke_record else "")
+	if milestone != "":
+		get_tree().create_timer(0.35).timeout.connect(func() -> void: Audio.play_sfx(milestone))
+	_popup("%s%s %.2fkg" % [("亲手 · " if hand else ""), fname, c["w"]],
+		_scene_pt(painter.bobber_pos()) + Vector2(-22, -8),
 		FishData.variant_color(vr) if vr >= 1 else col)
 	painter.add_ripple(painter.bobber_pos(), 34.0)
 	# 庆祝 toast 门槛（P1 感官治理）：斑斓收敛后仍≈1/40 竿，浮标彩色飘字已够仪式感，
@@ -1609,7 +1753,7 @@ func _do_catch() -> void:
 			2.0, Color(0.96, 0.78, 0.38))
 	var comp_win := Competition.on_catch(self, c)   # 巨物赛：本周目标鱼刷新最佳，冲过影子线夺金
 	if comp_win > 0:
-		Audio.play_sfx("coin")
+		Audio.play_sfx("sfx_competition_win")   # 一周一次的夺金，此前和卖一条杂鱼同一个 coin 音
 		_toast("🏆 巨物赛夺金！%s %.2fkg 越过影子线，+%s 金币" % [
 			FishData.display_name(str(c["id"])), float(c["w"]), _coin_str(comp_win)], 3.4, Color(1.0, 0.86, 0.32))
 		_flash()
@@ -1630,13 +1774,17 @@ func _do_catch() -> void:
 		var ib2 := FishData.size_tag(c2["id"], c2["w"]) == "巨物·"
 		if ib2:
 			caught_giant = true
+		var new_species2 := not dex.has(c2["id"])
 		_dex_record(c2["id"], float(c2["w"]), ib2, int(c2.get("q", 0)) >= 3, int(c2.get("var", 0)))
 		_popup("双钩 +%s" % FishData.display_name(c2["id"]),
 			_scene_pt(painter.bobber_pos()) + Vector2(24, -22), Color(0.62, 0.86, 0.74))
-		Audio.play_sfx("catch_common")
+		# 第二条鱼也走分级——双钩钓上七彩却只响一声普通水花，是原来最容易被察觉的哑点。
+		Audio.play_sfx(_catch_sfx(FishData.tier_of(c2["id"]), int(c2.get("q", 0)), int(c2.get("var", 0))))
+		if new_species2:
+			get_tree().create_timer(0.45).timeout.connect(func() -> void: Audio.play_sfx("sfx_new_species"))
 		var comp_win2 := Competition.on_catch(self, c2)   # 双钩第二条也参与巨物赛
 		if comp_win2 > 0:
-			Audio.play_sfx("coin")
+			Audio.play_sfx("sfx_competition_win")
 			_toast("🏆 巨物赛夺金！%s %.2fkg，+%s 金币" % [
 				FishData.display_name(str(c2["id"])), float(c2["w"]), _coin_str(comp_win2)], 3.4, Color(1.0, 0.86, 0.32))
 			_flash()
@@ -1656,7 +1804,60 @@ func _do_catch() -> void:
 			+ FishData.display_name(str(c["id"]))
 		_toast("🎁 专注奖励到手：%s（%.2fkg，%s 金币）" % [rname, float(c["w"]), _coin_str(int(c["v"]))],
 			4.0, Color(0.74, 0.86, 0.98))
+	if vr >= 2:
+		_rare_ceremony(c)   # 稀有仪式：1/250、1/1250 竿的尖峰时刻，感官必须与杂鱼拉开量级
 	_begin_wait()
+
+
+## 稀有仪式（P0 好玩补丁）：鎏金/七彩入手 = 金光粒子 + 庆祝脉冲 + 水面号外 + 捕获卡。
+## 直调 painter.catch_flash 绕过 1800s 冷却——0.4%/0.08% 的时刻本身就稀缺，不会贬值成骚扰。
+## 专注模式全静默（存进 _capture_card_data 的仪式不补发，回来靠图鉴/鱼篓自己发现，符合"不打扰"）。
+func _rare_ceremony(c: Dictionary) -> void:
+	if focus_mode or not save_enabled:
+		return   # save_enabled=false 的测试/截图实例不弹卡，避免污染回归与自查截图
+	var vr := int(c.get("var", 0))
+	var vcol := FishData.variant_color(vr)
+	if painter.has_method("celebrate"):
+		painter.celebrate(painter.bobber_pos(), vcol)
+	if painter.has_method("catch_flash"):
+		painter.catch_flash()
+	if painter.has_method("newsflash"):
+		painter.newsflash("号外！钓起%s%s %.2fkg · 全球约 1/%d 竿" % [FishData.variant_label(vr),
+			FishData.display_name(str(c["id"])), float(c["w"]), FishData.variant_odds(vr)])
+	# 音效由 _do_catch 统一播（catch_rare），此处不重复。
+	# 弹卡只挑不打扰的时机：开场引导链（story/character/intro）不可顶掉（顶了永不重开）、
+	# 玩家正用别的面板不硬抢、沉浸模式不弹（开面板会把整窗穿透切成拦截，违背"不打扰"）。
+	# 跳过弹卡零损失：粒子/号外照放，鱼已入篓，图鉴与鱼篓自会再见到它。
+	if _panel_kind == "" and display_mode != "immersive":
+		_capture_card_data = c.duplicate()
+		_open_panel("capture")
+
+
+## 把捕获卡面板截成 PNG 存到 user://capture_cards/ 并打开文件夹——玩家自己发群 = 最轻的社交。
+func _save_capture_card() -> void:
+	if not is_instance_valid(_panel):
+		return
+	await RenderingServer.frame_post_draw
+	if not is_instance_valid(_panel):
+		return
+	var img := get_viewport().get_texture().get_image()
+	# canvas_items 拉伸下视口图是窗口物理像素、面板坐标是画布逻辑坐标（ui_scale≠100% 时两者不同），
+	# 必须过一遍视口最终变换（纯缩放，包围盒即精确结果）再裁剪
+	var xf := get_viewport().get_final_transform()
+	var r := Rect2i(xf * Rect2(_panel.global_position, _panel.size))
+	r = r.intersection(Rect2i(Vector2i.ZERO, img.get_size()))
+	if r.size.x <= 0 or r.size.y <= 0:
+		return
+	var dir := "user://capture_cards"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var fn := "%s/%s_%d.png" % [dir, str(_capture_card_data.get("id", "fish")),
+		int(Time.get_unix_time_from_system())]
+	var err := img.get_region(r).save_png(fn)
+	if err == OK:
+		_toast("📸 捕获卡已保存", 2.2, Color(0.72, 0.86, 0.78))
+		OS.shell_open(ProjectSettings.globalize_path(dir))
+	else:
+		_toast("保存失败（%d）" % err, 2.2, Color(1.0, 0.75, 0.4))
 
 
 ## 满篓兜底（调研 3.2「把痛点变成卖点」）：鱼篓满时把新鱼 c 与篓中最低价的
@@ -1908,7 +2109,7 @@ func _update_order_chip() -> void:
 
 
 ## 面板开着时数据变了（上鱼/卖鱼/扩容），原地重建内容。
-## 例外：鱼缸页签开着时不因后台上鱼而重建——否则游动的鱼每几秒被重置。
+## 例外：鱼缸页签、旅行地图开着时不因后台上鱼而重建——否则游动的鱼/晨昏线每几秒被重置。
 ## 放入/捞出鱼等主动操作走 _rebuild_panel() 强制重建。
 func _refresh_panel() -> void:
 	if _dev_attrs_open:
@@ -1916,6 +2117,8 @@ func _refresh_panel() -> void:
 	if _panel_kind == "":
 		return
 	if _panel_kind == "catch" and _catch_tab == TANK_TAB:
+		return
+	if _panel_kind == "worldmap":
 		return
 	_open_panel(_panel_kind)
 
@@ -2608,6 +2811,7 @@ func _check_achievements(silent := false) -> void:
 			var reward := int(a.get("reward", 0))
 			if reward > 0:
 				_add_coins_safe(reward)
+			Audio.play_sfx("sfx_achievement")   # 42 项成就此前只有 toast，全程无声
 			var msg := "成就达成：%s" % a["name"]
 			if reward > 0:
 				msg += "（+%s 金币）" % _coin_str(reward)
@@ -3086,6 +3290,9 @@ func _grant_focus_reward(level: int) -> void:
 	# 修掉"满篓停竿吞掉 25 分钟档、额度双扣只兑一半"的坑（balance_audit §3.5）。
 	focus_pending = maxi(focus_pending, level)
 	var mins := 25 if level == 1 else 50
+	# 风铃。玩家此刻正背着窗口做别的事，这一声要能被听见、又不至于打断——
+	# 素材已刻意做到近乎不可闻（peak 0.20，全曲最低）。
+	Audio.play_sfx("sfx_focus_reward")
 	_toast("专注 %d 分钟，下一竿留了份惊喜给你 ✨" % mins, 4.0, Color(0.74, 0.86, 0.98))
 	_check_achievements()
 	_save()
@@ -3155,6 +3362,7 @@ func _maybe_pet_steal() -> void:
 		return
 	var id := _pet_steal_cheapest()
 	if id != "" and painter.has_method("pet_react"):
+		Audio.play_sfx("sfx_cat_steal")   # 全游戏最有性格的时刻，此前是哑的
 		painter.pet_react("steal")
 
 

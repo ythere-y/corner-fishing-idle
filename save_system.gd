@@ -76,6 +76,7 @@ static func collect(g) -> Dictionary:
 		"focus_rd": g.focus_reward_date,       # 封顶计数对应日期
 		"focus_pend": g.focus_pending,         # 待兑专注奖励等级
 		"pet_steals": g.pet_steals,            # 桌面宠物叼走鱼计数
+		"hand_n": g.hand_catches,              # 亲手起钩累计（P0 好玩补丁；旧档无 → 载入默认 0）
 		# —— v14 鱼贩合约（自动贩卖）——
 		"autosell": {"b": g.auto_sell_bought, "on": g.auto_sell_on,
 			"n": g.auto_sold_n, "v": g.auto_sold_v},
@@ -252,6 +253,7 @@ static func apply(g, data: Dictionary) -> void:
 	g.focus_reward_date = str(data.get("focus_rd", ""))
 	g.focus_pending = clampi(int(data.get("focus_pend", 0)), 0, 2)
 	g.pet_steals = int(data.get("pet_steals", 0))
+	g.hand_catches = int(data.get("hand_n", 0))   # 亲手起钩累计（旧档无 → 0，无损迁移）
 	# —— v15 数值 P1（旧档无 → 0，无损迁移；scales 为三元数组，非数组的过渡值直接归零）——
 	g.scales = [0, 0, 0]
 	var sc_raw: Variant = data.get("scales", [])

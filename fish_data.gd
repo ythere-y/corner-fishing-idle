@@ -350,9 +350,9 @@ static func scale_cost(tier: int) -> int:
 	return 3
 
 
-## 星级抽取：逐级 roll，失败即停。
-static func roll_quality(bait_idx: int, rng: RandomNumberGenerator) -> int:
-	var probs: Array = BAITS[clampi(bait_idx, 0, BAITS.size() - 1)]["probs"]
+## 星级抽取：逐级 roll，失败即停。bonus 为角色属性层给各级通过率的二级加成。
+static func roll_quality(bait_idx: int, rng: RandomNumberGenerator, bonus: Array = []) -> int:
+	var probs := quality_probs(bait_idx, bonus)
 	var q := 0
 	for lvl in range(1, probs.size()):
 		if rng.randf() < float(probs[lvl]):
@@ -360,6 +360,19 @@ static func roll_quality(bait_idx: int, rng: RandomNumberGenerator) -> int:
 		else:
 			break
 	return q
+
+
+## 当前鱼饵 + 属性修正后的逐级通过率。0 位保留为 1.0，供逐级 roll 统一索引。
+static func quality_probs(bait_idx: int, bonus: Array = []) -> Array:
+	var base: Array = BAITS[clampi(bait_idx, 0, BAITS.size() - 1)]["probs"]
+	var out := base.duplicate()
+	var caps := [1.0, 0.88, 0.55, 0.32]
+	for lvl in range(1, out.size()):
+		var add := 0.0
+		if lvl < bonus.size():
+			add = float(bonus[lvl])
+		out[lvl] = clampf(float(out[lvl]) + add, 0.0, float(caps[lvl]))
+	return out
 
 
 static func quality_label(q: int) -> String:
@@ -397,6 +410,14 @@ static func variant_label(v: int) -> String:
 	if v <= 0:
 		return ""
 	return VARIANT_NAMES[clampi(v, 0, VARIANT_NAMES.size() - 1)] + "·"
+
+
+## 「1 in X」显性赔率（Fish It 式可读稀有度）：基线概率的倒数取整（斑斓 40 / 鎏金 250 / 七彩 1250）。
+## 只报基线口径不含窝料偏置——给玩家一个稳定可炫耀的数字，而非随装备漂移的精确值。
+static func variant_odds(v: int) -> int:
+	if v <= 0 or v >= VARIANT_PROBS.size():
+		return 1
+	return int(round(1.0 / float(VARIANT_PROBS[v])))
 
 
 static func variant_color(v: int) -> Color:
@@ -483,11 +504,16 @@ static func weights_for_rod(rod_level: int) -> Dictionary:
 ## 体重 roll 偏向小个体（k²），卖价与体重线性挂钩（Fisch 模型）再乘星级倍率。
 ## luck：额外品阶运气（如鱼汛事件 +N），仅抬高高阶权重，不影响鱼价基准。
 ## pool 非空时只在该钓点鱼池内出鱼（多钓点）；为空保持旧行为（全鱼池）。
-static func roll_catch(rng: RandomNumberGenerator, rod_level: int, bait_idx := 0, luck := 0, pool: Array = [], vbias := 0.0) -> Dictionary:
-	var id := roll_fish(weights_for_rod(rod_level + luck), rng, pool)
+static func roll_catch(rng: RandomNumberGenerator, rod_level: int, bait_idx := 0, luck := 0,
+		pool: Array = [], vbias := 0.0, mods: Dictionary = {}) -> Dictionary:
+	var weights := weights_for_rod(rod_level + luck)
+	var tier_mults: Dictionary = mods.get("tier_mults", {})
+	for tier in tier_mults:
+		weights[tier] = maxf(0.01, float(weights.get(tier, 0.0)) * float(tier_mults[tier]))
+	var id := roll_fish(weights, rng, pool)
 	var f: Dictionary = FISH[id]
 	var k := rng.randf()
-	k = k * k  # 偏向小体型，大鱼稀罕
+	k = pow(k, clampf(float(mods.get("weight_power", 2.0)), 1.2, 2.4))  # 默认 k²；属性可略微抬高大鱼尾部
 	var w: float = lerpf(float(f["wmin"]), float(f["wmax"]), k)
 	var size_ratio: float = 0.0
 	if float(f["wmax"]) > float(f["wmin"]):
@@ -495,7 +521,7 @@ static func roll_catch(rng: RandomNumberGenerator, rod_level: int, bait_idx := 0
 	var base: float = lerpf(float(f["vmin"]), float(f["vmax"]), size_ratio)
 	var rod_mult := 1.0 + float(rod_level - 1) * 0.08
 	var jitter := rng.randf_range(0.92, 1.08)
-	var q := roll_quality(bait_idx, rng)
+	var q := roll_quality(bait_idx, rng, mods.get("quality_bonus", []))
 	var vr := roll_variant(rng, vbias)
 	return {
 		"id": id,

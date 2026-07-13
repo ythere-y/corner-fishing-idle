@@ -18,13 +18,13 @@ Audio="*res://audio_manager.gd"
 
 window/size/viewport_width=1040
 window/size/viewport_height=720
-window/size/borderless=false
-window/size/transparent=false
-window/size/always_on_top=false
+window/size/borderless=true
+window/size/transparent=true
+window/size/always_on_top=true
 window/size/no_focus=false
-; 带框模式默认关闭逐像素透明（否则 Windows 分层窗运行时关不掉 → 实机仍透明+羽化）。
-; 「沉浸模式」要透明挂件时再改回 true。
-window/per_pixel_transparency/allowed=false
+; 运行态使用普通无边框透明覆盖窗：窗口铺满屏幕可用区，但不进入系统全屏 Space。
+; 挂机组件和菜单都在这个透明窗口内布局。
+window/per_pixel_transparency/allowed=true
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 ; 关逐显示器 DPI 感知：交给 Windows 统一按显示器缩放整窗位图。

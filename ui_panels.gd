@@ -30,16 +30,16 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 	# 【修改】新增 story / character 两个开场专用面板标题（背包客人设开场流程）；intro 标题随新项目名调整。
 	var titles := {"catch": "垂钓手册", "rod": "鱼竿 · 升级", "set": "设置", "offline": "离线小结",
 		"intro": "欢迎来到背包钓鱼手记", "story": "在开始之前……", "character": "这次是谁在路上？",
-		"worldmap": "旅行地图"}
+		"worldmap": "旅行地图", "capture": "号外 · 稀有入手！"}
 	var title_str := str(titles.get(kind, ""))
 	if kind == "fishdetail":
 		title_str = FishData.display_name(str(g._detail_fish)) + " · 详情"
 	elif kind == "catch" and g.display_mode != "immersive":
 		title_str = _section_name(g._catch_tab)   # 带框 sheet 标题=区名（CD）
 	var card := make_card(g, title_str)
-	# 沉浸模式恢复拖拽位置；带框 sheet 固定锚位不恢复。
+	# 恢复拖拽位置；开场/离线这类引导面板保持居中。
 	# 【修改】story/character 同样是开场引导性质的固定面板，不恢复上次拖拽位置。
-	if g.display_mode == "immersive" and kind != "offline" and kind != "intro" \
+	if kind != "offline" and kind != "intro" \
 			and kind != "story" and kind != "character" and g._panel_saved_pos != null:
 		card.position = clamp_panel_position(g, g._panel_saved_pos, card.custom_minimum_size)
 	var v: VBoxContainer = card.get_node("M/V")
@@ -53,6 +53,7 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 		"character": fill_character(g, v)  # 【新增】选择背包客角色
 		"fishdetail": fill_fish_detail(g, v)
 		"worldmap": fill_world_map(g, v)   # 旅行地图（离线：晨昏线 + 旅程）
+		"capture": fill_capture_card(g, v)  # 稀有捕获卡（P0 好玩补丁）
 	g.ui_root.add_child(card)
 	g._panel = card
 	g._panel_kind = kind
@@ -60,13 +61,8 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 	if keep_scroll > 0:
 		_restore_scroll(g, card, keep_scroll)
 	set_interactive_full(g, true)
-	# 带框 sheet 定位：首次打开从下方滑入；切页签直接就位（不重播动画，否则会停在屏下看不见）。
 	if g.display_mode != "immersive":
 		g._set_nav_solid(true)   # 底栏变暗，与 sheet 连成一片（无断裂）
-		if was_open:
-			card.position.y = 0.0
-		else:
-			_animate_sheet_in(g, card)
 
 
 static func close_panel(g: CornerFishing, keep_interactive := false) -> void:
@@ -126,9 +122,12 @@ static func set_interactive_full(g: CornerFishing, full: bool) -> void:
 	# 带框模式：整窗永远可交互、不做羽化椭圆裁剪。
 	# （否则关面板会 set_interactive_full(false)→裁成椭圆，带框窗"显示不全"复发。）
 	if g.display_mode != "immersive":
-		var wsf := Vector2(DisplayServer.window_get_size())
-		DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
-			Vector2(0, 0), Vector2(wsf.x, 0), wsf, Vector2(0, wsf.y)]))
+		if full:
+			var wsf := Vector2(DisplayServer.window_get_size())
+			DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
+				Vector2(0, 0), Vector2(wsf.x, 0), wsf, Vector2(0, wsf.y)]))
+		else:
+			g._update_widget_passthrough()
 		return
 	if full:
 		var ws := Vector2(DisplayServer.window_get_size())
@@ -300,15 +299,20 @@ static func _make_sheet(g: CornerFishing, title: String) -> Control:
 	var hb := HBoxContainer.new()
 	hb.custom_minimum_size = Vector2(0, 30)
 	hb.add_theme_constant_override("separation", 8)
+	hb.mouse_filter = Control.MOUSE_FILTER_STOP
+	hb.mouse_default_cursor_shape = Control.CURSOR_MOVE
+	hb.gui_input.connect(func(e: InputEvent) -> void: panel_drag_input(g, e, p))
 	var tl := Label.new()
 	tl.text = title
 	tl.add_theme_font_size_override("font_size", DT.FS_TITLE)
 	tl.add_theme_font_override("font", g._serif)
 	tl.add_theme_color_override("font_color", DT.TEXT_TITLE)
 	tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(tl)
 	var sp := Control.new()
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(sp)
 	var cb := Button.new()
 	cb.text = "×"
@@ -348,7 +352,7 @@ static func _section_name(tab: int) -> String:
 
 static func make_card(g: CornerFishing, title: String) -> Control:
 	if g.display_mode != "immersive":
-		return _make_sheet(g, title)
+		return _make_framed_modal(g, title)
 	var p := PanelContainer.new()
 	p.z_index = 50
 	p.position = ((Vector2(g.WIN) - CARD_SIZE) * 0.5).round()
@@ -389,6 +393,61 @@ static func make_card(g: CornerFishing, title: String) -> Control:
 	cb.custom_minimum_size = Vector2(28, 26)
 	cb.add_theme_font_size_override("font_size", 18)
 	cb.add_theme_color_override("font_color", Color(0.78, 0.74, 0.66))
+	cb.pressed.connect(func() -> void: Audio.play_ui("ui_click"))
+	cb.pressed.connect(g._close_panel)
+	hb.add_child(cb)
+	v.add_child(hb)
+	return p
+
+
+static func _make_framed_modal(g: CornerFishing, title: String) -> Control:
+	var modal_size := Vector2(680, 640)
+	var p := PanelContainer.new()
+	p.z_index = 50
+	p.position = ((Vector2(g.WIN) - modal_size) * 0.5).round()
+	p.custom_minimum_size = modal_size
+	p.size = modal_size
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	p.add_theme_stylebox_override("panel", panel_bg_style())
+	var m := MarginContainer.new()
+	m.name = "M"
+	m.set_anchors_preset(Control.PRESET_FULL_RECT)
+	m.add_theme_constant_override("margin_left", 18)
+	m.add_theme_constant_override("margin_top", 16)
+	m.add_theme_constant_override("margin_right", 18)
+	m.add_theme_constant_override("margin_bottom", 16)
+	p.add_child(m)
+	var v := VBoxContainer.new()
+	v.name = "V"
+	v.add_theme_constant_override("separation", 10)
+	m.add_child(v)
+	var hb := HBoxContainer.new()
+	hb.custom_minimum_size = Vector2(0, 30)
+	hb.add_theme_constant_override("separation", 8)
+	hb.mouse_filter = Control.MOUSE_FILTER_STOP
+	hb.mouse_default_cursor_shape = Control.CURSOR_MOVE
+	hb.gui_input.connect(func(e: InputEvent) -> void: panel_drag_input(g, e, p))
+	var tl := Label.new()
+	tl.text = title
+	tl.add_theme_font_size_override("font_size", DT.FS_TITLE)
+	tl.add_theme_font_override("font", g._serif)
+	tl.add_theme_color_override("font_color", DT.TEXT_TITLE)
+	tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(tl)
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(sp)
+	var cb := Button.new()
+	cb.text = "×"
+	cb.flat = true
+	cb.focus_mode = Control.FOCUS_NONE
+	cb.tooltip_text = "关闭"
+	cb.custom_minimum_size = Vector2(30, 30)
+	cb.add_theme_font_size_override("font_size", 18)
+	cb.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 	cb.pressed.connect(func() -> void: Audio.play_ui("ui_click"))
 	cb.pressed.connect(g._close_panel)
 	hb.add_child(cb)
@@ -445,6 +504,343 @@ static func fill_bag_panel(g: CornerFishing, v: VBoxContainer) -> void:
 		6: fill_decor_tab(g, v)
 		7: fill_upgrades(g, v)   # 装备：鱼竿/鱼饵/鱼钩升级（原主界面「竿」面板）
 		_: fill_settings(g, v)   # 8 设置：音量/专注/不透明度/退出（原主界面「设」面板）
+
+
+## 开发期属性页：独立于玩家面板，展示属性层如何影响最终钓鱼结果。
+static func fill_debug_attributes(g: CornerFishing, v: VBoxContainer) -> void:
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	box.add_theme_constant_override("separation", 3)
+	v.add_child(box)
+
+	var head := PanelContainer.new()
+	head.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	head.add_theme_stylebox_override("panel", dark_row_style(0.58))
+	var hm := MarginContainer.new()
+	hm.add_theme_constant_override("margin_left", 6)
+	hm.add_theme_constant_override("margin_right", 6)
+	hm.add_theme_constant_override("margin_top", 3)
+	hm.add_theme_constant_override("margin_bottom", 3)
+	head.add_child(hm)
+	var hb := VBoxContainer.new()
+	hb.add_theme_constant_override("separation", 2)
+	hm.add_child(hb)
+	var title := Label.new()
+	title.text = "测试属性面板"
+	title.add_theme_font_size_override("font_size", 10)
+	title.add_theme_color_override("font_color", DT.GOLD_BRIGHT)
+	hb.add_child(title)
+	var note := Label.new()
+	note.text = "实时数值：当前装备 / 钓点 / 时段 / 事件；角色属性已映射到钓鱼结果。"
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.add_theme_font_size_override("font_size", 8)
+	note.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	hb.add_child(note)
+	box.add_child(head)
+
+	var base_no_reel := g._avg_wait_for_reel(0)
+	var cur_interval := g._avg_wait_for_reel(g.reel_level)
+	var speed_gain := 1.0 - cur_interval / maxf(0.01, base_no_reel)
+	var weights := g._effective_tier_weights(g._catch_luck())
+	var total := 0.0
+	for t in weights:
+		total += float(weights[t])
+	var pool_counts := _tier_counts(g._spot_pool())
+
+	var bait: Dictionary = FishData.BAITS[g.bait_level]
+	var qprobs := FishData.quality_probs(g.bait_level, g._quality_attr_bonus())
+	var qp := _quality_distribution(qprobs)
+	var qcols := [DT.TEXT_FAINT_GLASS, Color(0.72, 0.92, 0.58), Color(0.95, 0.82, 0.42), Color(0.96, 0.62, 0.92)]
+
+	var lure: Dictionary = FishData.LURES[g.lure_level]
+	var vb := g._variant_bias()
+	var vp := _variant_distribution(vb)
+	var hook: Dictionary = FishData.HOOKS[g.hook_level]
+	var double_p := g._double_chance()
+	var stats = g._angler_stats()
+
+	var consumables := _debug_group(box, "消耗品（可编辑）", Color(0.88, 0.76, 0.50))
+	var coins_row := HBoxContainer.new()
+	coins_row.add_theme_constant_override("separation", 5)
+	consumables.add_child(coins_row)
+	_debug_compact_label(coins_row, "金币", DT.TEXT_ON_GLASS, 42)
+	_debug_compact_label(coins_row, _compact_cost(g.coins), DT.GOLD, 70)
+	var double_btn := _debug_tiny_button("×2")
+	double_btn.pressed.connect(func() -> void:
+		g.coins = maxi(1, g.coins * 2)
+		_debug_source_changed(g))
+	coins_row.add_child(double_btn)
+	var half_btn := _debug_tiny_button("÷2")
+	half_btn.pressed.connect(func() -> void:
+		g.coins = maxi(0, int(floor(float(g.coins) * 0.5)))
+		_debug_source_changed(g))
+	coins_row.add_child(half_btn)
+
+	var source := _debug_group(box, "来源层（可编辑）", Color(0.88, 0.76, 0.50))
+	var source_list := VBoxContainer.new()
+	source_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	source_list.add_theme_constant_override("separation", 2)
+	source.add_child(source_list)
+	_debug_level_editor(source_list, "鱼竿", "Lv.%d" % g.rod_level, DT.GOLD, func(delta: int) -> void:
+		g.rod_level = maxi(1, g.rod_level + delta)
+		g._begin_wait()
+		_debug_source_changed(g))
+	_debug_level_editor(source_list, "绕线轮", "Lv.%d" % g.reel_level, Color(0.58, 0.80, 0.98), func(delta: int) -> void:
+		g.reel_level = maxi(0, g.reel_level + delta)
+		g._begin_wait()
+		_debug_source_changed(g))
+	_debug_level_editor(source_list, "鱼线", "Lv.%d" % g.fish_line_level, Color(0.72, 0.92, 0.58), func(delta: int) -> void:
+		g.fish_line_level = maxi(0, g.fish_line_level + delta)
+		_debug_source_changed(g))
+	_debug_level_editor(source_list, "浮漂", "Lv.%d" % g.bobber_level, Color(0.42, 0.78, 0.86), func(delta: int) -> void:
+		g.bobber_level = maxi(0, g.bobber_level + delta)
+		_debug_source_changed(g))
+	_debug_select_editor(source_list, "鱼饵", g.bait_level, FishData.BAITS, Color(0.72, 0.92, 0.58), func(idx: int) -> void:
+		g.bait_level = idx
+		_debug_source_changed(g))
+	_debug_select_editor(source_list, "鱼钩", g.hook_level, FishData.HOOKS, Color(0.62, 0.86, 0.74), func(idx: int) -> void:
+		g.hook_level = idx
+		_debug_source_changed(g))
+	_debug_select_editor(source_list, "窝料", g.lure_level, FishData.LURES, Color(0.78, 0.62, 0.95), func(idx: int) -> void:
+		g.lure_level = idx
+		_debug_source_changed(g))
+	_debug_level_editor(source_list, "探鱼器", "Lv.%d" % g.sonar_level, Color(0.78, 0.62, 0.95), func(delta: int) -> void:
+		g.sonar_level = maxi(0, g.sonar_level + delta)
+		_debug_source_changed(g))
+	_debug_level_editor(source_list, "笔记", "Lv.%d" % g.notebook_level, Color(0.78, 0.62, 0.95), func(delta: int) -> void:
+		g.notebook_level = maxi(0, g.notebook_level + delta)
+		_debug_source_changed(g))
+	_debug_level_editor(source_list, "手套", "Lv.%d" % g.gloves_level, Color(0.88, 0.72, 0.48), func(delta: int) -> void:
+		g.gloves_level = maxi(0, g.gloves_level + delta)
+		_debug_source_changed(g))
+	_debug_pet_editor(source_list, "宠物", str(g._dev_pet_state), func(state: String) -> void:
+		g._dev_pet_state = state
+		if g.painter and state != "无" and g.painter.has_method("pet_react"):
+			g.painter.pet_react("paw" if state == "互动" else "steal")
+		_debug_source_changed(g))
+
+	_debug_flow(box, "来源层 -> 角色属性 -> 钓鱼属性")
+	var lower_stack := VBoxContainer.new()
+	lower_stack.add_theme_constant_override("separation", 3)
+	box.add_child(lower_stack)
+	var role := _debug_group(lower_stack, "角色属性", Color(0.58, 0.80, 0.98))
+	var role_grid := _debug_kv_grid(role, 3)
+	_debug_kv(role_grid, "速度", "%.1f" % stats.speed, Color(0.58, 0.80, 0.98), "绕线轮 Lv.%d" % g.reel_level)
+	_debug_kv(role_grid, "幸运", "%+d" % g._catch_luck(), DT.GOLD, "当前事件/时段等临时 luck")
+	_debug_kv(role_grid, "技巧", "%.1f" % stats.technique, Color(0.72, 0.92, 0.58), "鱼线/手套")
+	_debug_kv(role_grid, "体力", "0", Color(0.62, 0.86, 0.74), "预留：影响长线效率")
+	_debug_kv(role_grid, "力量", "%.1f" % stats.strength, Color(0.88, 0.72, 0.48), "钓鱼手套")
+	_debug_kv(role_grid, "生态", "%.1f" % stats.ecology, Color(0.78, 0.62, 0.95), "探鱼器/钓鱼笔记")
+	_debug_kv(role_grid, "稳定", "%.1f" % stats.stability, Color(0.72, 0.92, 0.58), "鱼线")
+	_debug_kv(role_grid, "反应", "%.1f" % stats.reaction, Color(0.42, 0.78, 0.86), "浮漂")
+	_debug_kv(role_grid, "感知", "%.1f" % stats.perception, Color(0.78, 0.62, 0.95), "浮漂/探鱼器")
+	_debug_kv(role_grid, "追踪", "%.1f" % stats.tracking, Color(0.78, 0.62, 0.95), "钓鱼笔记")
+
+	var fish_core := _debug_group(lower_stack, "钓鱼属性 · 节奏/品阶", DT.GOLD)
+	var rhythm_grid := _debug_kv_grid(fish_core, 3)
+	_debug_kv(rhythm_grid, "一竿", "%.2fs" % cur_interval, Color(0.42, 0.78, 0.86), "无绕线轮 %.2fs" % base_no_reel)
+	_debug_kv(rhythm_grid, "倍率", "%.0f%%" % (g._speed_wait_mult() * g._reaction_wait_mult() * 100.0), Color(0.58, 0.80, 0.98), "速度+反应换算")
+	_debug_kv(rhythm_grid, "缩短", "%.1f%%" % (speed_gain * 100.0), Color(0.42, 0.78, 0.86), "相对无绕线轮")
+	_debug_kv(rhythm_grid, "双钩", "%.1f%%" % (double_p * 100.0), Color(0.62, 0.86, 0.74), "%s + 反应/技巧" % hook["name"])
+	_debug_kv(rhythm_grid, "期望", "%.2f条" % (1.0 + double_p), Color(0.62, 0.86, 0.74), "单竿期望收获")
+	_debug_kv(rhythm_grid, "鱼饵", str(bait["name"]), Color(0.72, 0.92, 0.58), "星级来源")
+	_debug_kv(rhythm_grid, "体型", "k^%.2f" % g._weight_power(), Color(0.88, 0.72, 0.48), "力量/稳定降低指数，大鱼尾部略增")
+
+	_debug_subtitle(fish_core, "品阶")
+	var tier_grid := _debug_kv_grid(fish_core, 3)
+	for tier in range(6):
+		var p := float(weights.get(tier, 0.0)) / maxf(0.01, total)
+		_debug_kv(tier_grid, "%sT%d" % [FishData.TIER_NAMES[tier], tier], "%.2f%%" % (p * 100.0),
+			DT.tier_color(tier), "当前钓点池内 %d 种" % int(pool_counts.get(tier, 0)))
+
+	var fish_loot := _debug_group(lower_stack, "钓鱼属性 · 星级/刷宝", DT.GOLD)
+	var loot_grid := _debug_kv_grid(fish_loot, 3)
+	for q in range(qp.size()):
+		var qlabel: String = "普通" if q == 0 else "★".repeat(q)
+		_debug_kv(loot_grid, qlabel, "%.2f%%" % (float(qp[q]) * 100.0), qcols[q],
+			"%s + 技巧/稳定 · 卖价 x%.1f" % [bait["name"], float(FishData.QUALITY_MULTS[q])])
+	for vi in range(vp.size()):
+		var vlabel: String = "普鱼" if vi == 0 else FishData.VARIANT_NAMES[vi]
+		_debug_kv(loot_grid, vlabel, "%.3f%%" % (float(vp[vi]) * 100.0), DT.VARIANT[vi],
+			"%s + 感知/生态 · 卖价 x%.1f · vbias %.2f" % [lure["name"], float(FishData.VARIANT_MULTS[vi]), vb])
+
+
+static func _debug_group(box: BoxContainer, title: String, col: Color) -> VBoxContainer:
+	var pc := PanelContainer.new()
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pc.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	pc.add_theme_stylebox_override("panel", dark_row_style(0.38))
+	var mg := MarginContainer.new()
+	mg.add_theme_constant_override("margin_left", 6)
+	mg.add_theme_constant_override("margin_right", 6)
+	mg.add_theme_constant_override("margin_top", 3)
+	mg.add_theme_constant_override("margin_bottom", 3)
+	pc.add_child(mg)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 2)
+	mg.add_child(vb)
+	var l := Label.new()
+	l.text = title
+	l.add_theme_font_size_override("font_size", 9)
+	l.add_theme_color_override("font_color", col)
+	vb.add_child(l)
+	box.add_child(pc)
+	return vb
+
+
+static func _debug_level_editor(box: VBoxContainer, label: String, value: String, col: Color, on_delta: Callable) -> void:
+	var row := _debug_edit_row(box, label, value, col)
+	for d in [-10, -1, 1, 10]:
+		var delta := int(d)
+		var b := _debug_tiny_button("%+d" % delta)
+		b.pressed.connect(func() -> void: on_delta.call(delta))
+		row.add_child(b)
+
+
+static func _debug_select_editor(box: VBoxContainer, label: String, current: int, items: Array, col: Color, on_select: Callable) -> void:
+	var row := _debug_edit_row(box, label, "", col)
+	var ob := OptionButton.new()
+	ob.focus_mode = Control.FOCUS_NONE
+	ob.custom_minimum_size = Vector2(104, 18)
+	ob.add_theme_font_size_override("font_size", 9)
+	for i in items.size():
+		var it: Dictionary = items[i]
+		ob.add_item(str(it.get("name", "选项%d" % i)), i)
+	ob.select(clampi(current, 0, maxi(0, items.size() - 1)))
+	ob.item_selected.connect(func(idx: int) -> void: on_select.call(idx))
+	row.add_child(ob)
+
+
+static func _debug_pet_editor(box: VBoxContainer, label: String, current: String, on_select: Callable) -> void:
+	var row := _debug_edit_row(box, label, "", DT.TEXT_MUTED_GLASS)
+	var states := ["无", "待机", "互动", "叼鱼"]
+	var ob := OptionButton.new()
+	ob.focus_mode = Control.FOCUS_NONE
+	ob.custom_minimum_size = Vector2(104, 18)
+	ob.add_theme_font_size_override("font_size", 9)
+	for i in states.size():
+		ob.add_item(states[i], i)
+		if states[i] == current:
+			ob.select(i)
+	ob.item_selected.connect(func(idx: int) -> void: on_select.call(states[idx]))
+	row.add_child(ob)
+
+
+static func _debug_edit_row(box: VBoxContainer, label: String, value: String, col: Color) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 3)
+	box.add_child(row)
+	var nm := Label.new()
+	nm.text = label
+	nm.custom_minimum_size = Vector2(42, 18)
+	nm.add_theme_font_size_override("font_size", 9)
+	nm.add_theme_color_override("font_color", DT.TEXT_ON_GLASS)
+	row.add_child(nm)
+	if value != "":
+		var val := Label.new()
+		val.text = value
+		val.custom_minimum_size = Vector2(42, 18)
+		val.add_theme_font_size_override("font_size", 9)
+		val.add_theme_color_override("font_color", col)
+		row.add_child(val)
+	return row
+
+
+static func _debug_compact_label(row: HBoxContainer, text: String, col: Color, width := 48) -> void:
+	var l := Label.new()
+	l.text = text
+	l.custom_minimum_size = Vector2(width, 0)
+	l.add_theme_font_size_override("font_size", 9)
+	l.add_theme_color_override("font_color", col)
+	row.add_child(l)
+
+
+static func _debug_tiny_button(text: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(28, 18)
+	b.add_theme_font_size_override("font_size", 9)
+	return b
+
+
+static func _debug_source_changed(g: CornerFishing) -> void:
+	g._check_achievements()
+	g._update_hud()
+	g.call_deferred("_refresh_panel")
+
+
+static func _debug_flow(box: VBoxContainer, text: String) -> void:
+	var l := Label.new()
+	l.text = text
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", 9)
+	l.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	box.add_child(l)
+
+
+static func _debug_subtitle(box: VBoxContainer, text: String) -> void:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", 9)
+	l.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	box.add_child(l)
+
+
+static func _debug_kv_grid(box: VBoxContainer, pairs_per_row := 3) -> GridContainer:
+	var grid := GridContainer.new()
+	grid.columns = pairs_per_row * 2
+	grid.add_theme_constant_override("h_separation", 4)
+	grid.add_theme_constant_override("v_separation", 1)
+	box.add_child(grid)
+	return grid
+
+
+static func _debug_kv(grid: GridContainer, label: String, value: String, col: Color, detail := "") -> void:
+	var nm := Label.new()
+	nm.text = label
+	nm.tooltip_text = detail
+	nm.custom_minimum_size = Vector2(46, 0)
+	nm.add_theme_font_size_override("font_size", 9)
+	nm.add_theme_color_override("font_color", DT.TEXT_ON_GLASS)
+	grid.add_child(nm)
+	var val := Label.new()
+	val.text = value
+	val.tooltip_text = detail
+	val.custom_minimum_size = Vector2(46, 0)
+	val.add_theme_font_size_override("font_size", 9)
+	val.add_theme_color_override("font_color", col)
+	grid.add_child(val)
+
+
+static func _tier_counts(pool: Array) -> Dictionary:
+	var out := {}
+	for tier in range(6):
+		out[tier] = 0
+	for id in pool:
+		var t := FishData.tier_of(str(id))
+		out[t] = int(out.get(t, 0)) + 1
+	return out
+
+
+static func _quality_distribution(probs: Array) -> Array:
+	var p1 := float(probs[1])
+	var p2 := float(probs[2])
+	var p3 := float(probs[3])
+	return [
+		1.0 - p1,
+		p1 * (1.0 - p2),
+		p1 * p2 * (1.0 - p3),
+		p1 * p2 * p3,
+	]
+
+
+static func _variant_distribution(vbias: float) -> Array:
+	var p3 := float(FishData.VARIANT_PROBS[3]) * FishData.variant_scale(3, vbias)
+	var p2 := float(FishData.VARIANT_PROBS[2]) * FishData.variant_scale(2, vbias)
+	var p1 := float(FishData.VARIANT_PROBS[1]) * FishData.variant_scale(1, vbias)
+	return [maxf(0.0, 1.0 - p1 - p2 - p3), p1, p2, p3]
 
 
 ## 统计页：长期成长看板（只读）。
@@ -518,6 +914,7 @@ static func fill_stats_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		["最大渔获", biggest],
 		["巨物纪录", "已钓到" if g.caught_giant else "尚无"],
 		["累计专注", "%d 分钟" % int(g.focus_minutes_total)],
+		["亲手起钩", "%d 条" % g.hand_catches],
 		["猫税", "被叼走 %d 条" % g.pet_steals],
 		["鱼贩合约", ("带走 %d 条 · +%d 金币" % [g.auto_sold_n, g.auto_sold_v]) if g.auto_sell_bought else "未签约"],
 		["鱼篓容量", "%d 格" % g._bag_capacity()],
@@ -715,10 +1112,82 @@ static func spot_card(g: CornerFishing, sid: String) -> Control:
 		info.text = line
 		info.add_theme_color_override("font_color", DT.POSITIVE)
 	else:
-		info.text = "🔒 %s" % SpotData.unlock_text(sid)
+		# near-miss 可见化：静态解锁条件 + 当前进度「还差 N」——目标梯度效应，越接近越想挂
+		var lock_line := "🔒 %s" % SpotData.unlock_text(sid)
+		var up := SpotData.unlock_progress_pair(sid, g.lifetime_catches, g.lifetime_coins, g.dex.size())
+		if up.size() == 2 and int(up[1]) > 0:
+			lock_line += "　·　%d/%d，还差 %d" % [int(up[0]), int(up[1]),
+				maxi(0, int(up[1]) - int(up[0]))]
+		info.text = lock_line
 		info.add_theme_color_override("font_color", DT.BAG_FULL)
 	box.add_child(info)
 	return cell
+
+
+# ============================ 稀有捕获卡（P0 好玩补丁）============================
+
+## 鎏金/七彩入手的仪式面板：大图 + 衬线名 + 「1 in X」赔率徽章 + 保存 PNG。
+## 数据在 g._capture_card_data（_rare_ceremony 灌入）；只展示不结算——鱼已按正常流程入篓。
+static func fill_capture_card(g: CornerFishing, v: VBoxContainer) -> void:
+	var c: Dictionary = g._capture_card_data
+	if c.is_empty():
+		return
+	var vr := int(c.get("var", 0))
+	var q := int(c.get("q", 0))
+	var vcol := FishData.variant_color(vr)
+	var id := str(c.get("id", ""))
+	v.add_theme_constant_override("separation", DT.SP_2)
+
+	var icon := TextureRect.new()
+	icon.texture = g._fish_texture(id)
+	icon.custom_minimum_size = Vector2(0, 96)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	v.add_child(icon)
+
+	var nm := Label.new()
+	nm.text = FishData.variant_label(vr) + FishData.display_name(id)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.add_theme_font_size_override("font_size", DT.FS_HEAD + 4)
+	nm.add_theme_font_override("font", g._serif)
+	nm.add_theme_color_override("font_color", vcol)
+	v.add_child(nm)
+
+	var pills := HBoxContainer.new()
+	pills.alignment = BoxContainer.ALIGNMENT_CENTER
+	pills.add_theme_constant_override("separation", DT.CHIP_GAP)
+	pills.add_child(make_pill("全球约 1 / %d 竿" % FishData.variant_odds(vr), vcol, DT.INK_ON_GOLD))
+	if bool(c.get("hand", false)):
+		pills.add_child(make_pill("🎣 亲手起钩", DT.BRONZE, DT.INK_ON_GOLD))
+	v.add_child(pills)
+
+	v.add_child(_kv_row("体重", "%.2f kg%s" % [float(c.get("w", 0.0)),
+		("　·　" + FishData.size_tag(id, c["w"]).trim_suffix("·")) if FishData.size_tag(id, c["w"]) != "" else ""]))
+	v.add_child(_kv_row("卖价", "%d 金币" % int(c.get("v", 0))))
+	if q > 0:
+		v.add_child(_kv_row("品相", FishData.quality_label(q).trim_suffix("·")))
+	v.add_child(_kv_row("入手", Time.get_date_string_from_system()))
+
+	var btns := HBoxContainer.new()
+	btns.alignment = BoxContainer.ALIGNMENT_CENTER
+	btns.add_theme_constant_override("separation", DT.SP_3)
+	var keep := Button.new()
+	keep.text = "收下"
+	keep.custom_minimum_size = Vector2(120, 36)
+	apply_button_skin(keep, true)
+	keep.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		close_panel(g))
+	btns.add_child(keep)
+	var snap := Button.new()
+	snap.text = "📸 保存捕获卡"
+	snap.custom_minimum_size = Vector2(140, 36)
+	apply_button_skin(snap, false)
+	snap.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		g._save_capture_card())
+	btns.add_child(snap)
+	v.add_child(btns)
 
 
 # ============================ 鱼缸页（活水族箱）============================
@@ -1071,6 +1540,7 @@ static func fill_tasks_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		["最高品相", (str(FishData.QUALITY_NAMES[clampi(q, 0, 3)]) + "★".repeat(q)) if q > 0 else "普通"],
 		["巨物纪录", "已钓到" if g.caught_giant else "尚无"],
 		["累计专注", "%d 分钟" % int(g.focus_minutes_total)],
+		["亲手起钩", "%d 条" % g.hand_catches],
 		["猫税", "被叼走 %d 条" % g.pet_steals],
 		["鱼贩合约", ("带走 %d 条 · +%d 金币" % [g.auto_sold_n, g.auto_sold_v]) if g.auto_sell_bought else "未签约"],
 		["鱼篓容量", "%d 格" % g._bag_capacity()],
@@ -1755,6 +2225,15 @@ static func fill_dex_tab(g: CornerFishing, v: VBoxContainer) -> void:
 	stat.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 	v.add_child(stat)
 
+	# near-miss：本水域图鉴缺口一行金字（就差几种！），集齐则安静地不显示
+	var sp := spot_species_progress(g, g.current_spot)
+	if int(sp[1]) > 0 and int(sp[0]) < int(sp[1]):
+		var near := Label.new()
+		near.text = "🎯 %s还差 %d 种集齐" % [SpotData.display_name(g.current_spot), int(sp[1]) - int(sp[0])]
+		near.add_theme_font_size_override("font_size", DT.FS_XS)
+		near.add_theme_color_override("font_color", DT.GOLD)
+		v.add_child(near)
+
 	# 品阶筛选 seg（CD：全部 + 6 品阶，品阶 pill 用品阶色）
 	var tier_names := ["普通", "优良", "稀有", "史诗", "传说", "神话"]
 	var seg := HBoxContainer.new()
@@ -1943,6 +2422,11 @@ static func list_row(thumb_path: String, title: String, sub: String, highlight :
 		thumb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		thumb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		row.add_child(thumb)
+	else:
+		var thumb_fallback := ColorRect.new()
+		thumb_fallback.color = Color(1, 1, 1, 0.86)
+		thumb_fallback.custom_minimum_size = Vector2(40, 36)
+		row.add_child(thumb_fallback)
 	var grow := VBoxContainer.new()
 	grow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grow.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -1976,6 +2460,49 @@ static func _equip_btn(row: HBoxContainer, text: String, enabled: bool, primary:
 	row.add_child(b)
 
 
+static func _equip_cost_btn(row: HBoxContainer, qty: String, cost: String, enabled: bool, primary: bool, cb: Callable) -> void:
+	var box := VBoxContainer.new()
+	box.custom_minimum_size = Vector2(64, 0)
+	box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	box.add_theme_constant_override("separation", 2)
+	var q := Label.new()
+	q.text = qty
+	q.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	q.add_theme_font_size_override("font_size", DT.FS_2XS)
+	q.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	box.add_child(q)
+	var b := Button.new()
+	b.text = cost
+	b.custom_minimum_size = Vector2(64, 32)
+	b.disabled = not enabled
+	b.add_theme_font_size_override("font_size", DT.FS_XS)
+	apply_button_skin(b, primary)
+	if enabled:
+		b.pressed.connect(cb)
+	box.add_child(b)
+	row.add_child(box)
+
+
+static func _compact_cost(n: int) -> String:
+	if n >= 100000000:
+		return "%.1f亿" % (float(n) / 100000000.0)
+	if n >= 10000:
+		return "%.1f万" % (float(n) / 10000.0)
+	return _commas_local(n)
+
+
+static func _commas_local(n: int) -> String:
+	var s := str(absi(n))
+	var out := ""
+	var c := 0
+	for i in range(s.length() - 1, -1, -1):
+		out = s[i] + out
+		c += 1
+		if c % 3 == 0 and i > 0:
+			out = "," + out
+	return ("-" + out) if n < 0 else out
+
+
 static func _section(v: VBoxContainer, text: String) -> void:
 	var l := Label.new()
 	l.text = text
@@ -2007,6 +2534,9 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 	rod[0].tooltip_text = "决定稀有度：越高级越易上高阶鱼"
 	_equip_btn(rod[1], "升级 %d" % rc, g.coins >= rc, true, g._try_upgrade_rod)
 	list.add_child(rod[0])
+
+	_section(list, "属性装备 · 逐步揭露（装备 → 角色属性）")
+	_add_attribute_equipment_rows(g, list)
 
 	# 鱼饵（决定星级品质）
 	_section(list, "鱼饵 · 决定星级品质（卖价倍率 ×1.8/×4/×8）")
@@ -2089,6 +2619,75 @@ static func fill_upgrades(g: CornerFishing, v: VBoxContainer) -> void:
 	v.add_child(sc)
 
 
+static func _add_attribute_equipment_rows(g: CornerFishing, list: VBoxContainer) -> void:
+	var chain := g._equipment_chain()
+	for i in chain.size():
+		var id := str(chain[i])
+		if g._equipment_unlocked(id):
+			_add_unlocked_attribute_equipment_row(g, list, id)
+			continue
+		if i > 0 and g._equipment_unlocked(str(chain[i - 1])):
+			_add_locked_attribute_equipment_row(g, list, id)
+		break
+
+
+static func _add_unlocked_attribute_equipment_row(g: CornerFishing, list: VBoxContainer, id: String) -> void:
+	var title := ""
+	var icon := ""
+	var sub := ""
+	var tooltip := ""
+	if id == "reel":
+		title = "绕线轮 Lv.%d" % g.reel_level
+		icon = "res://assets/art/equipment/line_spool.png"
+		sub = "玩家速度 %.1f → %.1f" % [g._reel_speed(), g._reel_speed_for(g.reel_level + 1)]
+		tooltip = "独立速度装备：通过 speed 属性缩短等待与收竿周期"
+	else:
+		var info: Dictionary = AnglerEquipment.ATTR_EQUIPMENT[id]
+		var lv := g._gear_level(id)
+		title = "%s Lv.%d" % [str(info["name"]), lv]
+		icon = str(info["icon"])
+		sub = _attr_equipment_sub(g, id, lv)
+		tooltip = str(info["desc"])
+	var row := list_row(icon, title, sub, true)
+	row[0].tooltip_text = tooltip
+	for cnt in [1, 10, 100]:
+		var c := int(cnt)
+		var cost := g._reel_upgrade_cost(c) if id == "reel" else g._gear_upgrade_cost(id, c)
+		var cb := g._try_upgrade_reel.bind(c) if id == "reel" else g._try_upgrade_attr_gear.bind(id, c)
+		_equip_cost_btn(row[1], "+%d 级" % c, _compact_cost(cost), g.coins >= cost, c == 1, cb)
+	list.add_child(row[0])
+
+
+static func _add_locked_attribute_equipment_row(g: CornerFishing, list: VBoxContainer, id: String) -> void:
+	var title := "绕线轮" if id == "reel" else str(AnglerEquipment.ATTR_EQUIPMENT[id]["name"])
+	var icon := "res://assets/art/equipment/line_spool.png" if id == "reel" else str(AnglerEquipment.ATTR_EQUIPMENT[id]["icon"])
+	var cost := g._equipment_unlock_cost(id)
+	var sub := "未解锁 · %s · 解锁后 Lv.1" % g._equipment_unlock_note(id)
+	var row := list_row(icon, title, sub, false)
+	row[0].tooltip_text = "逐步揭露装备：先解锁上一件，再开放这一件"
+	_equip_btn(row[1], "解锁 %s" % _compact_cost(cost), g.coins >= cost, true, g._try_unlock_equipment.bind(id))
+	list.add_child(row[0])
+
+
+static func _attr_equipment_sub(g: CornerFishing, id: String, lv: int) -> String:
+	var cur = g._gear_stats(id, lv)
+	var nxt = g._gear_stats(id, lv + 1)
+	var labels := {
+		"technique": "技巧",
+		"stability": "稳定",
+		"reaction": "反应",
+		"perception": "感知",
+		"ecology": "生态",
+		"tracking": "追踪",
+		"strength": "力量",
+	}
+	var parts: Array[String] = []
+	var attrs: Dictionary = AnglerEquipment.ATTR_EQUIPMENT[id]["attrs"]
+	for key in attrs.keys():
+		parts.append("%s %.1f→%.1f" % [labels[str(key)], float(cur.get(str(key))), float(nxt.get(str(key)))])
+	return " · ".join(parts)
+
+
 # ============================ 设置 / 引导 / 离线小结 ============================
 
 static func audio_slider(v: VBoxContainer, label: String, value: float, setter: Callable) -> void:
@@ -2154,6 +2753,12 @@ static func fill_settings(g: CornerFishing, v: VBoxContainer) -> void:
 		g._update_action_button())
 	cast_row.add_child(cast_btn)
 	col.add_child(cast_row)
+	var cast_hint := Label.new()
+	cast_hint.text = "咬钩的瞬间点「起钩！」可亲手起钩（体重 +10%）；稀有鱼会多挣扎几秒等你。不点也照常自动上鱼，永不惩罚。"
+	cast_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cast_hint.add_theme_font_size_override("font_size", DT.FS_2XS)
+	cast_hint.add_theme_color_override("font_color", DT.TEXT_FAINT_GLASS)
+	col.add_child(cast_hint)
 	col.add_child(HSeparator.new())
 
 	# 自动卖鱼（付费占位）
@@ -2374,6 +2979,13 @@ static func fill_test_console(g: CornerFishing, col: VBoxContainer) -> void:
 	tip.add_theme_font_size_override("font_size", DT.FS_2XS)
 	tip.add_theme_color_override("font_color", DT.GOLD_BRIGHT)
 	box.add_child(tip)
+	var attrs_btn := Button.new()
+	attrs_btn.text = "打开属性面板"
+	attrs_btn.custom_minimum_size = Vector2(0, 34)
+	attrs_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	apply_button_skin(attrs_btn, false)
+	attrs_btn.pressed.connect(func() -> void: g._set_dev_attrs_open(true))
+	box.add_child(attrs_btn)
 
 	# —— 时间 / 节奏 ——
 	_test_head(box, "昼夜时段")
@@ -2409,6 +3021,25 @@ static func fill_test_console(g: CornerFishing, col: VBoxContainer) -> void:
 	for d in gear_defs:
 		var kind2: String = d[0]
 		_test_seg(gear_row2, str(d[1]) + "满", false, func() -> void: TestMode.bump_gear(g, kind2, true))
+
+	_test_head(box, "速度装备 · 绕线轮（测试版可升可降）")
+	var reel_info := Label.new()
+	reel_info.text = "Lv.%d · 速度 %.1f · 一竿 %.2fs · 倍率 %.0f%%" % [
+		g.reel_level, g._reel_speed(), g._avg_wait_for_reel(g.reel_level), g._speed_wait_mult() * 100.0]
+	reel_info.add_theme_font_size_override("font_size", DT.FS_2XS)
+	reel_info.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	box.add_child(reel_info)
+	var reel_row := _test_row(box)
+	_test_seg(reel_row, "-100", false, func() -> void: TestMode.bump_reel(g, -100))
+	_test_seg(reel_row, "-10", false, func() -> void: TestMode.bump_reel(g, -10))
+	_test_seg(reel_row, "-1", false, func() -> void: TestMode.bump_reel(g, -1))
+	_test_seg(reel_row, "+1", false, func() -> void: TestMode.bump_reel(g, 1))
+	_test_seg(reel_row, "+10", false, func() -> void: TestMode.bump_reel(g, 10))
+	_test_seg(reel_row, "+100", false, func() -> void: TestMode.bump_reel(g, 100))
+	var reel_row2 := _test_row(box)
+	for target in [0, 10, 50, 100, 250]:
+		var lv := int(target)
+		_test_seg(reel_row2, "设%d" % lv, g.reel_level == lv, func() -> void: TestMode.set_reel(g, lv))
 
 	# —— 鱼 / 收集 ——
 	_test_head(box, "给指定鱼")

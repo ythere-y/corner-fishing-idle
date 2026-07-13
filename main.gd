@@ -1132,6 +1132,10 @@ func _begin_bite() -> void:
 		var vr := int(_pending_catch.get("var", 0))
 		painter.bite_glow(_state_t, FishData.variant_color(vr) if vr >= 2 else Color(1.0, 0.86, 0.45))
 	Audio.play_sfx("bite")
+	# 张力循环填满咬钩→上鱼这 0.9 秒（此前是一片死寂）。音高固定：鱼要到 _do_catch
+	# 才 _roll_one，提前摇会改动 rng 序列、打破 validate 的确定性基线。体型的听觉表达
+	# 交给上鱼那一刻的 sfx_fish_struggle。
+	Audio.start_tension(1)
 	_update_action_button()
 
 
@@ -1341,7 +1345,21 @@ func _roll_one(luck: int, vbias := -1.0) -> Dictionary:
 	return c
 
 
+## 上鱼音四档。此前所有「优良以上」的鱼共用一个 catch_rare——一条 ×12 的七彩
+## 和一条 ★★ 的普通鱼听起来完全一样，219 鱼 × 4 变体的收集轴在听觉上只有两档。
+## 门槛与 docs/audio_asset_rules.md 的「catch_rare 只给稀有及以上」对齐（★★ 降到 good）。
+func _catch_sfx(tier: int, q: int, vr: int) -> String:
+	if vr >= 2 or tier >= 4:        # 鎏金/七彩，或传说/神话
+		return "catch_epic"
+	if tier >= 2 or vr == 1 or q >= 3:   # 稀有/史诗，或斑斓，或极品★★★
+		return "catch_rare"
+	if q >= 2:                       # ★★
+		return "catch_good"
+	return "catch_common"
+
+
 func _do_catch() -> void:
+	Audio.stop_tension()   # 无论走哪条分支（满篓兜底也算）都要收掉张力循环
 	if _bag_full():
 		_try_auto_sell()   # 鱼贩合约：先按市价带走杂鱼腾格；腾不出（全是珍品）才走折价兜底
 	if _bag_full():
@@ -1382,9 +1400,19 @@ func _do_catch() -> void:
 	var is_big := FishData.size_tag(c["id"], c["w"]) == "巨物·"
 	if is_big:
 		caught_giant = true
+	var is_new_species := not dex.has(c["id"])   # 必须抢在 _dex_record 建条目之前问
 	var broke_record := _dex_record(c["id"], float(c["w"]), is_big, q >= 3, vr)
 	var col: Color = FishData.TIER_COLORS[tier]
-	Audio.play_sfx("catch_rare" if (tier >= 2 or q >= 2 or vr >= 1) else "catch_common")
+	var catch_sfx := _catch_sfx(tier, q, vr)
+	Audio.play_sfx(catch_sfx)
+	# 巨物出水翻腾。epic 自带长尾旋律，再叠一层水声只会糊成一团。
+	if is_big and catch_sfx != "catch_epic":
+		Audio.play_sfx("sfx_fish_struggle")
+	# 首捕 / 破纪录：延后 0.35s 让开水花峰值，否则被淹没。二者天然互斥——首捕时
+	# dex.n=1，而破纪录要求该鱼种已钓 ≥5 条，所以不必在两者间取舍。
+	var milestone := "sfx_new_species" if is_new_species else ("sfx_record" if broke_record else "")
+	if milestone != "":
+		get_tree().create_timer(0.35).timeout.connect(func() -> void: Audio.play_sfx(milestone))
 	_popup("%s%s %.2fkg" % [("亲手 · " if hand else ""), fname, c["w"]],
 		_scene_pt(painter.bobber_pos()) + Vector2(-22, -8),
 		FishData.variant_color(vr) if vr >= 1 else col)
@@ -1410,7 +1438,7 @@ func _do_catch() -> void:
 			2.0, Color(0.96, 0.78, 0.38))
 	var comp_win := Competition.on_catch(self, c)   # 巨物赛：本周目标鱼刷新最佳，冲过影子线夺金
 	if comp_win > 0:
-		Audio.play_sfx("coin")
+		Audio.play_sfx("sfx_competition_win")   # 一周一次的夺金，此前和卖一条杂鱼同一个 coin 音
 		_toast("🏆 巨物赛夺金！%s %.2fkg 越过影子线，+%d 金币" % [
 			FishData.display_name(str(c["id"])), float(c["w"]), comp_win], 3.4, Color(1.0, 0.86, 0.32))
 		_flash()
@@ -1431,13 +1459,17 @@ func _do_catch() -> void:
 		var ib2 := FishData.size_tag(c2["id"], c2["w"]) == "巨物·"
 		if ib2:
 			caught_giant = true
+		var new_species2 := not dex.has(c2["id"])
 		_dex_record(c2["id"], float(c2["w"]), ib2, int(c2.get("q", 0)) >= 3, int(c2.get("var", 0)))
 		_popup("双钩 +%s" % FishData.display_name(c2["id"]),
 			_scene_pt(painter.bobber_pos()) + Vector2(24, -22), Color(0.62, 0.86, 0.74))
-		Audio.play_sfx("catch_common")
+		# 第二条鱼也走分级——双钩钓上七彩却只响一声普通水花，是原来最容易被察觉的哑点。
+		Audio.play_sfx(_catch_sfx(FishData.tier_of(c2["id"]), int(c2.get("q", 0)), int(c2.get("var", 0))))
+		if new_species2:
+			get_tree().create_timer(0.45).timeout.connect(func() -> void: Audio.play_sfx("sfx_new_species"))
 		var comp_win2 := Competition.on_catch(self, c2)   # 双钩第二条也参与巨物赛
 		if comp_win2 > 0:
-			Audio.play_sfx("coin")
+			Audio.play_sfx("sfx_competition_win")
 			_toast("🏆 巨物赛夺金！%s %.2fkg，+%d 金币" % [
 				FishData.display_name(str(c2["id"])), float(c2["w"]), comp_win2], 3.4, Color(1.0, 0.86, 0.32))
 			_flash()
@@ -2452,6 +2484,7 @@ func _check_achievements(silent := false) -> void:
 			var reward := int(a.get("reward", 0))
 			if reward > 0:
 				coins += reward
+			Audio.play_sfx("sfx_achievement")   # 42 项成就此前只有 toast，全程无声
 			var msg := "成就达成：%s" % a["name"]
 			if reward > 0:
 				msg += "（+%d 金币）" % reward
@@ -2923,6 +2956,9 @@ func _grant_focus_reward(level: int) -> void:
 	# 修掉"满篓停竿吞掉 25 分钟档、额度双扣只兑一半"的坑（balance_audit §3.5）。
 	focus_pending = maxi(focus_pending, level)
 	var mins := 25 if level == 1 else 50
+	# 风铃。玩家此刻正背着窗口做别的事，这一声要能被听见、又不至于打断——
+	# 素材已刻意做到近乎不可闻（peak 0.20，全曲最低）。
+	Audio.play_sfx("sfx_focus_reward")
 	_toast("专注 %d 分钟，下一竿留了份惊喜给你 ✨" % mins, 4.0, Color(0.74, 0.86, 0.98))
 	_check_achievements()
 	_save()
@@ -2992,6 +3028,7 @@ func _maybe_pet_steal() -> void:
 		return
 	var id := _pet_steal_cheapest()
 	if id != "" and painter.has_method("pet_react"):
+		Audio.play_sfx("sfx_cat_steal")   # 全游戏最有性格的时刻，此前是哑的
 		painter.pet_react("steal")
 
 

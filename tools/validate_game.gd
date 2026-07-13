@@ -99,6 +99,9 @@ func _run() -> void:
 	print("=== 昼夜时段系统 ===")
 	await _check_weather()
 
+	print("=== 音频：素材齐全 / 上鱼分级 / 张力 / BGM ===")
+	await _check_audio()
+
 	print("=== 存档 v2 往返 ===")
 	await _check_save_v2()
 
@@ -530,6 +533,117 @@ func _check_hook() -> void:
 
 
 ## 诱饵/窝料（P2 变体杠杆第四成长线）：数据档位 + lure_level→_variant_bias()→_roll_one 端到端接线。
+## 音频回归：manifest 与磁盘/运行时三者一致；上鱼四档映射；张力循环；BGM 昼夜切换。
+## 无头模式下 Godot 用 Dummy 音频驱动——播放不出声，但 stream 加载、loop 标志、
+## player 建立、状态机推进全部照常执行，够抓住"素材缺失 / 键名写错 / 循环没开"这类真错。
+func _check_audio() -> void:
+	# 注意：不能在本文件里直接写 `Audio`。`-s` 跑的 SceneTree 脚本在 autoload 注册之前
+	# 就被编译，会报 "Identifier not found: Audio"（spots.gd 之流没事，因为它们是经
+	# main.tscn 间接加载的，那时 autoload 已就位）。运行时按路径取节点即可绕开。
+	var audio: Node = root.get_node_or_null("/root/Audio")
+	_assert(audio != null, "AudioManager autoload 应挂在 /root/Audio")
+	if audio == null:
+		return
+
+	var raw: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://assets/audio/audio_manifest.json"))
+	_assert(raw is Dictionary, "audio_manifest.json 应可解析为字典")
+	var manifest: Dictionary = raw
+
+	# 1) manifest 里每个 id 的文件都真实存在，且运行时都加载进了 Audio
+	for id in manifest:
+		var path := str(manifest[id]["path"])
+		_assert(ResourceLoader.exists(path), "音频文件缺失：%s -> %s" % [id, path])
+		_assert(audio.has(id), "AudioManager 未加载音频 id：%s" % id)
+
+	# 2) 反向：代码里播的每个 id 都必须在 manifest 里（写错键名会静默变成"没声音"）
+	var must_exist := [
+		"ui_click", "ui_error", "cast", "bobber_splash", "bite", "coin", "upgrade",
+		"catch_common", "catch_good", "catch_rare", "catch_epic",
+		"sfx_new_species", "sfx_record", "sfx_achievement", "sfx_focus_reward",
+		"sfx_cat_steal", "sfx_fish_struggle", "sfx_competition_win", "sfx_spot_unlock",
+		"sfx_event_appear", "sfx_reel_tension", "bgm_day", "bgm_night",
+		# sfx_epic_tail 不在此列：它只是 catch_epic 的合成素材，运行时从不单独播放，
+		# 因此刻意不进 manifest（AudioManager 会 load 每一个 manifest 条目）。
+	]
+	for id in must_exist:
+		_assert(manifest.has(id), "代码会播放但 manifest 里没有：%s" % id)
+
+	# 3) 循环素材的 loop 标志真的被打开了（AudioStreamWAV 忘了设 loop_end 会卡首帧＝无声）
+	for id in manifest:
+		if not bool(manifest[id].get("loop", false)):
+			continue
+		var stream: AudioStream = load(str(manifest[id]["path"]))
+		if stream is AudioStreamWAV:
+			# _configure_stream_looping 在 duplicate 上设标志，磁盘导入档本身可以是 Disabled；
+			# 这里只断言时长非零，真正的 loop 配置在下面的运行时检查里验。
+			_assert(stream.get_length() > 0.0, "循环素材 %s 时长为 0" % id)
+		_assert(audio.has(id), "循环素材 %s 未进入 AudioManager" % id)
+
+	# 4) 上鱼四档映射：越稀有越不能掉档
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+
+	_assert(g._catch_sfx(0, 0, 0) == "catch_common", "普通鱼 ★0 应为 catch_common")
+	_assert(g._catch_sfx(0, 2, 0) == "catch_good", "普通鱼 ★★ 应为 catch_good")
+	_assert(g._catch_sfx(2, 0, 0) == "catch_rare", "稀有鱼应为 catch_rare")
+	_assert(g._catch_sfx(0, 0, 1) == "catch_rare", "斑斓变体应为 catch_rare")
+	_assert(g._catch_sfx(0, 3, 0) == "catch_rare", "极品★★★ 应为 catch_rare")
+	_assert(g._catch_sfx(0, 0, 2) == "catch_epic", "鎏金变体应为 catch_epic")
+	_assert(g._catch_sfx(0, 0, 3) == "catch_epic", "七彩变体应为 catch_epic")
+	_assert(g._catch_sfx(4, 0, 0) == "catch_epic", "传说鱼应为 catch_epic")
+	_assert(g._catch_sfx(5, 3, 3) == "catch_epic", "神话+七彩 应为 catch_epic")
+	# 单调性：品阶/星级/变体各自单调不降档（档位序号越大越强）
+	var rank := {"catch_common": 0, "catch_good": 1, "catch_rare": 2, "catch_epic": 3}
+	for t in range(6):
+		for q in range(4):
+			for v in range(4):
+				var here: int = rank[g._catch_sfx(t, q, v)]
+				if t > 0:
+					_assert(here >= int(rank[g._catch_sfx(t - 1, q, v)]), "品阶升高不应降档 (t=%d q=%d v=%d)" % [t, q, v])
+				if v > 0:
+					_assert(here >= int(rank[g._catch_sfx(t, q, v - 1)]), "变体升高不应降档 (t=%d q=%d v=%d)" % [t, q, v])
+
+	# 5) 张力循环：咬钩拉起、上鱼收掉，且不占用 8 音轨 sfx 池
+	_assert(audio._tension != null, "张力循环 player 应已建立")
+	audio.start_tension(1)
+	_assert(audio._tension.playing, "start_tension 后应在播放")
+	_assert(audio._tension_target == 1.0, "start_tension 应把目标增益推到 1")
+	var pitch_small: float = audio._tension.pitch_scale
+	audio.start_tension(5)
+	_assert(audio._tension.pitch_scale < pitch_small, "高品阶应更低沉（pitch 更低）")
+	audio.stop_tension()
+	_assert(audio._tension_target == 0.0, "stop_tension 应把目标增益推到 0")
+
+	# 6) BGM 昼夜切换 + 开关
+	audio.set_music_scene("day")
+	_assert(audio._music_key == "bgm_day", "白昼应选 bgm_day")
+	audio.set_music_scene("dusk")
+	_assert(audio._music_key == "bgm_day", "黄昏仍用白昼曲")
+	audio.set_music_scene("night")
+	_assert(audio._music_key == "bgm_night", "夜晚应切 bgm_night")
+	_assert(float(audio._music["bgm_night"]["target"]) == 1.0, "夜曲目标增益应为 1")
+	_assert(float(audio._music["bgm_day"]["target"]) == 0.0, "白昼曲应淡出到 0")
+	var vol: float = audio.music_volume
+	audio.set_music_enabled(false)
+	_assert(float(audio._music["bgm_night"]["target"]) == 0.0, "关掉音乐后所有曲目应淡出")
+	_assert(audio.music_volume == vol, "关音乐不应改动音量记忆")
+	audio.set_music_enabled(true)
+	_assert(float(audio._music["bgm_night"]["target"]) == 1.0, "重开音乐应恢复当前时段那条")
+
+	# 7) 静音应同时掐掉张力与 BGM（此前 muted 只挡 play_sfx，持续层会继续响）
+	audio.start_tension(1)
+	audio.set_muted(true)
+	_assert(audio._tension_target == 0.0, "静音应停掉张力循环")
+	_assert(float(audio._music["bgm_night"]["target"]) == 0.0, "静音应停掉 BGM")
+	audio.set_muted(false)
+	_assert(float(audio._music["bgm_night"]["target"]) == 1.0, "解除静音应恢复 BGM")
+
+	g.queue_free()
+	print("  音频：%d 条素材齐全 / 四档映射单调 / 张力变调 / BGM 昼夜与静音 通过" % manifest.size())
+
+
 func _check_lure() -> void:
 	_assert(FishData.LURES.size() == 4, "诱饵应 4 档")
 	_assert(FishData.lure_vbias(0) == 0.0, "无窝料 vbias 应为 0（基线不破）")

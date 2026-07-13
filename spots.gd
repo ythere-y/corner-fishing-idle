@@ -38,7 +38,8 @@ static func refresh_unlocks(g: CornerFishing) -> void:
 		if SpotData.unlock_met(sid, g.lifetime_catches, g.lifetime_coins, species):
 			g.unlocked_spots.append(sid)
 			if g._unlocks_inited:
-				Audio.play_sfx("upgrade")
+				# 解锁一整个新钓点，此前和买一级鱼竿共用同一个 upgrade 音
+				Audio.play_sfx("sfx_spot_unlock")
 				g._toast("新钓点解锁：%s！（鱼篓→钓点 切换过去）" % SpotData.display_name(sid),
 					4.0, Color(0.6, 0.85, 0.55))
 

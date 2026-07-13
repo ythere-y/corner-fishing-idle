@@ -100,6 +100,7 @@ const BAG_COSTS := [100, 250, 600, 1500, 8000, 30000, 90000,
 	250000, 600000, 1400000, 3000000, 6000000, 9500000]
 
 var save_enabled := true
+var _initial_load_complete := false   # async 窗口初始化期间禁止保存默认值覆盖真实存档
 var rng := RandomNumberGenerator.new()
 var _font: SystemFont
 var _serif: Font               # Noto Serif SC —— 标题/钓点名/英雄数字的衬线展示声音
@@ -151,13 +152,27 @@ var _offline_report := {}                # 离线小结：{dur,count,full,value,
 
 # —— 窗口拖动（默认右下角，可拖到任意位置）——
 var _dragging := false
+var _drag_pending := false
 var _drag_grab := Vector2i.ZERO
+var _drag_press_screen := Vector2i.ZERO
+const DRAG_START_DISTANCE_PX := 6.0
+## Godot 的 canvas final_transform 在窗口恢复后可能跨帧波动约 1-4 个物理像素。
+## Region 位于透明羽化边缘，向外留这层原生像素余量可避免稳定前短暂裁掉可见边缘。
+const WINDOW_REGION_PADDING_PX := 4.0
 var _saved_win_pos = null   # Variant：Vector2i 或 null（无存档位置则用右下角默认）
 var _panel_dragging := false
 var _panel_drag_offset := Vector2.ZERO
 var _panel_saved_pos = null  # Variant：Vector2 或 null，记住弹出面板被拖到的位置
 var _hud_chips_box: HBoxContainer = null
 var _resize_grips: Array = []
+
+# —— Windows 透明覆盖窗的交互/裁剪区状态 ——
+# window_set_mouse_passthrough 在 Windows 上由 SetWindowRgn 实现：它既决定命中，也会裁掉绘制。
+# 所有写 Region 的路径必须汇入 _apply_window_region，且把 canvas 逻辑坐标转换为窗口物理像素。
+var _window_interactive_full := false
+var _window_setup_complete := false
+var _window_region_sync_queued := false
+var _window_region_retry_count := 0
 
 # —— 流动鱼贩（动森 CJ 模式）：随机出现的限时收购，卖价 ×1.5 ——
 const MERCHANT_MULT := 1.5
@@ -357,12 +372,17 @@ func _ready() -> void:
 		_build_framed_chrome()
 		_build_resize_grips()   # 无边框窗口的自绘缩放手柄（边/角拖拽 → 等比改尺寸）
 	_apply_hud_legibility()
-	_setup_window()
+	await _setup_window()
 	_load_ui_layout()
 	# 载档前先定昼夜时段：作为离线分段结算（_offline_phase_slices）后 day_phase 的恢复基准，
 	# 也保证结算前 Spots/Weather 读到真实时段而非默认白昼。
 	day_phase = Weather.current_phase()
 	_load_save()
+	_initial_load_complete = true
+	# immersive 的系统窗口位置来自存档；窗口初始化先于载档以消除启动竞态，载入后补一次定位。
+	if DisplayServer.get_name() != "headless" and display_mode == "immersive" \
+			and _saved_win_pos != null and _pos_on_screen(_saved_win_pos):
+		DisplayServer.window_set_position(_clamp_win_to_screen(_saved_win_pos))
 	if test_mode:
 		if DisplayServer.get_name() == "headless":
 			test_mode = false
@@ -371,6 +391,9 @@ func _ready() -> void:
 	_layout_widget()
 	_refresh_unlocks()  # 载入期静默补登已满足解锁的钓点
 	_ensure_feature_unlocks(true)
+	# 底栏在载档前已创建；老档中的既有解锁不会再次触发 _unlock_feature，需按载入真值重建一次。
+	if display_mode == "framed":
+		_rebuild_bottom_nav()
 	_ensure_day_stat()  # 先沉淀"昨日收入"锚再重建周字典——跨周首启是周奖励重建的主路径，
 						# 顺序反了会把锚读成"上上个游玩日"（对抗审查 should-fix）
 	_ensure_daily_order()
@@ -408,6 +431,7 @@ func _ready() -> void:
 
 func _setup_window() -> void:
 	if DisplayServer.get_name() == "headless":
+		_window_setup_complete = true
 		return
 	var w := get_window()
 	if display_mode == "immersive":
@@ -421,7 +445,6 @@ func _setup_window() -> void:
 			DisplayServer.window_set_position(_clamp_win_to_screen(_saved_win_pos))
 		else:
 			_place_corner()  # 无存档位置 / 离屏 → 回右下角
-		_update_passthrough()
 	else:
 		# 透明覆盖窗：普通无边框窗口铺满当前屏幕可用区，不触发 macOS 系统全屏 Space。
 		RenderingServer.set_default_clear_color(Color(0, 0, 0, 0))
@@ -437,7 +460,8 @@ func _setup_window() -> void:
 		await get_tree().process_frame
 		_widget_pos = null
 		_layout_widget()
-		UIPanels.set_interactive_full(self, false)
+	_window_setup_complete = true
+	_apply_window_region()
 
 
 # —— 显示模式布置 ——
@@ -536,7 +560,7 @@ func _layout_widget() -> void:
 	_update_action_button()
 	_layout_resize_grips()
 	if _panel_kind == "":
-		UIPanels.set_interactive_full(self, false)
+		_set_window_interaction(false)
 
 
 ## 场景内 art 坐标 → 屏幕坐标（含带框缩放/偏移），飘字/落水定位用。
@@ -1078,8 +1102,10 @@ func _build_bottom_nav() -> void:
 				else:
 					_catch_tab = tab if _tab_unlocked(tab) else _fallback_feature_tab()
 					_open_panel("catch"))
-		item.mouse_entered.connect(func() -> void: item.modulate = Color(1.18, 1.18, 1.18))
-		item.mouse_exited.connect(func() -> void: item.modulate = Color(1, 1, 1))
+		# 功能解锁会 queue_free 整条旧导航；不要用捕获 item 的 lambda，避免卖鱼跨 300 金币时
+		# mouse_exited 在节点释放后访问悬空 capture。
+		item.mouse_entered.connect(_set_nav_item_hover.bind(item, true))
+		item.mouse_exited.connect(_set_nav_item_hover.bind(item, false))
 		row.add_child(item)
 	# 「自动垂钓」开关已移入设置页（见 ui_panels.fill_settings），底栏只留导航图标。
 
@@ -1093,8 +1119,14 @@ func _rebuild_bottom_nav() -> void:
 		_nav_bar.queue_free()
 	_nav_badges.clear()
 	_build_bottom_nav()
+	_layout_widget()
 	_set_nav_solid(_panel_kind != "")
 	_update_framed_hud()
+
+
+func _set_nav_item_hover(item: Control, hovered: bool) -> void:
+	if is_instance_valid(item):
+		item.modulate = Color(1.18, 1.18, 1.18) if hovered else Color.WHITE
 
 
 ## 底栏背景上下文切换：开面板=暗(与 sheet 连成一片,无断裂)；关=透明(浮场景)。
@@ -1274,6 +1306,139 @@ func _place_corner() -> void:
 	_saved_win_pos = null
 
 
+## 把 canvas_items 的逻辑多边形转换成原生窗口客户区像素。
+## Windows 的 window_set_mouse_passthrough 直接把这些点交给 SetWindowRgn；区域外不仅穿透，
+## 也不会绘制。按多边形中心向外取整并留 4px 余量，避免 DPI/恢复抖动裁掉边缘。
+static func _region_points_to_window(points: PackedVector2Array, canvas_transform: Transform2D,
+		window_size: Vector2i) -> PackedVector2Array:
+	if points.size() < 3 or window_size.x <= 0 or window_size.y <= 0:
+		return PackedVector2Array()
+	var transformed := PackedVector2Array()
+	var center := Vector2.ZERO
+	for point in points:
+		var mapped := canvas_transform * point
+		transformed.append(mapped)
+		center += mapped
+	center /= float(transformed.size())
+	var result := PackedVector2Array()
+	for mapped in transformed:
+		var padded := mapped
+		if mapped.x < center.x:
+			padded.x -= WINDOW_REGION_PADDING_PX
+		elif mapped.x > center.x:
+			padded.x += WINDOW_REGION_PADDING_PX
+		if mapped.y < center.y:
+			padded.y -= WINDOW_REGION_PADDING_PX
+		elif mapped.y > center.y:
+			padded.y += WINDOW_REGION_PADDING_PX
+		var x := floorf(padded.x) if padded.x < center.x else ceilf(padded.x)
+		var y := floorf(padded.y) if padded.y < center.y else ceilf(padded.y)
+		result.append(Vector2(
+			clampf(x, 0.0, float(window_size.x)),
+			clampf(y, 0.0, float(window_size.y))))
+	return result
+
+
+static func _region_transform_is_usable(canvas_transform: Transform2D, window_size: Vector2i) -> bool:
+	var determinant := canvas_transform.determinant()
+	return window_size.x > 0 and window_size.y > 0 \
+		and is_finite(determinant) and absf(determinant) > 0.000001
+
+
+static func _region_polygon_has_extent(points: PackedVector2Array) -> bool:
+	if points.size() < 3:
+		return false
+	var min_point := points[0]
+	var max_point := points[0]
+	for point in points:
+		min_point = Vector2(minf(min_point.x, point.x), minf(min_point.y, point.y))
+		max_point = Vector2(maxf(max_point.x, point.x), maxf(max_point.y, point.y))
+	var extent := max_point - min_point
+	return extent.x >= 1.0 and extent.y >= 1.0
+
+
+static func _drag_threshold_reached(start: Vector2i, current: Vector2i) -> bool:
+	return Vector2(current - start).length_squared() >= DRAG_START_DISTANCE_PX * DRAG_START_DISTANCE_PX
+
+
+func _set_canvas_window_region(points: PackedVector2Array) -> void:
+	var window_size := DisplayServer.window_get_size()
+	var canvas_transform := get_viewport().get_final_transform()
+	if not _region_transform_is_usable(canvas_transform, window_size):
+		_request_window_region_retry()
+		return
+	var native_points := _region_points_to_window(
+		points, canvas_transform, window_size)
+	if not _region_polygon_has_extent(native_points):
+		# 绝不把退化多边形交给 Windows：空/零面积 HRGN 会把整个游戏裁没。
+		_request_window_region_retry()
+		return
+	DisplayServer.window_set_mouse_passthrough(native_points)
+	_window_region_retry_count = 0
+
+
+## 唯一的窗口 Region 写入口。full=true 清除自定义 Region（整窗接收输入/完整绘制）；
+## 空闲态则按当前显示形态恢复经过坐标转换的 widget/羽化区域。
+func _set_window_interaction(full: bool) -> void:
+	_window_interactive_full = full
+	_apply_window_region()
+
+
+func _apply_window_region() -> void:
+	if DisplayServer.get_name() == "headless" or not _window_setup_complete:
+		return
+	if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MINIMIZED:
+		return
+	if _window_interactive_full:
+		# Godot 约定：空多边形禁用 mouse passthrough，恢复默认的整窗命中；Windows 同时清除 HRGN。
+		DisplayServer.window_set_mouse_passthrough(PackedVector2Array())
+		_window_region_retry_count = 0
+	elif display_mode == "immersive":
+		_update_passthrough()
+	else:
+		_update_widget_passthrough()
+
+
+## 最小化恢复、DPI / 任务栏 / 分辨率变化时，最终变换会跨帧稳定；合并事件后延迟两帧重算。
+func _queue_window_region_sync(reset_retry_count := true) -> void:
+	if reset_retry_count:
+		_window_region_retry_count = 0
+	if DisplayServer.get_name() == "headless" or _window_region_sync_queued:
+		return
+	_window_region_sync_queued = true
+	_sync_window_region_deferred()
+
+
+func _request_window_region_retry() -> void:
+	if _window_region_retry_count >= 3:
+		return
+	_window_region_retry_count += 1
+	_queue_window_region_sync(false)
+
+
+func _sync_window_region_deferred() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MINIMIZED:
+		_window_region_sync_queued = false
+		return
+	# framed 是当前屏幕可用区上的透明覆盖窗；系统几何改变后把覆盖层重新贴合当前屏。
+	if display_mode != "immersive":
+		var usable := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
+		if DisplayServer.window_get_position() != usable.position:
+			DisplayServer.window_set_position(usable.position)
+		if DisplayServer.window_get_size() != usable.size:
+			DisplayServer.window_set_size(usable.size)
+			await get_tree().process_frame
+			await get_tree().process_frame
+		_widget_pos = _clamp_widget_pos(_widget_pos as Vector2) if _widget_pos != null else null
+		_layout_widget()
+		if is_instance_valid(_panel):
+			_panel.position = UIPanels.clamp_panel_position(self, _panel.position, _panel.size)
+	_window_region_sync_queued = false
+	_apply_window_region()
+
+
 func _update_passthrough() -> void:
 	# 穿透区贴合羽化椭圆（略大于 alpha=0 边界），裁剪发生在场景已透明处 → 不再硬切；
 	# 椭圆外（左上透明区）照常穿透到桌面。点超出窗口时钳到窗口边（右下角=屏幕角，实心收边）。
@@ -1285,7 +1450,7 @@ func _update_passthrough() -> void:
 		var a := TAU * float(i) / float(n)
 		var p := c + Vector2(cos(a), sin(a)) * radii
 		pts.append(Vector2(clampf(p.x, 0.0, float(WIN.x)), clampf(p.y, 0.0, float(WIN.y))))
-	DisplayServer.window_set_mouse_passthrough(pts)
+	_set_canvas_window_region(pts)
 
 
 func _update_widget_passthrough() -> void:
@@ -1305,10 +1470,10 @@ func _update_widget_passthrough() -> void:
 			dev_bottom = _dev_attrs_panel.position.y + _dev_attrs_panel.size.y
 		var right := minf(stage.x, maxf(p.x + s.x, dev_right))
 		var bottom := minf(stage.y, maxf(p.y + s.y, dev_bottom))
-		DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
+		_set_canvas_window_region(PackedVector2Array([
 			Vector2(left, top), Vector2(right, top), Vector2(right, bottom), Vector2(left, bottom)]))
 		return
-	DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
+	_set_canvas_window_region(PackedVector2Array([
 		p, p + Vector2(s.x, 0), p + s, p + Vector2(0, s.y)]))
 
 
@@ -1336,34 +1501,57 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 
-# 拖动挂机组件：在场景空白处按住左键拖拽（按钮/面板会先消费事件，不会误触发）。
+# 拖动挂机组件：在场景空白处按住左键并超过 6 个物理像素才起拖。
+# 普通点击/手抖不改布局；面板打开时不允许拖动被遮住的底层 widget。
 func _unhandled_input(event: InputEvent) -> void:
 	if DisplayServer.get_name() == "headless":
+		return
+	if _panel_kind != "":
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+			_drag_pending = false
+			_dragging = false
 		return
 	if display_mode == "immersive":
 		# 沉浸模式仍保留旧的整窗拖动。
 		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
-				_dragging = true
-				_drag_grab = DisplayServer.mouse_get_position() - DisplayServer.window_get_position()
-			elif _dragging:
+				_drag_pending = true
 				_dragging = false
-				_save()
-		elif event is InputEventMouseMotion and _dragging:
-			DisplayServer.window_set_position(DisplayServer.mouse_get_position() - _drag_grab)
+				_drag_press_screen = DisplayServer.mouse_get_position()
+				_drag_grab = DisplayServer.mouse_get_position() - DisplayServer.window_get_position()
+			else:
+				var did_drag := _dragging
+				_drag_pending = false
+				_dragging = false
+				if did_drag:
+					_save()
+		elif event is InputEventMouseMotion and _drag_pending:
+			var mouse_screen := DisplayServer.mouse_get_position()
+			if not _dragging and _drag_threshold_reached(_drag_press_screen, mouse_screen):
+				_dragging = true
+			if _dragging:
+				DisplayServer.window_set_position(mouse_screen - _drag_grab)
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			var mp := get_viewport().get_mouse_position()
 			if Rect2(_widget_pos as Vector2, _widget_size()).has_point(mp):
-				_dragging = true
+				_drag_pending = true
+				_dragging = false
+				_drag_press_screen = DisplayServer.mouse_get_position()
 				_drag_grab = Vector2i(mp - (_widget_pos as Vector2))
-		elif _dragging:
+		else:
+			var did_drag := _dragging
+			_drag_pending = false
 			_dragging = false
-			_save()
-	elif event is InputEventMouseMotion and _dragging:
-		_widget_pos = _clamp_widget_pos(get_viewport().get_mouse_position() - Vector2(_drag_grab))
-		_layout_widget()
+			if did_drag:
+				_save()
+	elif event is InputEventMouseMotion and _drag_pending:
+		if not _dragging and _drag_threshold_reached(_drag_press_screen, DisplayServer.mouse_get_position()):
+			_dragging = true
+		if _dragging:
+			_widget_pos = _clamp_widget_pos(get_viewport().get_mouse_position() - Vector2(_drag_grab))
+			_layout_widget()
 
 
 # ============================ 钓鱼循环 ============================
@@ -3215,7 +3403,7 @@ func _layout_resize_grips() -> void:
 
 ## 手柄被按下 → 记录锚点/轴向/起始几何，进入缩放拖拽（后续移动/松手在 _input 全局处理）。
 func _on_grip_input(event: InputEvent, anchor_norm: Vector2, dir: Vector2, cursor: int) -> void:
-	if _rz_active or display_mode == "immersive":
+	if _rz_active or display_mode == "immersive" or _panel_kind != "":
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		_rz_active = true
@@ -3229,7 +3417,7 @@ func _on_grip_input(event: InputEvent, anchor_norm: Vector2, dir: Vector2, curso
 
 ## 拖拽缩放：按驱动轴推算等比缩放，锚点（拖动不动的那角/边）屏幕坐标保持不变。
 ## 我们自己接管鼠标 → 无系统模态循环，实时改尺寸不打架。
-func _apply_grip_resize(mouse_global: Vector2i) -> void:
+func _apply_grip_resize(_mouse_global: Vector2i) -> void:
 	var delta := get_viewport().get_mouse_position() - Vector2(_rz_start_mouse)
 	var raw_w := float(_rz_start_size.x) + _rz_dir.x * delta.x
 	var raw_h := float(_rz_start_size.y) + _rz_dir.y * delta.y
@@ -3400,7 +3588,7 @@ func _rebuild_panel() -> void:
 # ============================ 存档 / 离线 ============================
 
 func _save() -> void:
-	if not save_enabled:
+	if not save_enabled or not _initial_load_complete:
 		return
 	_ensure_daily_order()
 	SaveSystem.write_atomic(save_path, SaveSystem.collect(self))
@@ -3623,10 +3811,22 @@ func _notification(what: int) -> void:
 			get_tree().quit()
 		NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_WM_WINDOW_FOCUS_OUT:
 			_window_focused = false   # 你切去别的程序 → 开始累计专注
+			_cancel_window_gestures()
 		NOTIFICATION_APPLICATION_FOCUS_IN, NOTIFICATION_WM_WINDOW_FOCUS_IN:
 			_window_focused = true    # 切回挂件 → 开 60s 宽限窗（窗内操作不折算专注段）
 			_focus_grace_t = 60.0
 			_idle_t = 0.0
+			_queue_window_region_sync()
+		NOTIFICATION_WM_SIZE_CHANGED, NOTIFICATION_WM_DPI_CHANGE:
+			_queue_window_region_sync()
+
+
+func _cancel_window_gestures() -> void:
+	_drag_pending = false
+	_dragging = false
+	_rz_active = false
+	_panel_dragging = false
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 
 
 func _quit_game() -> void:

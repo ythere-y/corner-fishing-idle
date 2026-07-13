@@ -117,24 +117,7 @@ static func _restore_scroll(g: CornerFishing, root: Node, value: int) -> void:
 
 
 static func set_interactive_full(g: CornerFishing, full: bool) -> void:
-	if DisplayServer.get_name() == "headless":
-		return
-	# 带框模式：整窗永远可交互、不做羽化椭圆裁剪。
-	# （否则关面板会 set_interactive_full(false)→裁成椭圆，带框窗"显示不全"复发。）
-	if g.display_mode != "immersive":
-		if full:
-			var wsf := Vector2(DisplayServer.window_get_size())
-			DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
-				Vector2(0, 0), Vector2(wsf.x, 0), wsf, Vector2(0, wsf.y)]))
-		else:
-			g._update_widget_passthrough()
-		return
-	if full:
-		var ws := Vector2(DisplayServer.window_get_size())
-		DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
-			Vector2(0, 0), Vector2(ws.x, 0), ws, Vector2(0, ws.y)]))
-	else:
-		g._update_passthrough()
+	g._set_window_interaction(full)
 
 
 # ============================ 样式工厂 ============================
@@ -402,9 +385,10 @@ static func make_card(g: CornerFishing, title: String) -> Control:
 
 static func _make_framed_modal(g: CornerFishing, title: String) -> Control:
 	var modal_size := Vector2(680, 640)
+	var stage_size := g._stage_size()
 	var p := PanelContainer.new()
 	p.z_index = 50
-	p.position = ((Vector2(g.WIN) - modal_size) * 0.5).round()
+	p.position = ((stage_size - modal_size) * 0.5).round()
 	p.custom_minimum_size = modal_size
 	p.size = modal_size
 	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -456,7 +440,7 @@ static func _make_framed_modal(g: CornerFishing, title: String) -> Control:
 
 
 static func clamp_panel_position(g: CornerFishing, pos: Vector2, size: Vector2) -> Vector2:
-	var max_pos := Vector2(g.WIN) - size
+	var max_pos := g._stage_size() - size
 	return Vector2(clampf(pos.x, 0.0, maxf(0.0, max_pos.x)),
 		clampf(pos.y, 0.0, maxf(0.0, max_pos.y)))
 

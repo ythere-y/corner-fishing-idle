@@ -3,6 +3,7 @@ extends SceneTree
 ## 运行: godot_console --headless -s tools/validate_game.gd
 
 var failures := 0
+const AnglerEquipmentScript := preload("res://systems/angler/angler_equipment.gd")
 
 
 func _init() -> void:
@@ -35,6 +36,12 @@ func _run() -> void:
 	print("=== 鱼竿数值 ===")
 	_check_rod()
 
+	print("=== 速度装备 / 绕线轮 ===")
+	await _check_reel_speed()
+
+	print("=== 角色属性 → 钓鱼属性映射 ===")
+	await _check_attribute_mapping()
+
 	print("=== 鱼饵 / 星级品质 ===")
 	_check_quality()
 
@@ -52,6 +59,9 @@ func _run() -> void:
 
 	print("=== 试竿保底（升级体感）===")
 	await _check_showcase()
+
+	print("=== 亲手起钩 / 稀有仪式（P0 好玩补丁）===")
+	await _check_hand_hook()
 
 	print("=== 成就系统 ===")
 	await _check_achievements_feature()
@@ -73,6 +83,9 @@ func _run() -> void:
 
 	print("=== 多钓点：切换 / 鱼池 / 解锁 ===")
 	await _check_spots()
+
+	print("=== 旅行地图（投影 / 晨昏线 / 站点布局）===")
+	await _check_world_map()
 
 	print("=== 水族箱/陈列系统 ===")
 	await _check_decor()
@@ -119,7 +132,7 @@ func _run() -> void:
 	print("=== 桌面宠物（小馋猫）===")
 	await _check_pet()
 
-	print("=== 存档 v11/v12 往返 / 旧档迁移 ===")
+	print("=== 存档 v11/v12/v19 往返 / 旧档迁移 ===")
 	await _check_save_v11()
 
 	print("=== 主界面入口收敛（点金币开面板）===")
@@ -811,6 +824,7 @@ func _check_pet() -> void:
 
 
 ## 存档 v11：dex 首捕日期 + 专注/宠物计数往返；v10→v11 无损迁移。
+## 存档 v19：dex 破纪录日期 wd 往返；v18(六元组，无 wd)→v19 无损迁移。
 func _check_save_v11() -> void:
 	var path := ProjectSettings.globalize_path(TEST_SAVE)
 	if FileAccess.file_exists(TEST_SAVE):
@@ -820,7 +834,8 @@ func _check_save_v11() -> void:
 	g1.save_path = TEST_SAVE
 	root.add_child(g1)
 	await process_frame
-	g1.dex = {"koi": {"n": 3, "w": 5.0, "big": true, "perf": false, "vmask": (1 << 2), "fd": "2026-06-15"}}
+	g1.dex = {"koi": {"n": 3, "w": 5.0, "big": true, "perf": false, "vmask": (1 << 2),
+		"fd": "2026-06-15", "wd": "2026-06-18"}}   # v19：wd 破纪录日期
 	g1.display = [{"id": "koi", "w": 5.0, "v": 1600, "q": 1, "lock": false, "var": 2}]
 	g1.focus_minutes_total = 137.5
 	g1.focus_reward_today = 2
@@ -839,6 +854,7 @@ func _check_save_v11() -> void:
 	root.add_child(g2)
 	await process_frame
 	_assert(str(g2.dex["koi"].get("fd", "")) == "2026-06-15", "v11 应恢复 dex 首捕日期")
+	_assert(str(g2.dex["koi"].get("wd", "")) == "2026-06-18", "v19 应恢复 dex 破纪录日期（详情卡「破纪录于」）")
 	_assert(g2.display.size() == 1 and str(g2.display[0]["id"]) == "koi", "v11 应恢复缸内鱼")
 	_assert(absf(g2.focus_minutes_total - 137.5) < 0.01, "v11 应恢复累计专注分钟")
 	_assert(g2.focus_reward_today == 2 and g2.focus_pending == 1, "v11 应恢复专注奖励计数/挂起")
@@ -877,7 +893,16 @@ func _check_save_v11() -> void:
 	_assert(g3.lure_level == 0, "旧档无 lure 字段 → 应默认无窝料(0)")
 	_assert(g3.max_fps == 120, "旧档无帧率字段 → 应默认 120（v16 起流畅优先）")
 	_assert(is_equal_approx(g3.ui_scale, 1.0), "旧档无界面缩放字段 → 应默认 1.0")
-	print("  存档 v11/v12：dex首捕/专注/宠物/诱饵 往返 + 旧档无损迁移 通过")
+	_assert(str(g3.dex["kaluga"].get("wd", "x")) == "", "v10 dex 无 wd → 迁移默认空")
+	# v18 → v19 迁移：dex 六元组（有 fd、无 wd）→ wd 默认空串，fd/vmask 无损
+	var v18: Dictionary = SaveSystem.collect(g3)
+	v18["ver"] = 18
+	v18["dex"] = {"kaluga": [2, 81.0, 1, 0, (1 << 3), "2026-06-01"]}   # v18 六元组，无 wd
+	SaveSystem.apply(g3, v18)
+	_assert(str(g3.dex["kaluga"].get("wd", "x")) == "", "v18 dex 无 wd → 迁移默认空")
+	_assert(str(g3.dex["kaluga"].get("fd", "")) == "2026-06-01", "v18→v19 应保留 dex 首捕日期")
+	_assert(int(g3.dex["kaluga"].get("vmask", 0)) == (1 << 3), "v18→v19 应保留 dex 变体掩码")
+	print("  存档 v11/v12/v19：dex首捕+破纪录日期/专注/宠物/诱饵 往返 + 旧档无损迁移 通过")
 	g3.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(path)
@@ -942,6 +967,123 @@ func _check_rod() -> void:
 		sum8 += int(FishData.roll_catch(rng, 8)["v"])
 	_assert(sum8 > sum1, "高级竿整体产出应更高")
 	print("  整体均价 rod1=%.1f rod8=%.1f" % [sum1 / 600.0, sum8 / 600.0])
+
+
+func _check_reel_speed() -> void:
+	_assert(AnglerEquipmentScript.reel_next_cost(10) > AnglerEquipmentScript.reel_next_cost(1),
+		"绕线轮单级成本应随等级递增")
+	_assert(AnglerEquipmentScript.reel_upgrade_cost(0, 10) > AnglerEquipmentScript.reel_upgrade_cost(0, 1),
+		"绕线轮 +10 成本应包含 10 个逐级成本")
+	_assert(AnglerEquipmentScript.reel_wait_mult(100) < AnglerEquipmentScript.reel_wait_mult(0),
+		"绕线轮等级应降低速度等待倍率")
+	_assert(AnglerEquipmentScript.reel_wait_mult(300) < AnglerEquipmentScript.reel_wait_mult(100),
+		"绕线轮曲线应平滑渐近，不能在中高等级硬撞地板")
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	var t0: float = g._avg_wait_for_reel(0)
+	var t50: float = g._avg_wait_for_reel(50)
+	var t100: float = g._avg_wait_for_reel(100)
+	_assert(t50 < t0 and t100 < t50, "绕线轮等级应逐步缩短一竿周期 %.2f/%.2f/%.2f" % [t0, t50, t100])
+	g.coins = 0
+	g._try_upgrade_reel(10)
+	_assert(g.reel_level == 0 and g.coins == 0, "绕线轮正式升级应检查金币，不足时不升级")
+	var unlock_reel_cost: int = g._equipment_unlock_cost("reel")
+	_assert(unlock_reel_cost == AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 30),
+		"绕线轮解锁成本应约等于鱼线 30 级投入")
+	g.coins = unlock_reel_cost
+	g._try_unlock_equipment("reel")
+	_assert(g.reel_level == 1 and g.coins == 0, "绕线轮应通过链式解锁进入 Lv.1")
+	var cost9: int = g._reel_upgrade_cost(9)
+	g.coins = cost9
+	g._try_upgrade_reel(9)
+	_assert(g.reel_level == 10 and g.coins == 0, "绕线轮正式升级应真实扣除金币")
+	var line_cost10: int = g._gear_upgrade_cost("fish_line", 10)
+	g.coins = line_cost10
+	g._try_upgrade_attr_gear("fish_line", 10)
+	var stats = g._angler_stats()
+	_assert(g.fish_line_level == 10 and g.coins == 0 and stats.technique > 0.0 and stats.stability > 0.0,
+		"鱼线应可正式扣费升级，并同时提供技巧/稳定属性")
+	var line700 = AnglerEquipmentScript.attr_equipment_stats("fish_line", 700)
+	var line710 = AnglerEquipmentScript.attr_equipment_stats("fish_line", 710)
+	_assert(absf(float(line710.technique) - float(line700.technique) - 5.5) < 0.001
+			and absf(float(line710.stability) - float(line700.stability) - 4.5) < 0.001,
+		"装备等级→角色属性应持续线性增长，鱼线 700→710 仍应增加技巧 5.5 / 稳定 4.5")
+	TestMode.bump_reel(g, -3)
+	_assert(g.reel_level == 7, "测试台应支持绕线轮降级")
+	TestMode.set_reel(g, 100)
+	_assert(g.reel_level == 100 and g._avg_wait_for_reel(100) < t0, "测试台应支持设定绕线轮等级")
+	g.bobber_level = 2
+	g.sonar_level = 3
+	g.notebook_level = 4
+	g.gloves_level = 5
+	var d: Dictionary = SaveSystem.collect(g)
+	_assert(int(d["ver"]) == 19 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
+		"v19 应保存 reel_level 与五件属性装备等级")
+	g.reel_level = 0
+	g.fish_line_level = 0
+	g.bobber_level = 0
+	g.sonar_level = 0
+	g.notebook_level = 0
+	g.gloves_level = 0
+	SaveSystem.apply(g, d)
+	_assert(g.reel_level == 100 and g.fish_line_level == 10 and g.bobber_level == 2
+			and g.sonar_level == 3 and g.notebook_level == 4 and g.gloves_level == 5,
+		"v18 应恢复 reel_level 与五件属性装备等级")
+	var od := d.duplicate()
+	od.erase("reel_level")
+	od.erase("fish_line_level")
+	od.erase("bobber_level")
+	od.erase("sonar_level")
+	od.erase("notebook_level")
+	od.erase("gloves_level")
+	SaveSystem.apply(g, od)
+	_assert(g.reel_level == 0 and g.fish_line_level == 0 and g.gloves_level == 0,
+		"旧档无属性装备等级应默认 0")
+	print("  属性装备：链式解锁/平滑倍率/扣费升级/测试升降/存档往返 通过")
+	g.queue_free()
+	await process_frame
+
+
+func _check_attribute_mapping() -> void:
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	g.rod_level = 1
+	g.bait_level = 0
+	g.hook_level = 0
+	g.lure_level = 0
+	g.reel_level = 0
+	var base_wait: float = g._avg_wait_for_reel(0)
+	var base_weights: Dictionary = g._effective_tier_weights(0)
+	var base_q: Array = FishData.quality_probs(g.bait_level, g._quality_attr_bonus())
+	var base_vbias: float = g._variant_bias()
+	var base_double: float = g._double_chance()
+	var base_power: float = g._weight_power()
+	g.fish_line_level = 120
+	g.bobber_level = 120
+	g.sonar_level = 120
+	g.notebook_level = 120
+	g.gloves_level = 120
+	var high_wait: float = g._avg_wait_for_reel(0)
+	var high_weights: Dictionary = g._effective_tier_weights(0)
+	var high_q: Array = FishData.quality_probs(g.bait_level, g._quality_attr_bonus())
+	var high_vbias: float = g._variant_bias()
+	var high_double: float = g._double_chance()
+	var high_power: float = g._weight_power()
+	_assert(high_wait < base_wait, "反应属性应缩短一竿周期 %.2f -> %.2f" % [base_wait, high_wait])
+	_assert(float(high_weights[4]) > float(base_weights[4]) and float(high_weights[5]) > float(base_weights[5]),
+		"生态/感知应提高传说/神话品阶权重")
+	_assert(float(high_q[1]) > float(base_q[1]) and float(high_q[2]) > float(base_q[2]),
+		"技巧/稳定应提高星级逐级通过率")
+	_assert(high_vbias > base_vbias, "感知/生态应提高变体 vbias")
+	_assert(high_double > base_double, "反应/技巧应提高双钩率")
+	_assert(high_power < base_power, "力量/稳定应降低体重指数，让大鱼尾部更常见")
+	print("  属性映射：节奏/品阶/星级/变体/双钩/体型 通过")
+	g.queue_free()
+	await process_frame
 
 
 const TEST_SAVE := "user://test_save.json"
@@ -1124,7 +1266,7 @@ func _check_autosell() -> void:
 	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
 	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 16, "存档版本应为 v16")
+	_assert(int(d["ver"]) == 19, "存档版本应为 v19")
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0
@@ -1256,6 +1398,83 @@ func _check_showcase() -> void:
 	await process_frame
 
 
+## P0 好玩补丁：咬钩预掷 / 亲手起钩加成 / 稀有驻留判定 / 试竿不被过期预掷吞掉 / hand_n 往返。
+func _check_hand_hook() -> void:
+	_assert(FishData.variant_odds(1) == 40, "斑斓显性赔率应为 1/40")
+	_assert(FishData.variant_odds(2) == 250, "鎏金显性赔率应为 1/250")
+	_assert(FishData.variant_odds(3) == 1250, "七彩显性赔率应为 1/1250")
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	g.daily_order = {}
+	g.focus_mode = true   # 关宠物偷鱼与庆祝弹卡，保证条数断言确定
+	# —— 预掷消费：注入 pending，_do_catch 应消费它而非重掷 ——
+	g._pending_catch = {"id": "carp", "w": 2.5, "v": 60, "q": 0, "var": 2,
+		"_luck": 0, "_showcase": ""}
+	var n0: int = g.inventory.size()
+	g._do_catch()
+	_assert(g.inventory.size() == n0 + 1, "注入预掷应恰入篓 1 条（新档无双钩）")
+	_assert(str(g.inventory[n0]["id"]) == "carp" and int(g.inventory[n0].get("var", 0)) == 2,
+		"应消费预掷渔获（鎏金鲤鱼）而非重掷")
+	_assert(g._pending_catch.is_empty(), "预掷消费后应清空")
+	# —— 亲手起钩：完整咬钩 → _manual_hook，体重/卖价 ×1.1、hand_n +1、立即回到等待 ——
+	g._begin_bite()
+	_assert(not g._pending_catch.is_empty(), "咬钩瞬间应已预掷渔获")
+	var pw := float(g._pending_catch["w"])
+	var pv := int(g._pending_catch["v"])
+	var n1: int = g.inventory.size()
+	g._manual_hook()
+	_assert(g.inventory.size() == n1 + 1, "亲手起钩应立即结算入篓")
+	_assert(g.hand_catches == 1, "亲手起钩计数应 +1，实际 %d" % g.hand_catches)
+	var hc: Dictionary = g.inventory[n1]
+	_assert(absf(float(hc["w"]) - snappedf(pw * g.HAND_HOOK_MULT, 0.01)) < 0.011,
+		"亲手起钩体重应 ×1.1（%.2f → %.2f）" % [pw, float(hc["w"])])
+	_assert(int(hc["v"]) == maxi(1, int(round(pv * g.HAND_HOOK_MULT))), "亲手起钩卖价应 ×1.1")
+	_assert(g._state == g.ST_WAIT, "亲手起钩结算后应回到等待")
+	_assert(g._pending_catch.is_empty(), "结算后预掷应清空（_begin_wait 兜底）")
+	# —— 稀有驻留判定：鎏金/七彩驻留，斑斓不驻留（频率超感官预算）——
+	_assert(g._is_special_catch({"id": "carp", "var": 2}), "鎏金应触发稀有驻留")
+	_assert(g._is_special_catch({"id": "carp", "var": 3}), "七彩应触发稀有驻留")
+	_assert(not g._is_special_catch({"id": "carp", "var": 1}), "斑斓不应驻留")
+	_assert(not g._is_special_catch({"id": "carp", "var": 0}), "普通不应驻留")
+	# —— 试竿保底不被过期预掷吞掉：预掷后才买升级 → 本竿弃掷重掷、当场兑现 ——
+	g._begin_bite()
+	g._bite_special = false   # 消除 0.5% 稀有驻留豁免的随机性，保证断言确定
+	g.showcase_pending = "rod"
+	g._do_catch()
+	_assert(g.showcase_pending == "", "预掷后新设的试竿保底应在本竿被消费（弃掷重掷）")
+	# —— 亲手豁免弃掷：已被玩家起钩的预掷不没收，保底顺延到下一竿 ——
+	g._begin_bite()
+	g._bite_special = false
+	g.showcase_pending = "bait"
+	var pid := str(g._pending_catch["id"])
+	var n2: int = g.inventory.size()
+	g._manual_hook()
+	_assert(str(g.inventory[n2]["id"]) == pid, "亲手起钩应兑现预掷的那条鱼（豁免弃掷）")
+	_assert(g.showcase_pending == "bait", "亲手豁免时试竿保底应顺延到下一竿")
+	g.showcase_pending = ""
+	# —— 满篓兜底不吞保底：预掷窥视后走 overflow，承诺应存活 ——
+	g.showcase_pending = "lure"
+	while not g._bag_full():
+		g.inventory.append({"id": "carp", "w": 1.0, "v": 10, "q": 0, "lock": true})
+	g._pending_catch = {"id": "carp", "w": 1.0, "v": 10, "q": 0, "var": 0,
+		"_luck": 0, "_showcase": "lure"}
+	g._do_catch()   # 满篓 → _overflow_catch 提前 return，预掷被丢弃
+	_assert(g.showcase_pending == "lure", "满篓兜底不应吞掉试竿保底（顺延到下一次真结算）")
+	g.showcase_pending = ""
+	g.inventory = []
+	# —— 存档往返：hand_n（此前两次亲手起钩 = 2）——
+	var d: Dictionary = SaveSystem.collect(g)
+	_assert(int(d.get("hand_n", -1)) == 2, "存档应写入 hand_n=2，实际 %d" % int(d.get("hand_n", -1)))
+	g.hand_catches = 0
+	SaveSystem.apply(g, d)
+	_assert(g.hand_catches == 2, "hand_n 应随档往返")
+	print("  预掷消费 / 亲手×1.1 / 稀有驻留判定 / 试竿弃掷重掷+豁免顺延 / 满篓不吞保底 / hand_n 往返 通过")
+	g.queue_free()
+	await process_frame
+
+
 func _check_achievements_feature() -> void:
 	_assert(AchievementData.LIST.size() >= 12, "成就至少 12 项")
 	var ids := {}
@@ -1328,6 +1547,75 @@ func _check_achievements_feature() -> void:
 	g2.queue_free()
 	await process_frame
 	DirAccess.remove_absolute(path)
+
+
+## 旅行地图：经纬度数据完整性 / 等距圆柱投影 / NOAA 晨昏线数学 / 站点防重叠布局。
+## 全部是纯静态函数，不需要实例化 WorldMap（它是 Control，无头下不便渲染）。
+func _check_world_map() -> void:
+	# —— ① 十站经纬度齐全、落在视窗内 ——
+	for sid in SpotData.SPOT_ORDER:
+		var geo: Vector2 = SpotData.geo_of(sid)
+		_assert(geo != Vector2.ZERO, "钓点 %s 缺经纬度 GEO" % sid)
+		_assert(geo.x >= -180.0 and geo.x <= 180.0, "%s 经度越界：%f" % [sid, geo.x])
+		_assert(geo.y >= -90.0 and geo.y <= 90.0, "%s 纬度越界：%f" % [sid, geo.y])
+		_assert(geo.x >= WorldMap.LON0 and geo.x <= WorldMap.LON1
+			and geo.y <= WorldMap.LAT0 and geo.y >= WorldMap.LAT1,
+			"%s 落在地图视窗外（会被裁掉看不见）：%s" % [sid, str(geo)])
+
+	# —— ② 投影：四角映射到视窗四角，且经度/纬度单调 ——
+	var tl := WorldMap.project(WorldMap.LON0, WorldMap.LAT0)
+	var br := WorldMap.project(WorldMap.LON1, WorldMap.LAT1)
+	_assert(tl.is_equal_approx(Vector2.ZERO), "视窗左上角应映射到 (0,0)，实际 %s" % str(tl))
+	_assert(br.is_equal_approx(WorldMap.VIEW), "视窗右下角应映射到 VIEW，实际 %s" % str(br))
+	_assert(WorldMap.project(0.0, 0.0).x < WorldMap.project(90.0, 0.0).x, "经度增大 x 应增大（向东为右）")
+	_assert(WorldMap.project(0.0, 40.0).y < WorldMap.project(0.0, 0.0).y, "纬度增大 y 应减小（向北为上）")
+
+	# —— ③ 太阳：直射点每小时西移 15°，赤纬落在 ±23.5° 内 ——
+	var t0 := 1751000000.0   # 任一固定时刻（2025-06-27 UTC 前后），避免依赖当前时钟
+	var s0: Dictionary = WorldMap.sun_params(t0)
+	var s1: Dictionary = WorldMap.sun_params(t0 + 3600.0)
+	var d_lam: float = fposmod(float(s0["lam"]) - float(s1["lam"]) + 540.0, 360.0) - 180.0
+	_assert(absf(d_lam - 15.0) < 0.5, "直射点应每小时西移约 15°，实际 %.3f°" % d_lam)
+	_assert(absf(rad_to_deg(float(s0["decl"]))) <= 23.5, "太阳赤纬应在 ±23.5° 内")
+
+	# —— ④ 昼夜判定：直射点必是白昼，其对跖点必是黑夜 ——
+	var decl: float = s0["decl"]
+	var lam: float = s0["lam"]
+	var sub_lat := rad_to_deg(decl)
+	_assert(not WorldMap.is_night(lam, sub_lat, decl, lam), "太阳直射点应是白昼")
+	var anti_lon: float = fposmod(lam + 360.0, 360.0) - 180.0
+	_assert(WorldMap.is_night(anti_lon, -sub_lat, decl, lam), "直射点的对跖点应是黑夜")
+
+	# —— ⑤ 晨昏线：线上任一点的太阳天顶角≈90°（既不算白昼也不算黑夜的边界）——
+	for lon in [-30.0, 0.0, 60.0, 120.0, 179.0]:
+		var plat: float = WorldMap.terminator_lat(lon, decl, lam)
+		var zen := sin(deg_to_rad(plat)) * sin(decl) \
+			+ cos(deg_to_rad(plat)) * cos(decl) * cos(deg_to_rad(lon - lam))
+		_assert(absf(zen) < 0.02, "λ=%.0f° 处晨昏线应满足天顶角 90°，实际余弦 %.4f" % [lon, zen])
+
+	# —— ⑥ 分点日（δ→0）不产生 NaN：晨昏线退化成经线是物理正确的 ——
+	var eq_lat: float = WorldMap.terminator_lat(45.0, 1e-9, 0.0)
+	_assert(not is_nan(eq_lat) and absf(eq_lat) <= 89.0, "分点日晨昏线应被 clamp 而非 NaN")
+
+	# —— ⑦ 站点布局：互不重叠（可点中），且没被推到别的国家去 ——
+	var nodes: Dictionary = WorldMap.layout_nodes()
+	_assert(nodes.size() == SpotData.SPOT_ORDER.size(), "站点布局应覆盖全部 %d 站" % SpotData.SPOT_ORDER.size())
+	var min_d := 9999.0
+	for a in nodes:
+		for b in nodes:
+			if a == b:
+				continue
+			min_d = minf(min_d, (nodes[a] as Vector2).distance_to(nodes[b]))
+	_assert(min_d >= WorldMap.NODE_MIN_SEP - 0.5,
+		"站点最小间距应 ≥ %.1fpx（否则点不中），实际 %.2fpx" % [WorldMap.NODE_MIN_SEP, min_d])
+	var max_push := 0.0
+	for sid in nodes:
+		var geo: Vector2 = SpotData.geo_of(sid)
+		max_push = maxf(max_push, (nodes[sid] as Vector2).distance_to(WorldMap.project(geo.x, geo.y)))
+	_assert(max_push <= WorldMap.NODE_MAX_PUSH + 0.5,
+		"防重叠位移应 ≤ %.1fpx（不把站点搬去别的国家），实际 %.2fpx" % [WorldMap.NODE_MAX_PUSH, max_push])
+	print("  投影四角 / 直射点西移 %.2f°每小时 / 晨昏线天顶角 / 站点最小间距 %.1fpx、最大位移 %.1fpx 通过"
+		% [d_lam, min_d, max_push])
 
 
 func _check_spots() -> void:
@@ -1976,6 +2264,15 @@ func _check_test_mode() -> void:
 	g._open_panel("set")
 	await process_frame
 	_assert(is_instance_valid(g._panel), "测试模式下设置页（测试台）应正常构建")
+	g._set_dev_attrs_open(true)
+	await process_frame
+	_assert(is_instance_valid(g._dev_attrs_panel) and g._dev_attrs_panel.visible, "测试模式下属性面板应独立构建并显示")
+	g._open_panel("catch")
+	await process_frame
+	_assert(is_instance_valid(g._panel) and is_instance_valid(g._dev_attrs_panel) and g._dev_attrs_panel.visible,
+		"打开鱼篓等玩家面板不应关闭开发属性面板")
+	g._open_panel("set")
+	await process_frame
 	# 改钱 / 给鱼即时生效（仅内存）
 	TestMode.add_coins(g, 1000)
 	_assert(g.coins == 5321, "测试加币应即时生效")
@@ -2000,7 +2297,7 @@ func _check_test_mode() -> void:
 	_assert(g.inventory.is_empty(), "退出测试模式应还原正式档鱼篓（测试给的鱼被丢弃）")
 	_assert(g._forced_phase == "" and is_equal_approx(g.test_speed, 1.0),
 		"退出测试模式应复位强制时段/提速")
-	print("  测试模式：写档冻结/改钱给鱼/强制时段/退出还原正式档 通过")
+	print("  测试模式：写档冻结/独立属性页/改钱给鱼/强制时段/退出还原正式档 通过")
 	g.queue_free()
 	await process_frame
 	for p in [TEST_SAVE, TEST_SAVE + ".bak", TEST_SAVE + ".tmp"]:

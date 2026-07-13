@@ -112,6 +112,17 @@ func _run() -> void:
 	_main._open_panel("catch")
 	await _settle(2)
 	_snap("panel_settings.png")
+	_main.test_mode = true
+	_main.reel_level = 50
+	_main.rod_level = 4
+	_main.bait_level = 2
+	_main.hook_level = 2
+	_main.lure_level = 2
+	_main._close_panel()
+	_main._set_dev_attrs_open(true)
+	await _settle(2)
+	_snap("panel_stats_debug.png")
+	_main.test_mode = false
 
 	# 3b) 多钓点：解锁全部 → 钓点页签 + 切到静水湖泊看 HUD 钓点角标
 	_main.lifetime_catches = 400
@@ -120,6 +131,14 @@ func _run() -> void:
 	_main._open_panel("catch")
 	await _settle(2)
 	_snap("panel_spot.png")
+	# 旅行地图：走过几站再拍，才看得到针脚线把站点串起来（晨昏线按拍摄时刻的真实 UTC）
+	_main.seen_spots = ["river_bend", "still_lake", "mountain_stream", "urban_pond", "coast_pier"]
+	_main.current_spot = "coast_pier"
+	_main._open_panel("worldmap")
+	await _settle(8)
+	_snap("panel_worldmap.png")
+	_main._close_panel()
+	_main.current_spot = "river_bend"
 	# 鱼缸页（活水族箱）：放几条含变体的鱼进缸，展示游动 + 鎏金/七彩光晕 + 上架列表
 	for i in 4:
 		_main._do_catch()

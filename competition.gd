@@ -70,7 +70,10 @@ static func on_catch(g: CornerFishing, c: Dictionary) -> int:
 	g.competition["claimed"] = true
 	g.competition["wins"] = int(g.competition.get("wins", 0)) + 1   # 累计夺金沉淀（跨周携带）
 	var reward := int(g.competition.get("reward", 0))
-	g.coins += reward   # 与 weekly 一致：赛事奖励不计入 lifetime_coins（卖鱼终身收入语义）
+	if g.has_method("_add_coins_safe"):
+		g._add_coins_safe(reward)   # 与 weekly 一致：赛事奖励不计入 lifetime_coins（卖鱼终身收入语义）
+	else:
+		g.coins += reward
 	return reward
 
 

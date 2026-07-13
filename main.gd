@@ -59,7 +59,7 @@ const HAND_HOOK_MULT := 1.1       # 亲手起钩：体重/卖价 ×1.1
 const SPECIAL_BITE_HOLD := 4.5    # 稀有咬钩驻留秒数（≈0.5% 竿次，平均节奏影响可忽略）
 
 # —— 存档数据 ——
-var coins := 0
+var coins := 0.0
 var rod_level := 1
 var reel_level := 0  # 独立速度装备：绕线轮等级，提供 speed 属性并缩短一竿周期
 var fish_line_level := 0
@@ -75,19 +75,21 @@ var lure_level := 0  # FishData.LURES 下标，决定稀有变体偏置（vbias�
 var auto_sell_bought := false   # 一次性买断（AUTO_SELL_COST）
 var auto_sell_on := false       # 合约开关：买断后默认开，可随时暂停
 var auto_sold_n := 0            # 合约累计带走条数（统计页）
-var auto_sold_v := 0            # 合约累计入金（统计页）
+var auto_sold_v := 0.0          # 合约累计入金（统计页）
 var scales: Array = [0, 0, 0]   # 彩鳞（v15）：斑斓鳞/鎏金鳞/七彩鳞——重复变体折同档鳞（FishData.SCALE_NAMES）
 var showcase_pending := ""      # 试竿保底（v15）：购买升级后的下一竿保底展示新效果（"rod"/"bait"/"hook"/"lure"）
 var yest_income := 0            # 昨日（上个游玩日）卖鱼收入（v15）：周赛/周目标奖励的收入锚
 var inventory: Array = []  # 每条 {"id", "w", "v", "q"(星级)}，一条鱼占一格
 var display: Array = []     # 陈列架上的鱼（离开鱼篓、永久展示），最多 Decor.NUM_SLOTS 件
-var lifetime_coins := 0    # 累计卖鱼所得
+var lifetime_coins := 0.0  # 累计卖鱼所得
 var lifetime_catches := 0
 var dex := {}  # id -> {"n": 累计捕获数, "w": 最大体重纪录}（图鉴纪录轴）
 var best_quality := 0      # 历史最高星级（成就用）
 var best_variant := 0      # 历史最高稀有变体（成就用：斑斓/鎏金/七彩）
 var caught_giant := false  # 是否钓到过「巨物」（成就用）
 var achievements_done := {}  # id -> true，已达成的成就（toast 只触发一次）
+var feature_unlocks := {"settings": true}  # 渐进开放的系统入口；开局只显示设置
+var feature_spend_equipment := 0.0          # 装备消费累计，达到 10K 后开放任务
 
 # 背包容量与扩容费用（bag_level 1 起步；费用 = 升到下一级）。
 # 调研定标：起始 20 格（Melvor 同款），整档 +5 格，费用走 1-2-5 阶梯（首扩几分钟产出可买）。
@@ -141,6 +143,8 @@ const OFFLINE_CAP_EXT := 24.0 * 3600.0    # 图鉴 ≥145 种（溶洞站同款�
 const OFFLINE_EFFICIENCY := 0.5           # 离线效率 50%
 const OVERFLOW_SELL_RATE := 0.5       # 满篓兜底：自动折价兑换比例（调研 3.2，避免满篓硬截断惩罚挂机）
 const AUTO_SELL_COST := 60000         # 鱼贩合约（自动贩卖）一次性买断价：中期 coin sink（rod5 无窝料口径约 16~33 分钟收入，视鱼饵档；探针 2026-07-07，变体收敛后各档收入 −7%~−26% 注意标尺漂移）
+const MAX_ECON_VALUE := 1.0e300
+const SHORT_NUMBER_UNITS := ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc", "Ud", "Dd", "Td", "Qad", "Qid", "Sxd", "Spd", "Ocd", "Nod", "Vg", "Uvg", "Dvg", "Tvg", "Qavg", "Qivg", "Sxvg", "Spvg", "Ocvg", "Novg"]
 var _save_t := 10.0
 var _pending_offline := ""               # 仅"满篓没钓到"等无渔获情况用 toast
 var _offline_report := {}                # 离线小结：{dur,count,full,value,top,notable[]}
@@ -176,13 +180,15 @@ var _event_next_t := 0.0                           # 距下一次事件的倒计
 var day_phase := Weather.DEFAULT_PHASE             # 昼夜时段（由真实时钟派生，零存档）
 
 # —— 测试模式（开发期工具，逻辑见 test_mode.gd）：仅本会话生效、不写档；切回游玩即还原正式档 ——
-var test_mode := false           # 是否在测试模式（运行态，不存档；重启天然回正式档）
+@export var test_mode := false   # 可在 Main 节点 Inspector 勾选；启动后读档并冻结写档
 var _forced_phase := ""          # 非空＝测试强制时段，_tick_phase 不再被真实时钟覆盖
 var test_speed := 1.0            # 测试提速：钓鱼等待/咬钩时长除以此值（1=正常）
 var _test_order_nonce := 0       # 测试重置订单的扰动子（绕开当日确定性种子）
 var _test_pick_fish := ""        # 测试台「给鱼」记住的鱼种/星级/变体（重建面板不丢选择）
 var _test_pick_q := 0
 var _test_pick_var := 0
+var test_feature_panel_open := false
+var test_feature_manual_override := false
 
 # —— 每日订单：每天 1 单，交付指定鱼种，按原价 ×2.5 结算 ——
 const DAILY_ORDER_MULT := 2.5
@@ -216,6 +222,126 @@ const PET_STEAL_MAX_VALUE := 30        # 只偷便宜杂鱼（卖价 ≤ 此值�
 var pet_steals := 0                    # 被叼走的鱼计数（成就/趣味）
 
 const TANK_TAB := 6                    # 鱼篓面板「鱼缸」页签下标（names 第 7 项）
+const FEATURE_NAV := [
+	{"id": "bag", "label": "鱼篓", "tab": 0, "icon": "res://assets/art/ui/nav_basket.png"},
+	{"id": "gear", "label": "装备", "tab": 7, "icon": "res://assets/art/ui/nav_equip.png"},
+	{"id": "dex", "label": "图鉴", "tab": 1, "icon": "res://assets/art/ui/nav_dex.png"},
+	{"id": "tasks", "label": "任务", "tab": 2, "icon": "res://assets/art/ui/nav_orders.png"},
+	{"id": "spots", "label": "钓点", "tab": 5, "icon": "res://assets/art/ui/nav_spots.png"},
+	{"id": "tank", "label": "鱼缸", "tab": 6, "icon": "res://assets/art/ui/nav_fishtank.png"},
+	{"id": "settings", "label": "设置", "tab": 8, "icon": "res://assets/art/ui/nav_settings.png"},
+]
+const FEATURE_TOASTS := {
+	"bag": "鱼篓开放：钓到的鱼可以集中查看了，攒够后去贩卖。",
+	"gear": "装备开放：卖鱼收入达到 300，可以升级钓具了。",
+	"tasks": "任务开放：装备投入达到 10K，每日目标开始出现。",
+	"dex": "图鉴开放：第一个钓点已记录一半鱼种。",
+	"spots": "钓点开放：新的地图条件已满足，可以换地方钓鱼了。",
+	"tank": "鱼缸开放：钓到极品鱼，可以挑珍品展示了。",
+}
+
+
+func _feature_unlocked(id: String) -> bool:
+	if id == "settings":
+		return true
+	return bool(feature_unlocks.get(id, false))
+
+
+func _tab_unlocked(tab: int) -> bool:
+	for n in FEATURE_NAV:
+		if int(n["tab"]) == tab:
+			return _feature_unlocked(str(n["id"]))
+	return tab in [3, 4]  # 成就 / 统计仍是内部页，不放进底栏渐进开放
+
+
+func _feature_nav_defs() -> Array:
+	var out: Array = []
+	for n in FEATURE_NAV:
+		if _feature_unlocked(str(n["id"])):
+			out.append(n)
+	return out
+
+
+func _fallback_feature_tab() -> int:
+	for n in _feature_nav_defs():
+		return int(n["tab"])
+	return 8
+
+
+func _normalize_feature_unlocks() -> void:
+	if not (feature_unlocks is Dictionary):
+		feature_unlocks = {}
+	feature_unlocks["settings"] = true
+	for n in FEATURE_NAV:
+		var id := str(n["id"])
+		if not feature_unlocks.has(id):
+			feature_unlocks[id] = id == "settings"
+
+
+func _unlock_feature(id: String, silent := false) -> bool:
+	_normalize_feature_unlocks()
+	if _feature_unlocked(id):
+		return false
+	feature_unlocks[id] = true
+	if not silent:
+		_toast(str(FEATURE_TOASTS.get(id, "%s 已开放" % id)), 3.0, Color(0.86, 0.76, 0.45))
+	if display_mode == "framed":
+		_rebuild_bottom_nav()
+	return true
+
+
+func _has_quality_fish(min_q: int) -> bool:
+	if best_quality >= min_q:
+		return true
+	for c in inventory:
+		if int((c as Dictionary).get("q", 0)) >= min_q:
+			return true
+	for c in display:
+		if int((c as Dictionary).get("q", 0)) >= min_q:
+			return true
+	return false
+
+
+func _first_spot_dex_half_done() -> bool:
+	var pool := SpotData.pool_for(SpotData.DEFAULT_SPOT)
+	if pool.is_empty():
+		return false
+	var have := 0
+	for id in pool:
+		if dex.has(str(id)):
+			have += 1
+	var need := int(ceil(float(pool.size()) * 0.5))
+	return have >= need
+
+
+func _second_spot_unlock_met() -> bool:
+	if SpotData.SPOT_ORDER.size() < 2:
+		return false
+	var sid := str(SpotData.SPOT_ORDER[1])
+	return sid in unlocked_spots or SpotData.unlock_met(sid, lifetime_catches, lifetime_coins, dex.size())
+
+
+func _ensure_feature_unlocks(silent := false) -> void:
+	_normalize_feature_unlocks()
+	if test_feature_manual_override:
+		return
+	if lifetime_catches >= 3:
+		_unlock_feature("bag", silent)
+	if lifetime_coins >= 300.0:
+		_unlock_feature("gear", silent)
+	if feature_spend_equipment >= 10000.0:
+		_unlock_feature("tasks", silent)
+	if _first_spot_dex_half_done():
+		_unlock_feature("dex", silent)
+	if _second_spot_unlock_met():
+		_unlock_feature("spots", silent)
+	if _has_quality_fish(2):
+		_unlock_feature("tank", silent)
+
+
+func _record_equipment_spend(cost) -> void:
+	feature_spend_equipment = _econ_sum(feature_spend_equipment, cost)
+	_ensure_feature_unlocks()
 
 
 func _ready() -> void:
@@ -237,8 +363,14 @@ func _ready() -> void:
 	# 也保证结算前 Spots/Weather 读到真实时段而非默认白昼。
 	day_phase = Weather.current_phase()
 	_load_save()
+	if test_mode:
+		if DisplayServer.get_name() == "headless":
+			test_mode = false
+		else:
+			save_enabled = false
 	_layout_widget()
 	_refresh_unlocks()  # 载入期静默补登已满足解锁的钓点
+	_ensure_feature_unlocks(true)
 	_ensure_day_stat()  # 先沉淀"昨日收入"锚再重建周字典——跨周首启是周奖励重建的主路径，
 						# 顺序反了会把锚读成"上上个游玩日"（对抗审查 should-fix）
 	_ensure_daily_order()
@@ -321,6 +453,8 @@ var _nav_bar: PanelContainer = null   # 底栏容器（背景随面板开关切�
 var _dev_tools_bar: PanelContainer = null
 var _dev_attrs_panel: PanelContainer = null
 var _dev_attrs_open := true
+var _feature_mgmt_panel: PanelContainer = null
+var _feature_mgmt_open := false
 var _dev_pet_state := "无"
 
 func _apply_display_mode() -> void:
@@ -388,12 +522,17 @@ func _layout_widget() -> void:
 		_nav_bar.scale = s
 	if is_instance_valid(_dev_tools_bar):
 		_dev_tools_bar.position = Vector2.ZERO
+		_dev_tools_bar.size = Vector2(96, 78)
 		_dev_tools_bar.scale = Vector2.ONE
 	if is_instance_valid(_dev_attrs_panel):
 		var attrs_pos := Vector2(104, 0)
 		var attrs_bottom := _stage_size().y
 		_dev_attrs_panel.position = attrs_pos
 		_dev_attrs_panel.size = Vector2(360, maxf(240.0, attrs_bottom - attrs_pos.y))
+	if is_instance_valid(_feature_mgmt_panel):
+		var feature_pos := Vector2(104, 0)
+		_feature_mgmt_panel.position = feature_pos
+		_feature_mgmt_panel.size = Vector2(360, maxf(240.0, _stage_size().y - feature_pos.y))
 	_update_action_button()
 	_layout_resize_grips()
 	if _panel_kind == "":
@@ -410,7 +549,7 @@ func _setup_immersive_hud() -> void:
 	coins_label.mouse_filter = Control.MOUSE_FILTER_STOP
 	coins_label.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-			_catch_tab = 0
+			_catch_tab = 0 if _tab_unlocked(0) else _fallback_feature_tab()
 			_toggle_panel("catch"))
 	toast_label.position = SCENE_OFF + Vector2(198, 204)
 	_build_spot_chip()
@@ -433,7 +572,8 @@ func _build_dev_tools_bar() -> void:
 	var bar := PanelContainer.new()
 	bar.name = "DevToolsBar"
 	bar.z_index = 40
-	bar.custom_minimum_size = Vector2(96, 42)
+	bar.custom_minimum_size = Vector2(96, 78)
+	bar.size = Vector2(96, 78)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.10, 0.11, 0.10, 0.72)
 	sb.corner_radius_bottom_right = 10
@@ -446,16 +586,27 @@ func _build_dev_tools_bar() -> void:
 	mg.add_theme_constant_override("margin_top", 6)
 	mg.add_theme_constant_override("margin_bottom", 6)
 	bar.add_child(mg)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 6)
+	mg.add_child(stack)
 	var attrs := Button.new()
-	attrs.text = "开发管理"
+	attrs.text = "属性管理"
 	attrs.focus_mode = Control.FOCUS_NONE
 	attrs.custom_minimum_size = Vector2(84, 30)
 	UIPanels.apply_button_skin(attrs, false)
 	attrs.pressed.connect(func() -> void: _set_dev_attrs_open(not _dev_attrs_open))
-	mg.add_child(attrs)
+	stack.add_child(attrs)
+	var features := Button.new()
+	features.text = "功能管理"
+	features.focus_mode = Control.FOCUS_NONE
+	features.custom_minimum_size = Vector2(84, 30)
+	UIPanels.apply_button_skin(features, false)
+	features.pressed.connect(func() -> void: _set_feature_mgmt_open(not _feature_mgmt_open))
+	stack.add_child(features)
 	ui_root.add_child(bar)
 	_dev_tools_bar = bar
 	_build_dev_attrs_panel()
+	_build_feature_mgmt_panel()
 
 
 func _build_dev_attrs_panel() -> void:
@@ -484,6 +635,8 @@ func _set_dev_attrs_open(open: bool) -> void:
 	_dev_attrs_open = open
 	if display_mode == "immersive":
 		return
+	if open:
+		_set_feature_mgmt_open(false)
 	if not is_instance_valid(_dev_attrs_panel):
 		_build_dev_attrs_panel()
 		return
@@ -491,6 +644,108 @@ func _set_dev_attrs_open(open: bool) -> void:
 	if open:
 		_refresh_dev_attrs_panel()
 	_layout_widget()
+
+
+func _build_feature_mgmt_panel() -> void:
+	var panel := PanelContainer.new()
+	panel.name = "FeatureManagementPanel"
+	panel.z_index = 41
+	panel.custom_minimum_size = Vector2(360, 240)
+	panel.size = Vector2(360, 520)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.09, 0.08, 0.84)
+	sb.corner_radius_top_right = 10
+	sb.corner_radius_bottom_right = 10
+	sb.set_border_width_all(1)
+	sb.border_color = DT.GLASS_BORDER
+	sb.shadow_color = Color(0, 0, 0, 0.28)
+	sb.shadow_size = 12
+	sb.shadow_offset = Vector2(0, 4)
+	panel.add_theme_stylebox_override("panel", sb)
+	ui_root.add_child(panel)
+	_feature_mgmt_panel = panel
+	_refresh_feature_mgmt_panel()
+	panel.visible = _feature_mgmt_open
+
+
+func _set_feature_mgmt_open(open: bool) -> void:
+	_feature_mgmt_open = open
+	test_feature_panel_open = open
+	if display_mode == "immersive":
+		return
+	if open:
+		_set_dev_attrs_open(false)
+	if not is_instance_valid(_feature_mgmt_panel):
+		_build_feature_mgmt_panel()
+		return
+	_feature_mgmt_panel.visible = open
+	if open:
+		_refresh_feature_mgmt_panel()
+	_layout_widget()
+
+
+func _refresh_feature_mgmt_panel() -> void:
+	if not is_instance_valid(_feature_mgmt_panel):
+		return
+	for c in _feature_mgmt_panel.get_children():
+		c.free()
+	var mg := MarginContainer.new()
+	mg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	mg.add_theme_constant_override("margin_left", 8)
+	mg.add_theme_constant_override("margin_right", 8)
+	mg.add_theme_constant_override("margin_top", 8)
+	mg.add_theme_constant_override("margin_bottom", 8)
+	_feature_mgmt_panel.add_child(mg)
+	var sc := ScrollContainer.new()
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	mg.add_child(sc)
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 8)
+	sc.add_child(v)
+	var title := Label.new()
+	title.text = "功能管理"
+	title.add_theme_font_size_override("font_size", 16)
+	title.add_theme_color_override("font_color", DT.GOLD_BRIGHT)
+	v.add_child(title)
+	var note := Label.new()
+	note.text = "测试模式本会话生效；设置固定开放，其它系统可直接开关。"
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.add_theme_font_size_override("font_size", 12)
+	note.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	v.add_child(note)
+	for n in FEATURE_NAV:
+		var fid := str(n["id"])
+		if fid == "settings":
+			continue
+		_add_feature_mgmt_row(v, fid, str(n["label"]))
+
+
+func _add_feature_mgmt_row(v: VBoxContainer, fid: String, label: String) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.custom_minimum_size = Vector2(0, 32)
+	v.add_child(row)
+	var name := Label.new()
+	name.text = label
+	name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	name.add_theme_font_size_override("font_size", 13)
+	name.add_theme_color_override("font_color", DT.TEXT_ON_GLASS)
+	row.add_child(name)
+	var sw := CheckButton.new()
+	sw.text = "开"
+	sw.button_pressed = _feature_unlocked(fid)
+	sw.focus_mode = Control.FOCUS_NONE
+	sw.custom_minimum_size = Vector2(74, 28)
+	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sw.add_theme_font_size_override("font_size", 12)
+	sw.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	sw.add_theme_color_override("font_pressed_color", DT.GOLD_BRIGHT)
+	sw.toggled.connect(func(on: bool) -> void: TestMode.set_feature_unlock(self, fid, on))
+	row.add_child(sw)
 
 
 func _refresh_dev_attrs_panel() -> void:
@@ -572,13 +827,51 @@ func _build_hud_chips() -> void:
 	_chip_dex = dexc[1]
 
 
-## 照抄 CD coinStr：≥10万 "Nk"(整) / ≥1万 "N.Nk"(一位) / 否则千分位逗号(toLocaleString)
-func _coin_str(n: int) -> String:
-	if n >= 100000:
-		return "%dk" % int(n / 1000.0)
-	if n >= 10000:
-		return "%.1fk" % (n / 1000.0)
-	return _commas(n)
+## 金币短格式：低位保逗号；高位用 idle 游戏常见 K/M/B/T/Qa/Qi...，超表后降级科学计数。
+func _coin_str(n) -> String:
+	var value := float(n)
+	var abs_n := absf(value)
+	if abs_n >= 10000:
+		return _short_number_str(value, 3)
+	return _commas(int(round(value)))
+
+
+func _short_number_str(value: float, sig_digits := 3) -> String:
+	if is_nan(value):
+		return "0"
+	if value == 0.0:
+		return "0"
+	var abs_v := absf(value)
+	var tier := int(floor(log(abs_v) / log(1000.0)))
+	if tier <= 0:
+		return _commas(int(round(_safe_econ_number(value))))
+	if tier >= SHORT_NUMBER_UNITS.size():
+		return _sci_str(value, sig_digits)
+	var scaled := value / pow(1000.0, tier)
+	var abs_scaled := absf(scaled)
+	if abs_scaled >= 100.0:
+		return "%d%s" % [int(round(scaled)), SHORT_NUMBER_UNITS[tier]]
+	if abs_scaled >= 10.0:
+		return "%.1f%s" % [snappedf(scaled, 0.1), SHORT_NUMBER_UNITS[tier]]
+	return "%.2f%s" % [snappedf(scaled, 0.01), SHORT_NUMBER_UNITS[tier]]
+
+
+func _sci_str(value: float, sig_digits := 3) -> String:
+	if is_nan(value):
+		return "0"
+	if value == 0.0:
+		return "0"
+	var sign := "-" if value < 0.0 else ""
+	var abs_v := absf(value)
+	var exp10 := int(floor(log(abs_v) / log(10.0)))
+	var mant := abs_v / pow(10.0, exp10)
+	var decimals := maxi(0, sig_digits - 1)
+	var rounded := snappedf(mant, pow(10.0, -decimals))
+	if rounded >= 10.0:
+		rounded /= 10.0
+		exp10 += 1
+	var text := ("%.*f" % [decimals, rounded]).rstrip("0").rstrip(".")
+	return "%s%se%d" % [sign, text, exp10]
 
 
 ## 千分位逗号（复刻 JS toLocaleString 的 en-US 行为）
@@ -592,6 +885,34 @@ func _commas(n: int) -> String:
 		if c % 3 == 0 and i > 0:
 			out = "," + out
 	return ("-" + out) if n < 0 else out
+
+
+func _safe_econ_number(raw: float) -> float:
+	if is_nan(raw) or raw <= 0.0:
+		return 0.0
+	if is_inf(raw) or raw >= MAX_ECON_VALUE:
+		return MAX_ECON_VALUE
+	return round(raw)
+
+
+func _safe_econ_int(raw: float) -> float:
+	return _safe_econ_number(raw)
+
+
+func _econ_sum(a, b) -> float:
+	return _safe_econ_number(float(a) + maxf(0.0, float(b)))
+
+
+func _add_coins_safe(amount) -> void:
+	coins = _econ_sum(coins, amount)
+
+
+func _add_lifetime_coins_safe(amount) -> void:
+	lifetime_coins = _econ_sum(lifetime_coins, amount)
+
+
+func _add_auto_sold_value_safe(amount) -> void:
+	auto_sold_v = _econ_sum(auto_sold_v, amount)
 
 
 ## 右上状态标签胶囊（钓点/时段/事件/鱼贩）；纯展示、不挡点击。
@@ -720,32 +1041,24 @@ func _build_bottom_nav() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	mg.add_child(row)
-	# 5 个导航项：图标在上、文字在下（CD 布局）。[label, catch_tab, icon]
-	var navs := [
-		["鱼篓", 0, "res://assets/art/ui/nav_basket.png"],
-		["装备", 7, "res://assets/art/ui/nav_equip.png"],
-		["图鉴", 1, "res://assets/art/ui/nav_dex.png"],
-		["任务", 2, "res://assets/art/ui/nav_orders.png"],     # 一套水彩导航图标（已就位）；文件缺失时自动只显文字、不显乱占位
-		["钓点", 5, "res://assets/art/ui/nav_spots.png"],
-		["鱼缸", 6, "res://assets/art/ui/nav_fishtank.png"],
-	]
-	navs.append(["设置", 8, "res://assets/art/ui/nav_settings.png"])
+	# 图标在上、文字在下（CD 布局）；功能未开放前不占底栏。
+	var navs := _feature_nav_defs()
 	for n in navs:
-		var tab: int = n[1]
+		var tab: int = int(n["tab"])
 		var item := VBoxContainer.new()
 		item.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		item.alignment = BoxContainer.ALIGNMENT_CENTER
 		item.add_theme_constant_override("separation", 2)
 		item.mouse_filter = Control.MOUSE_FILTER_STOP
 		item.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		item.tooltip_text = n[0]
+		item.tooltip_text = str(n["label"])
 		# 图标：用 CenterContainer 保证水平居中；TextureRect 固定尺寸 + 等比不变形（不再用绝对定位）
 		var icon_box := CenterContainer.new()
 		icon_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		icon_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		if ResourceLoader.exists(n[2]):
+		if ResourceLoader.exists(str(n["icon"])):
 			var ic := TextureRect.new()
-			ic.texture = load(n[2])
+			ic.texture = load(str(n["icon"]))
 			ic.custom_minimum_size = Vector2(44, 44)   # 容器据此给尺寸，等比居中绘制（任务栏空间足，放大更醒目）
 			ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -763,7 +1076,7 @@ func _build_bottom_nav() -> void:
 				if _panel_kind == "catch" and _catch_tab == tab:
 					_close_panel()
 				else:
-					_catch_tab = tab
+					_catch_tab = tab if _tab_unlocked(tab) else _fallback_feature_tab()
 					_open_panel("catch"))
 		item.mouse_entered.connect(func() -> void: item.modulate = Color(1.18, 1.18, 1.18))
 		item.mouse_exited.connect(func() -> void: item.modulate = Color(1, 1, 1))
@@ -774,6 +1087,8 @@ func _build_bottom_nav() -> void:
 func _rebuild_bottom_nav() -> void:
 	if display_mode != "framed":
 		return
+	if not _tab_unlocked(_catch_tab):
+		_catch_tab = _fallback_feature_tab()
 	if is_instance_valid(_nav_bar):
 		_nav_bar.queue_free()
 	_nav_badges.clear()
@@ -1420,15 +1735,15 @@ func _do_catch() -> void:
 	# 庆祝 toast 门槛（P1 感官治理）：斑斓收敛后仍≈1/40 竿，浮标彩色飘字已够仪式感，
 	# toast 只留鎏金/七彩级惊喜；专注（安静）模式下庆祝类 toast 全部静默（订单进度等事务性提示保留）。
 	if vr >= 2 and not focus_mode:
-		_toast("✨ 变体！%s%s（%.2fkg，%d 金币）" % [FishData.variant_label(vr),
-			FishData.display_name(c["id"]), c["w"], c["v"]], 2.8, FishData.variant_color(vr))
+		_toast("✨ 变体！%s%s（%.2fkg，%s 金币）" % [FishData.variant_label(vr),
+			FishData.display_name(c["id"]), c["w"], _coin_str(int(c["v"]))], 2.8, FishData.variant_color(vr))
 	elif broke_record and not focus_mode:
 		_toast("破纪录！%s %.2fkg，刷新个人最大" % [FishData.display_name(c["id"]), c["w"]],
 			2.6, Color(0.95, 0.82, 0.45))
 	elif (tier >= 3 or q >= 2) and not focus_mode:
-		_toast("%s钓到 %s（%.2fkg，%d 金币）" % [
+		_toast("%s钓到 %s（%.2fkg，%s 金币）" % [
 			(FishData.TIER_NAMES[tier] + "！") if tier >= 3 else "",
-			fname, c["w"], c["v"]], 2.4, col)
+			fname, c["w"], _coin_str(int(c["v"]))], 2.4, col)
 	elif not bool(daily_order.get("done", false)) and _order_matches(c) \
 			and vr < 2 and (str(daily_order.get("kind", "")) == "perfect" or q < 3):
 		# 与自动交单池同口径：珍稀（鎏金/七彩/★★★）不计入订单，进度提示也不该由它触发
@@ -1439,8 +1754,8 @@ func _do_catch() -> void:
 	var comp_win := Competition.on_catch(self, c)   # 巨物赛：本周目标鱼刷新最佳，冲过影子线夺金
 	if comp_win > 0:
 		Audio.play_sfx("sfx_competition_win")   # 一周一次的夺金，此前和卖一条杂鱼同一个 coin 音
-		_toast("🏆 巨物赛夺金！%s %.2fkg 越过影子线，+%d 金币" % [
-			FishData.display_name(str(c["id"])), float(c["w"]), comp_win], 3.4, Color(1.0, 0.86, 0.32))
+		_toast("🏆 巨物赛夺金！%s %.2fkg 越过影子线，+%s 金币" % [
+			FishData.display_name(str(c["id"])), float(c["w"]), _coin_str(comp_win)], 3.4, Color(1.0, 0.86, 0.32))
 		_flash()
 	if tier >= 5 or vr >= 3 or broke_record:   # 真·稀有（神话/七彩）或破个人纪录才庆祝闪光
 		_flash()
@@ -1470,8 +1785,8 @@ func _do_catch() -> void:
 		var comp_win2 := Competition.on_catch(self, c2)   # 双钩第二条也参与巨物赛
 		if comp_win2 > 0:
 			Audio.play_sfx("sfx_competition_win")
-			_toast("🏆 巨物赛夺金！%s %.2fkg，+%d 金币" % [
-				FishData.display_name(str(c2["id"])), float(c2["w"]), comp_win2], 3.4, Color(1.0, 0.86, 0.32))
+			_toast("🏆 巨物赛夺金！%s %.2fkg，+%s 金币" % [
+				FishData.display_name(str(c2["id"])), float(c2["w"]), _coin_str(comp_win2)], 3.4, Color(1.0, 0.86, 0.32))
 			_flash()
 	if _bag_full() and not _auto_sell_active():   # 签约后收鱼郎代劳腾格，这条建议每竿刷屏且已过时
 		_toast("鱼篓满了，先去卖鱼或扩容～", 3.0, Color(1.0, 0.75, 0.4))
@@ -1479,6 +1794,7 @@ func _do_catch() -> void:
 	if painter.has_method("pet_react") and not focus_mode and rng.randf() < 0.3:
 		painter.pet_react("paw")  # 上鱼时偶尔扒拉一下鱼篓
 	_check_achievements()
+	_ensure_feature_unlocks()
 	_update_hud()
 	_refresh_panel()
 	if showcase != "":  # 试竿反馈：升级是玩家刚刚的主动操作，回执不受安静模式抑制（事务性）
@@ -1486,7 +1802,7 @@ func _do_catch() -> void:
 	if focus_up > 0:  # 专注奖励到手：用最醒目的 toast 收尾（最后调用者覆盖前面的飘字）
 		var rname := FishData.variant_label(int(c.get("var", 0))) + FishData.quality_label(int(c.get("q", 0))) \
 			+ FishData.display_name(str(c["id"]))
-		_toast("🎁 专注奖励到手：%s（%.2fkg，%d 金币）" % [rname, float(c["w"]), int(c["v"])],
+		_toast("🎁 专注奖励到手：%s（%.2fkg，%s 金币）" % [rname, float(c["w"]), _coin_str(int(c["v"]))],
 			4.0, Color(0.74, 0.86, 0.98))
 	if vr >= 2:
 		_rare_ceremony(c)   # 稀有仪式：1/250、1/1250 竿的尖峰时刻，感官必须与杂鱼拉开量级
@@ -1581,12 +1897,13 @@ func _overflow_catch() -> void:
 		caught_giant = true
 	_dex_record(c["id"], float(c["w"]), is_big, q >= 3, vr)
 	var gain := _absorb_overflow(c)
-	coins += gain
-	lifetime_coins += gain
+	_add_coins_safe(gain)
+	_add_lifetime_coins_safe(gain)
 	painter.add_ripple(painter.bobber_pos(), 28.0)
-	_popup("满篓兑 +%d" % gain, _scene_pt(painter.bobber_pos()) + Vector2(-22, -8),
+	_popup("满篓兑 +%s" % _coin_str(gain), _scene_pt(painter.bobber_pos()) + Vector2(-22, -8),
 		Color(0.85, 0.72, 0.42))
 	_check_achievements()
+	_ensure_feature_unlocks()
 	_update_hud()
 	_refresh_panel()
 
@@ -1631,12 +1948,13 @@ func _try_auto_sell() -> bool:
 		return false
 	var c: Dictionary = inventory[idx]
 	inventory.remove_at(idx)
-	coins += idx_v
-	lifetime_coins += idx_v
+	_add_coins_safe(idx_v)
+	_add_lifetime_coins_safe(idx_v)
 	auto_sold_n += 1
-	auto_sold_v += idx_v
+	_add_auto_sold_value_safe(idx_v)
 	_check_achievements()   # 财富线成就与其他卖鱼收入路径同口径，不延迟到下一竿
-	_popup("收鱼郎带走%s +%d" % [FishData.display_name(c["id"]), idx_v],
+	_ensure_feature_unlocks()
+	_popup("收鱼郎带走%s +%s" % [FishData.display_name(c["id"]), _coin_str(idx_v)],
 		_scene_pt(painter.bobber_pos()) + Vector2(-22, -8), Color(0.72, 0.66, 0.52))
 	_update_hud()
 	_refresh_panel()
@@ -1656,6 +1974,7 @@ func _try_buy_autosell() -> void:
 	Audio.play_sfx("upgrade")
 	_toast("与收鱼郎签下长约！满篓自动带走杂鱼；想留的杂鱼记得🔒上锁", 3.2, Color(0.85, 0.72, 0.42))
 	_check_achievements()
+	_ensure_feature_unlocks()
 	_update_hud()
 	_save()
 	_refresh_panel()
@@ -1705,7 +2024,7 @@ func _update_hud() -> void:
 	if active_event != "" and EventData.hud_text(active_event) != "":
 		evt = "　" + EventData.hud_text(active_event)
 	var tm := "　🧪测试" if test_mode else ""   # 测试模式常驻角标（提醒当前改动不写档）
-	coins_label.text = "金币 %d　%s%s%s%s" % [coins, bag, mer, evt, tm]
+	coins_label.text = "金币 %s　%s%s%s%s" % [_coin_str(coins), bag, mer, evt, tm]
 	var col := Color(0.92, 0.92, 0.9)
 	if active_event != "":
 		col = EventData.color(active_event)
@@ -1734,7 +2053,7 @@ func _build_spot_chip() -> void:
 	spot_chip.add_theme_color_override("font_hover_color", Color(0.98, 0.90, 0.62))
 	spot_chip.pressed.connect(func() -> void:
 		Audio.play_ui("ui_click")
-		_catch_tab = 5
+		_catch_tab = 5 if _tab_unlocked(5) else _fallback_feature_tab()
 		_open_panel("catch"))
 	ui_root.add_child(spot_chip)
 
@@ -1742,6 +2061,7 @@ func _build_spot_chip() -> void:
 func _update_spot_chip() -> void:
 	if spot_chip == null:
 		return
+	spot_chip.visible = _feature_unlocked("spots")
 	var txt := SpotData.display_name(current_spot) + " · " + Weather.display_name(day_phase)
 	var scenic := SpotData.scenic_name(current_spot, day_phase)
 	if scenic != "":
@@ -1767,7 +2087,7 @@ func _build_order_chip() -> void:
 	order_chip.add_theme_color_override("font_hover_color", Color(0.98, 0.90, 0.62))
 	order_chip.pressed.connect(func() -> void:
 		Audio.play_ui("ui_click")
-		_catch_tab = 2
+		_catch_tab = 2 if _tab_unlocked(2) else _fallback_feature_tab()
 		_open_panel("catch"))
 	ui_root.add_child(order_chip)
 
@@ -1775,6 +2095,7 @@ func _build_order_chip() -> void:
 func _update_order_chip() -> void:
 	if order_chip == null:
 		return
+	order_chip.visible = _feature_unlocked("tasks")
 	_ensure_daily_order()
 	if bool(daily_order.get("done", false)):
 		order_chip.text = "今日订单 ✓ 已完成"
@@ -2113,6 +2434,8 @@ func _ui_tier_color(tier: int, on_paper := false) -> Color:
 
 ## —— 面板：薄壳委托 UIPanels（实现见 ui_panels.gd，行为不变）——
 func _open_panel(kind: String) -> void:
+	if kind == "catch" and not _tab_unlocked(_catch_tab):
+		_catch_tab = _fallback_feature_tab()
 	UIPanels.open_panel(self, kind)
 
 
@@ -2126,7 +2449,7 @@ func _open_fish_detail(id: String) -> void:
 
 
 func _set_catch_tab(tab: int) -> void:
-	_catch_tab = tab
+	_catch_tab = tab if _tab_unlocked(tab) else _fallback_feature_tab()
 	_open_panel("catch")
 
 
@@ -2278,12 +2601,13 @@ func _sell_one(idx: int) -> void:
 	var c: Dictionary = inventory[idx]
 	inventory.remove_at(idx)
 	var v := _sell_value(c)
-	coins += v
-	lifetime_coins += v
+	_add_coins_safe(v)
+	_add_lifetime_coins_safe(v)
 	Audio.play_sfx("coin")
-	_toast("卖出 %s +%d%s" % [FishData.display_name(c["id"]), v,
+	_toast("卖出 %s +%s%s" % [FishData.display_name(c["id"]), _coin_str(v),
 		"（鱼贩×1.5）" if _merchant_active else ""], 1.5, Color(0.85, 0.7, 0.35))
 	_check_achievements()
+	_ensure_feature_unlocks()
 	_update_hud()
 	_refresh_panel()
 	_save()
@@ -2302,14 +2626,15 @@ func _sell_all() -> void:
 	if n == 0:
 		return
 	inventory = keep
-	coins += total
-	lifetime_coins += total
+	_add_coins_safe(total)
+	_add_lifetime_coins_safe(total)
 	Audio.play_sfx("coin")
-	var msg := "卖出 %d 条鱼 +%d 金币%s" % [n, total, "（鱼贩×1.5）" if _merchant_active else ""]
+	var msg := "卖出 %d 条鱼 +%s 金币%s" % [n, _coin_str(total), "（鱼贩×1.5）" if _merchant_active else ""]
 	if not keep.is_empty():
 		msg += "（%d 条收藏留着）" % keep.size()
 	_toast(msg, 2.2, Color(0.85, 0.7, 0.35))
 	_check_achievements()
+	_ensure_feature_unlocks()
 	_update_hud()
 	_refresh_panel()
 	_save()
@@ -2331,10 +2656,10 @@ func _sell_junk() -> void:
 	if n == 0:
 		return
 	inventory = keep
-	coins += total
-	lifetime_coins += total
+	_add_coins_safe(total)
+	_add_lifetime_coins_safe(total)
 	Audio.play_sfx("coin")
-	_toast("卖出杂鱼 %d 条 +%d 金币（订单鱼与收藏保留）" % [n, total], 2.2, Color(0.85, 0.7, 0.35))
+	_toast("卖出杂鱼 %d 条 +%s 金币（订单鱼与收藏保留）" % [n, _coin_str(total)], 2.2, Color(0.85, 0.7, 0.35))
 	_check_achievements()
 	_update_hud()
 	_refresh_panel()
@@ -2379,6 +2704,7 @@ func _fire_event(forced := "") -> void:
 ## 钓点控制：薄壳委托 Spots（实现见 spots.gd，行为不变）。
 func _refresh_unlocks() -> void:
 	Spots.refresh_unlocks(self)
+	_ensure_feature_unlocks()
 
 
 func _switch_spot(id: String) -> void:
@@ -2409,6 +2735,7 @@ func _try_expand_bag() -> void:
 		return
 	coins -= cost
 	bag_level += 1
+	_record_equipment_spend(cost)
 	Audio.play_sfx("upgrade")
 	_toast("鱼篓扩到 %d 格！" % _bag_capacity(), 2.2, Color(0.5, 0.8, 1.0))
 	_check_achievements()
@@ -2483,11 +2810,11 @@ func _check_achievements(silent := false) -> void:
 				continue
 			var reward := int(a.get("reward", 0))
 			if reward > 0:
-				coins += reward
+				_add_coins_safe(reward)
 			Audio.play_sfx("sfx_achievement")   # 42 项成就此前只有 toast，全程无声
 			var msg := "成就达成：%s" % a["name"]
 			if reward > 0:
-				msg += "（+%d 金币）" % reward
+				msg += "（+%s 金币）" % _coin_str(reward)
 			_toast(msg, 3.0, Color(0.98, 0.85, 0.45))
 
 
@@ -2513,8 +2840,8 @@ func _reel_speed_for(lv: int) -> float:
 	return AnglerEquipmentScript.reel_stats(lv).speed
 
 
-func _reel_upgrade_cost(count: int) -> int:
-	return AnglerEquipmentScript.reel_upgrade_cost(reel_level, count)
+func _reel_upgrade_cost(count: int) -> float:
+	return AnglerEquipmentScript.equipment_upgrade_cost("reel", reel_level, count)
 
 
 func _gear_level(id: String) -> int:
@@ -2537,8 +2864,8 @@ func _set_gear_level(id: String, level: int) -> void:
 		"gloves": gloves_level = level
 
 
-func _gear_upgrade_cost(id: String, count: int) -> int:
-	return AnglerEquipmentScript.attr_equipment_upgrade_cost(_gear_level(id), count)
+func _gear_upgrade_cost(id: String, count: int) -> float:
+	return AnglerEquipmentScript.equipment_upgrade_cost(id, _gear_level(id), count)
 
 
 func _gear_stats(id: String, level := -1):
@@ -2561,29 +2888,29 @@ func _equipment_unlocked(id: String) -> bool:
 
 
 func _equipment_chain() -> Array:
-	return ["fish_line", "reel", "bobber", "sonar", "notebook", "gloves"]
+	return AnglerEquipmentScript.equipment_order()
 
 
-func _equipment_unlock_cost(id: String) -> int:
-	match id:
-		"reel":
-			return AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 30)
-		"bobber":
-			return AnglerEquipmentScript.reel_upgrade_cost(0, 25)
-		"sonar", "notebook", "gloves":
-			return AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 25)
-		_:
-			return 0
+func _visible_equipment_chain() -> Array:
+	var chain := _equipment_chain()
+	var visible := []
+	for i in chain.size():
+		var id := str(chain[i])
+		if _equipment_unlocked(id):
+			visible.append(id)
+			continue
+		if i > 0 and _equipment_unlocked(str(chain[i - 1])):
+			visible.append(id)
+		break
+	return visible
+
+
+func _equipment_unlock_cost(id: String) -> float:
+	return AnglerEquipmentScript.equipment_unlock_cost(id)
 
 
 func _equipment_unlock_note(id: String) -> String:
-	match id:
-		"reel": return "约等于鱼线 30 级投入"
-		"bobber": return "约等于绕线轮 25 级投入"
-		"sonar": return "约等于浮漂 25 级投入"
-		"notebook": return "约等于探鱼器 25 级投入"
-		"gloves": return "约等于钓鱼笔记 25 级投入"
-		_: return ""
+	return AnglerEquipmentScript.equipment_unlock_note(id)
 
 
 func _try_unlock_equipment(id: String) -> void:
@@ -2604,6 +2931,7 @@ func _try_unlock_equipment(id: String) -> void:
 		_begin_wait()
 	else:
 		_set_gear_level(id, 1)
+	_record_equipment_spend(cost)
 	var name := "绕线轮" if id == "reel" else str(AnglerEquipmentScript.ATTR_EQUIPMENT[id]["name"])
 	Audio.play_sfx("upgrade")
 	_update_hud()
@@ -2627,11 +2955,11 @@ func _force_catch_grade(c: Dictionary, min_q: int, min_var: int) -> void:
 	c["v"] = maxi(1, int(round(float(c["v"]) * mult)))
 
 
-func _rod_cost() -> int:
+func _rod_cost() -> float:
 	# 陡成本曲线：让鱼竿成为真正的长期金币去向（旧 40×1.8^n 几乎零成本）。
 	# 400×1.7^n：成本增速(1.7/级) 高于产出增速(~1.1~1.25/级)，回本时间平滑递增形成减速带，
 	# 且不在等待封顶级(Lv16)附近产生回本悬崖（数值依据 docs/balance_audit_2026-07-06.md）。
-	return int(round(400.0 * pow(1.7, rod_level - 1)))
+	return _safe_econ_number(400.0 * pow(1.7, rod_level - 1))
 
 
 func _try_upgrade_rod() -> void:
@@ -2642,6 +2970,7 @@ func _try_upgrade_rod() -> void:
 		return
 	coins -= cost
 	rod_level += 1
+	_record_equipment_spend(cost)
 	showcase_pending = "rod"
 	Audio.play_sfx("upgrade")
 	_check_achievements()
@@ -2663,6 +2992,7 @@ func _try_upgrade_reel(count := 1) -> void:
 		return
 	coins -= cost
 	reel_level += count
+	_record_equipment_spend(cost)
 	_begin_wait()
 	Audio.play_sfx("upgrade")
 	_update_hud()
@@ -2700,6 +3030,7 @@ func _try_upgrade_attr_gear(id: String, count := 1) -> void:
 	var before_stats = _gear_stats(id)
 	coins -= cost
 	_set_gear_level(id, before_level + count)
+	_record_equipment_spend(cost)
 	Audio.play_sfx("upgrade")
 	_update_hud()
 	var info: Dictionary = AnglerEquipmentScript.ATTR_EQUIPMENT[id]
@@ -2741,6 +3072,7 @@ func _try_upgrade_bait() -> void:
 	var old_p1 := float((FishData.BAITS[bait_level]["probs"] as Array)[1])
 	coins -= cost
 	bait_level += 1
+	_record_equipment_spend(cost)
 	showcase_pending = "bait"
 	Audio.play_sfx("upgrade")
 	_check_achievements()
@@ -2762,6 +3094,7 @@ func _try_upgrade_hook() -> void:
 		return
 	coins -= cost
 	hook_level += 1
+	_record_equipment_spend(cost)
 	showcase_pending = "hook"
 	Audio.play_sfx("upgrade")
 	_check_achievements()
@@ -2783,6 +3116,7 @@ func _try_upgrade_lure() -> void:
 		return
 	coins -= cost
 	lure_level += 1
+	_record_equipment_spend(cost)
 	showcase_pending = "lure"
 	Audio.play_sfx("upgrade")
 	_check_achievements()
@@ -3200,8 +3534,8 @@ func _offline_catch(elapsed: float) -> int:
 			if FishData.tier_of(c["id"]) >= 3 or int(c.get("q", 0)) >= 2 or int(c.get("var", 0)) >= 1:
 				notable.append(c.duplicate())   # 副本自带 _oid，尾部统一回填 folded
 	day_phase = phase_before
-	coins += overflow_v
-	lifetime_coins += overflow_v
+	_add_coins_safe(overflow_v)
+	_add_lifetime_coins_safe(overflow_v)
 	# —— 按最终篓内容回填：谁真的留下了、离线新增的在篓价值是多少 ——
 	var kept := {}
 	var stored_v := 0

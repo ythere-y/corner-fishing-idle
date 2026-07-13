@@ -32,9 +32,13 @@ static func set_enabled(g, on: bool) -> void:
 		g._save()                       # 进测试前先把当前正式进度落盘（退出时据此还原）
 		g.save_enabled = false          # 冻结磁盘：测试期一切改动只在内存
 		g.test_mode = true
+		g.test_feature_manual_override = false
+		g.test_feature_panel_open = true
 		g._toast("已进入测试模式 · 改动不写档", 2.6, DT.GOLD_BRIGHT)
 	else:
 		g.test_mode = false
+		g.test_feature_manual_override = false
+		g.test_feature_panel_open = false
 		g._forced_phase = ""            # 复位运行态覆盖
 		g.test_speed = 1.0
 		if g.painter:
@@ -44,6 +48,16 @@ static func set_enabled(g, on: bool) -> void:
 		g._toast("已回到游玩模式 · 正式存档", 2.6, DT.POSITIVE)
 	if g.has_method("_rebuild_bottom_nav"):
 		g._rebuild_bottom_nav()
+	if g.display_mode != "immersive":
+		if on and not is_instance_valid(g._dev_tools_bar):
+			g._build_dev_tools_bar()
+		elif not on:
+			if is_instance_valid(g._dev_tools_bar):
+				g._dev_tools_bar.queue_free()
+			if is_instance_valid(g._dev_attrs_panel):
+				g._dev_attrs_panel.queue_free()
+			if is_instance_valid(g._feature_mgmt_panel):
+				g._feature_mgmt_panel.queue_free()
 	g._update_hud()
 	g._refresh_panel()
 
@@ -98,7 +112,10 @@ static func set_speed(g, mult: float) -> void:
 # ============================ 经济 ============================
 
 static func add_coins(g, amount: int) -> void:
-	g.coins = maxi(0, g.coins + amount)
+	if g.has_method("_add_coins_safe"):
+		g._add_coins_safe(amount)
+	else:
+		g.coins = maxi(0, g.coins + amount)
 	# Audio 是 autoload：本模块被工具早期引用时直接写 Audio 会触发未注册编译坑，故经场景树惰性取用。
 	var a = g.get_node_or_null("/root/Audio")
 	if a:
@@ -218,6 +235,25 @@ static func unlock_all_spots(g) -> void:
 	g._update_hud()
 	g._refresh_panel()
 	g._toast("已解锁全部钓点", 2.0, DT.POSITIVE)
+
+
+## 手动控制功能开放（测试模式本会话生效）。
+static func set_feature_unlock(g, id: String, on: bool) -> void:
+	if id == "settings":
+		on = true
+	g.test_feature_manual_override = true
+	g._normalize_feature_unlocks()
+	g.feature_unlocks[id] = on
+	if not g._tab_unlocked(g._catch_tab):
+		g._catch_tab = g._fallback_feature_tab()
+	g._rebuild_bottom_nav()
+	g._update_hud()
+	g._refresh_panel()
+	if g.has_method("_refresh_feature_mgmt_panel"):
+		g._refresh_feature_mgmt_panel()
+	if g.has_method("_layout_widget"):
+		g._layout_widget()
+	g._toast("%s：%s" % [id, "开放" if on else "关闭"], 1.6, DT.GOLD)
 
 
 ## 点亮全图鉴：每种鱼登记一条满纪录（最大体重 + 巨物/完美 + 三种稀有变体已见）。

@@ -234,10 +234,10 @@ static func make_weekly(g: CornerFishing, wk: int) -> Dictionary:
 	local.seed = int(abs(("week:%d" % wk).hash()))
 	var kind: String = "catches" if local.randi() % 2 == 0 else "coins"
 	var target := 0
-	var base := 0
+	var base := 0.0
 	if kind == "catches":
 		target = 120 + g.rod_level * 40
-		base = g.lifetime_catches
+		base = float(g.lifetime_catches)
 	else:
 		target = 4000 + g.rod_level * 2500
 		base = g.lifetime_coins
@@ -246,8 +246,8 @@ static func make_weekly(g: CornerFishing, wk: int) -> Dictionary:
 
 
 static func weekly_progress(g: CornerFishing) -> int:
-	var cur := g.lifetime_catches if str(g.weekly.get("kind", "catches")) == "catches" else g.lifetime_coins
-	return maxi(0, cur - int(g.weekly.get("base", 0)))
+	var cur: float = float(g.lifetime_catches) if str(g.weekly.get("kind", "catches")) == "catches" else g.lifetime_coins
+	return maxi(0, int(round(cur - float(g.weekly.get("base", 0.0)))))
 
 
 static func weekly_desc(g: CornerFishing) -> String:

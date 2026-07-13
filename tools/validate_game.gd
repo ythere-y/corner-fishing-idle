@@ -39,6 +39,9 @@ func _run() -> void:
 	print("=== 速度装备 / 绕线轮 ===")
 	await _check_reel_speed()
 
+	print("=== 功能渐进开放 ===")
+	await _check_feature_unlocks()
+
 	print("=== 角色属性 → 钓鱼属性映射 ===")
 	await _check_attribute_mapping()
 
@@ -759,7 +762,7 @@ func _check_focus_reward() -> void:
 	await process_frame
 
 
-## 主界面入口收敛（沉浸模式 HUD）：金币栏可点、主界面无独立按钮、点金币开关背包页。
+## 主界面入口收敛（沉浸模式 HUD）：金币栏可点、主界面无独立按钮、按功能开放落到可用页签。
 ## 注：默认已切带框 App 模式，此项专测沉浸模式 HUD，故 _ready 前先置 immersive。
 func _check_hud_entry() -> void:
 	var g: Node = load("res://main.tscn").instantiate()
@@ -769,16 +772,21 @@ func _check_hud_entry() -> void:
 	await process_frame
 	_assert(g.coins_label.mouse_filter == Control.MOUSE_FILTER_STOP, "金币栏应可点(mouse_filter=STOP)")
 	_assert(g._spot_round_btns.is_empty(), "主界面应无独立按钮(已撤鱼篓按钮)，实际 %d" % g._spot_round_btns.size())
-	# 点金币 → 开背包页(tab 0)
+	# 开局鱼篓未开放：点金币落到设置页(tab 8)
 	g._catch_tab = 0
 	g._toggle_panel("catch")
-	_assert(g._panel_kind == "catch" and g._catch_tab == 0, "点金币应打开面板背包页")
+	_assert(g._panel_kind == "catch" and g._catch_tab == 8, "开局点金币应打开设置页")
 	# 再点金币 → 关闭(toggle)
 	g._toggle_panel("catch")
 	_assert(g._panel_kind == "", "再点金币应关闭面板")
+	g.feature_unlocks["bag"] = true
+	g._catch_tab = 0
+	g._toggle_panel("catch")
+	_assert(g._panel_kind == "catch" and g._catch_tab == 0, "鱼篓开放后点金币应打开背包页")
+	g._toggle_panel("catch")
 	# 钓点签/订单签深链仍在
 	_assert(is_instance_valid(g.spot_chip) and is_instance_valid(g.order_chip), "钓点签/订单签应仍存在")
-	print("  主界面入口收敛：金币栏可点 / 无独立按钮 / 开关背包页 通过")
+	print("  主界面入口收敛：金币栏可点 / 无独立按钮 / 开局设置 / 开放后背包 通过")
 	g.queue_free()
 	await process_frame
 
@@ -974,6 +982,10 @@ func _check_reel_speed() -> void:
 		"绕线轮单级成本应随等级递增")
 	_assert(AnglerEquipmentScript.reel_upgrade_cost(0, 10) > AnglerEquipmentScript.reel_upgrade_cost(0, 1),
 		"绕线轮 +10 成本应包含 10 个逐级成本")
+	_assert(AnglerEquipmentScript.equipment_next_cost("reel", 10000) > 0,
+		"高等级装备单级成本不应溢出为负数")
+	_assert(AnglerEquipmentScript.equipment_upgrade_cost("reel", 10000, 100) == AnglerEquipmentScript.MAX_ECON_VALUE,
+		"极高等级装备批量成本应钳制到经济上限")
 	_assert(AnglerEquipmentScript.reel_wait_mult(100) < AnglerEquipmentScript.reel_wait_mult(0),
 		"绕线轮等级应降低速度等待倍率")
 	_assert(AnglerEquipmentScript.reel_wait_mult(300) < AnglerEquipmentScript.reel_wait_mult(100),
@@ -989,12 +1001,38 @@ func _check_reel_speed() -> void:
 	g.coins = 0
 	g._try_upgrade_reel(10)
 	_assert(g.reel_level == 0 and g.coins == 0, "绕线轮正式升级应检查金币，不足时不升级")
+	g.rod_level = 1000
+	_assert(g._rod_cost() > 1.0e200 and g._rod_cost() < g.MAX_ECON_VALUE,
+		"高等级鱼竿成本应使用浮点大数而非 64 位钳制，实际 %s" % g._coin_str(g._rod_cost()))
+	g.rod_level = 2000
+	_assert(g._rod_cost() == g.MAX_ECON_VALUE, "极端等级鱼竿成本应钳制到 double 经济上限")
+	_assert(g._coin_str(12345) == "12.3K" and g._coin_str(1234567) == "1.23M"
+			and g._coin_str(1234567890123456) == "1.23Qa" and g._coin_str(1.23e24) == "1.23Sp",
+		"金币显示应使用 K/M/B/T/Qa... 短单位，实际 %s / %s / %s / %s" % [
+			g._coin_str(12345), g._coin_str(1234567), g._coin_str(1234567890123456), g._coin_str(1.23e24)])
+	g.rod_level = 1
+	var chain: Array = g._equipment_chain()
+	_assert(chain == ["fish_line", "reel", "bobber", "sonar", "notebook", "gloves"],
+		"属性装备解锁顺序应由独立顺序表控制")
 	var unlock_reel_cost: int = g._equipment_unlock_cost("reel")
-	_assert(unlock_reel_cost == AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 30),
-		"绕线轮解锁成本应约等于鱼线 30 级投入")
+	var raw_reel_anchor: int = AnglerEquipmentScript.equipment_next_cost(
+		"fish_line", AnglerEquipmentScript.equipment_unlock_target("reel") - 1)
+	_assert(unlock_reel_cost == 2500 and unlock_reel_cost == AnglerEquipmentScript.equipment_next_cost("reel", 0)
+			and AnglerEquipmentScript.equipment_next_cost("reel", 1) > unlock_reel_cost,
+		"绕线轮解锁应购买 Lv.1，价格由鱼线锚点单次价规整得到，raw=%d rounded=%d" % [raw_reel_anchor, unlock_reel_cost])
+	var unlock_bobber_cost: int = g._equipment_unlock_cost("bobber")
+	var raw_bobber_anchor: int = AnglerEquipmentScript.equipment_next_cost(
+		"reel", AnglerEquipmentScript.equipment_unlock_target("bobber") - 1)
+	_assert(unlock_bobber_cost == 30000 and unlock_bobber_cost == AnglerEquipmentScript.equipment_next_cost("bobber", 0)
+			and unlock_bobber_cost > unlock_reel_cost,
+		"浮漂解锁应购买 Lv.1，价格由绕线轮锚点单次价规整得到，raw=%d rounded=%d" % [raw_bobber_anchor, unlock_bobber_cost])
+	_assert(g._visible_equipment_chain() == ["fish_line", "reel"],
+		"属性装备应逐步显露：初始只显示鱼线与绕线轮解锁")
 	g.coins = unlock_reel_cost
 	g._try_unlock_equipment("reel")
 	_assert(g.reel_level == 1 and g.coins == 0, "绕线轮应通过链式解锁进入 Lv.1")
+	_assert(g._visible_equipment_chain() == ["fish_line", "reel", "bobber"],
+		"绕线轮解锁后应显示浮漂解锁，但不能提前显示探鱼器")
 	var cost9: int = g._reel_upgrade_cost(9)
 	g.coins = cost9
 	g._try_upgrade_reel(9)
@@ -1019,8 +1057,8 @@ func _check_reel_speed() -> void:
 	g.notebook_level = 4
 	g.gloves_level = 5
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 19 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
-		"v19 应保存 reel_level 与五件属性装备等级")
+	_assert(int(d["ver"]) == 20 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
+		"v20 应保存 reel_level、五件属性装备等级与功能开放状态")
 	g.reel_level = 0
 	g.fish_line_level = 0
 	g.bobber_level = 0
@@ -1030,7 +1068,7 @@ func _check_reel_speed() -> void:
 	SaveSystem.apply(g, d)
 	_assert(g.reel_level == 100 and g.fish_line_level == 10 and g.bobber_level == 2
 			and g.sonar_level == 3 and g.notebook_level == 4 and g.gloves_level == 5,
-		"v18 应恢复 reel_level 与五件属性装备等级")
+		"v20 应恢复 reel_level 与五件属性装备等级")
 	var od := d.duplicate()
 	od.erase("reel_level")
 	od.erase("fish_line_level")
@@ -1042,6 +1080,60 @@ func _check_reel_speed() -> void:
 	_assert(g.reel_level == 0 and g.fish_line_level == 0 and g.gloves_level == 0,
 		"旧档无属性装备等级应默认 0")
 	print("  属性装备：链式解锁/平滑倍率/扣费升级/测试升降/存档往返 通过")
+	g.queue_free()
+	await process_frame
+
+
+func _check_feature_unlocks() -> void:
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	g.lifetime_catches = 0
+	g.lifetime_coins = 0.0
+	g.feature_spend_equipment = 0.0
+	g.feature_unlocks = {"settings": true}
+	g.dex.clear()
+	g.inventory.clear()
+	g.display.clear()
+	g.best_quality = 0
+	g.current_spot = SpotData.DEFAULT_SPOT
+	g.unlocked_spots = [SpotData.DEFAULT_SPOT]
+	g._ensure_feature_unlocks(true)
+	_assert(g._feature_unlocked("settings") and not g._feature_unlocked("bag")
+			and not g._feature_unlocked("gear"), "新进度应仅开放设置")
+	g.lifetime_catches = 3
+	g._ensure_feature_unlocks(true)
+	_assert(g._feature_unlocked("bag"), "累计钓到 3 条鱼应开放鱼篓")
+	g.lifetime_coins = 300.0
+	g._ensure_feature_unlocks(true)
+	_assert(g._feature_unlocked("gear"), "累计卖鱼 300 金币应开放装备")
+	g.feature_spend_equipment = 10000.0
+	g._ensure_feature_unlocks(true)
+	_assert(g._feature_unlocked("tasks"), "装备消费 10K 应开放任务")
+	var pool := SpotData.pool_for(SpotData.DEFAULT_SPOT)
+	var need := int(ceil(float(pool.size()) * 0.5))
+	for i in need:
+		g.dex[str(pool[i])] = {"n": 1, "w": 1.0, "big": false, "perf": false, "vmask": 0, "fd": ""}
+	g._ensure_feature_unlocks(true)
+	_assert(g._feature_unlocked("dex"), "默认钓点图鉴完成一半应开放图鉴")
+	var second := str(SpotData.SPOT_ORDER[1])
+	var unlock: Dictionary = SpotData.get_spot(second).get("unlock", {})
+	if str(unlock.get("kind", "")) == "catches":
+		g.lifetime_catches = int(unlock.get("n", 0))
+	g._refresh_unlocks()
+	_assert(g._feature_unlocked("spots"), "满足第二钓点条件应开放地图/钓点")
+	g.best_quality = 2
+	g._ensure_feature_unlocks(true)
+	_assert(g._feature_unlocked("tank"), "钓到极品鱼应开放鱼缸")
+	TestMode.set_feature_unlock(g, "bag", false)
+	_assert(not g._feature_unlocked("bag"), "测试模式功能开放面板应能关闭指定系统")
+	TestMode.set_feature_unlock(g, "bag", true)
+	_assert(g._feature_unlocked("bag"), "测试模式功能开放面板应能打开指定系统")
+	var d: Dictionary = SaveSystem.collect(g)
+	_assert((d["features"] as Dictionary).has("tank") and float(d["feature_spend_equipment"]) >= 10000.0,
+		"存档应包含功能开放状态与装备消费累计")
+	print("  功能开放：设置开局 / 鱼篓 / 装备 / 任务 / 图鉴 / 钓点 / 鱼缸 / 测试开关 通过")
 	g.queue_free()
 	await process_frame
 
@@ -1266,7 +1358,7 @@ func _check_autosell() -> void:
 	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
 	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 19, "存档版本应为 v19")
+	_assert(int(d["ver"]) == 20, "存档版本应为 v20")
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0
@@ -1793,6 +1885,7 @@ func _check_aquarium() -> void:
 		{"id": "koi", "w": 3.0, "v": 900, "q": 1, "lock": false, "var": 3},
 		{"id": "carp", "w": 1.0, "v": 20, "q": 0, "lock": false, "var": 0},
 	]
+	g.feature_unlocks["tank"] = true
 	g._catch_tab = g.TANK_TAB
 	g._open_panel("catch")
 	_assert(is_instance_valid(g._panel), "鱼缸页签应能打开")

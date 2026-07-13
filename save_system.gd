@@ -19,6 +19,7 @@ class_name SaveSystem
 ## v18 属性装备扩展：鱼线/浮漂/探鱼器/钓鱼笔记/钓鱼手套等级。旧档默认 0，无损迁移。
 ## v19 修 bug：dex 第 7 元 wd(刷新最大体重的日期，鱼种详情卡「破纪录于」用)。此前只存 6 元、
 ##     wd 每次重启即丢，详情卡必显「—」。旧档默认 wd=""，无损迁移（新旧代码可互读）。
+## v20 功能渐进开放：features(底栏系统开放状态)、feature_spend_equipment(装备消费累计)。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -32,7 +33,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 19,   # 18→19：dex 补第 7 元 wd（破纪录日期，此前漏序列化）
+		"ver": 20,   # 19→20：新增功能渐进开放状态
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"reel_level": g.reel_level,
@@ -58,6 +59,8 @@ static func collect(g) -> Dictionary:
 		"best_var": g.best_variant,
 		"giant": g.caught_giant,
 		"ach": g.achievements_done.keys(),
+		"features": g.feature_unlocks,
+		"feature_spend_equipment": g.feature_spend_equipment,
 		"opacity": g._opacity,
 		"max_fps": g.max_fps,           # 帧率上限设置（旧档无 → 载入默认 120）
 		"ui_scale": g.ui_scale,         # 界面缩放设置（旧档无 → 载入默认 1.0）
@@ -138,7 +141,7 @@ static func read_file(path: String) -> Variant:
 
 ## 把存档字典恢复到主节点（含各版本迁移）。不含离线结算与成就补登（留在 main）。
 static func apply(g, data: Dictionary) -> void:
-	g.coins = int(data.get("coins", 0))
+	g.coins = float(data.get("coins", 0.0))
 	g.rod_level = max(1, int(data.get("rod_level", 1)))
 	g.reel_level = maxi(0, int(data.get("reel_level", 0)))
 	g.fish_line_level = maxi(0, int(data.get("fish_line_level", 0)))
@@ -165,7 +168,7 @@ static func apply(g, data: Dictionary) -> void:
 				"q": int(e[3]) if e.size() >= 4 else 0,
 				"lock": e.size() >= 5 and int(e[4]) == 1,
 				"var": int(e[5]) if e.size() >= 6 else 0})
-	g.lifetime_coins = int(data.get("lt_coins", 0))
+	g.lifetime_coins = float(data.get("lt_coins", 0.0))
 	g.lifetime_catches = int(data.get("lt_catches", 0))
 	g.best_quality = int(data.get("best_q", 0))
 	g.best_variant = int(data.get("best_var", 0))
@@ -173,6 +176,13 @@ static func apply(g, data: Dictionary) -> void:
 	g.achievements_done = {}
 	for id in data.get("ach", []):
 		g.achievements_done[str(id)] = true
+	g.feature_unlocks = {"settings": true}
+	var features_raw: Variant = data.get("features", {})
+	if features_raw is Dictionary:
+		for fid in features_raw:
+			g.feature_unlocks[str(fid)] = bool(features_raw[fid])
+	g.feature_unlocks["settings"] = true
+	g.feature_spend_equipment = maxf(0.0, float(data.get("feature_spend_equipment", 0.0)))
 	g.dex = {}
 	var dex_raw: Variant = data.get("dex", [])
 	if dex_raw is Dictionary:                # v4+：{id: [n, w_max, big?, perf?]}
@@ -211,7 +221,7 @@ static func apply(g, data: Dictionary) -> void:
 			"week": int(wk_raw.get("week", -1)),
 			"kind": str(wk_raw.get("kind", "catches")),
 			"target": max(1, int(wk_raw.get("target", 1))),
-			"base": int(wk_raw.get("base", 0)),
+			"base": float(wk_raw.get("base", 0.0)),
 			"reward": int(wk_raw.get("reward", 0)),
 			"done": bool(wk_raw.get("done", false)),
 		}
@@ -230,7 +240,7 @@ static func apply(g, data: Dictionary) -> void:
 		g.day_stat = {
 			"date": str(ds_raw.get("date", "")),
 			"catches": int(ds_raw.get("catches", 0)),
-			"coins": int(ds_raw.get("coins", 0)),
+			"coins": float(ds_raw.get("coins", 0.0)),
 		}
 	g._opacity = float(data.get("opacity", 1.0))
 	g._set_opacity(g._opacity)
@@ -264,7 +274,7 @@ static func apply(g, data: Dictionary) -> void:
 	if sc_raw is Array:
 		for i in mini(3, (sc_raw as Array).size()):
 			g.scales[i] = maxi(0, int(sc_raw[i]))
-	g.yest_income = maxi(0, int(data.get("yest_income", 0)))
+	g.yest_income = maxf(0.0, float(data.get("yest_income", 0.0)))
 	g.showcase_pending = str(data.get("showcase", ""))
 	if not (g.showcase_pending in ["rod", "bait", "hook", "lure"]):
 		g.showcase_pending = ""
@@ -272,13 +282,13 @@ static func apply(g, data: Dictionary) -> void:
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0
-	g.auto_sold_v = 0
+	g.auto_sold_v = 0.0
 	var asr: Variant = data.get("autosell", {})
 	if asr is Dictionary:
 		g.auto_sell_bought = bool(asr.get("b", false))
 		g.auto_sell_on = bool(asr.get("on", false)) and g.auto_sell_bought
 		g.auto_sold_n = maxi(0, int(asr.get("n", 0)))
-		g.auto_sold_v = maxi(0, int(asr.get("v", 0)))
+		g.auto_sold_v = maxf(0.0, float(asr.get("v", 0.0)))
 	var wp: Variant = data.get("win_pos", null)
 	if wp is Array and wp.size() >= 2:
 		g._saved_win_pos = Vector2i(int(wp[0]), int(wp[1]))

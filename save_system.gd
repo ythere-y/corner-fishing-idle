@@ -17,6 +17,8 @@ class_name SaveSystem
 ## v16 帧率默认 30→120：≤v15 档的 max_fps=30 视为旧默认、一次性迁到 120（v16 起选 30 被尊重）。
 ## v17 独立速度装备：reel_level(绕线轮等级，提供 speed 属性并缩短一竿周期)。旧档默认 0，无损迁移。
 ## v18 属性装备扩展：鱼线/浮漂/探鱼器/钓鱼笔记/钓鱼手套等级。旧档默认 0，无损迁移。
+## v19 修 bug：dex 第 7 元 wd(刷新最大体重的日期，鱼种详情卡「破纪录于」用)。此前只存 6 元、
+##     wd 每次重启即丢，详情卡必显「—」。旧档默认 wd=""，无损迁移（新旧代码可互读）。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -30,7 +32,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 18,   # 17→18：新增五条属性装备等级线
+		"ver": 19,   # 18→19：dex 补第 7 元 wd（破纪录日期，此前漏序列化）
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"reel_level": g.reel_level,
@@ -103,7 +105,8 @@ static func dex_to_save(g) -> Dictionary:
 			1 if bool(r.get("big", false)) else 0,
 			1 if bool(r.get("perf", false)) else 0,
 			int(r.get("vmask", 0)),       # v10：见过的稀有变体位掩码
-			str(r.get("fd", ""))]          # v11：首次捕获日期（水族箱纪录卡）
+			str(r.get("fd", "")),          # v11：首次捕获日期（水族箱纪录卡）
+			str(r.get("wd", ""))]          # v19：刷新最大体重的日期（鱼种详情卡「破纪录于」）
 	return out
 
 
@@ -180,7 +183,8 @@ static func apply(g, data: Dictionary) -> void:
 					"big": e.size() >= 3 and int(e[2]) == 1,
 					"perf": e.size() >= 4 and int(e[3]) == 1,
 					"vmask": int(e[4]) if e.size() >= 5 else 0,   # v10 变体掩码
-					"fd": str(e[5]) if e.size() >= 6 else ""}      # v11 首捕日期
+					"fd": str(e[5]) if e.size() >= 6 else "",      # v11 首捕日期
+					"wd": str(e[6]) if e.size() >= 7 else ""}      # v19 破纪录日期
 	elif dex_raw is Array:                   # v1~v3：仅 id 列表 → 纪录从头积累
 		for id in dex_raw:
 			if FishData.FISH.has(str(id)):

@@ -100,5 +100,91 @@
     "duration_seconds": 20.0,
     "loop": true,
     "description": "Cavern-pool water-drip bed. Source: OpenGameArt 'Dripping water loop' (atmosbasement), CC0."
+  },
+  "sfx_new_species": {
+    "path": "res://assets/audio/feedback/sfx_new_species.wav",
+    "duration_seconds": 2.02,
+    "loop": false,
+    "description": "Warm three-note harp lift for a first-ever species. Synthesized (Karplus-Strong), public domain."
+  },
+  "sfx_record": {
+    "path": "res://assets/audio/feedback/sfx_record.wav",
+    "duration_seconds": 3.085,
+    "loop": false,
+    "description": "Four-note rise with octave-below root — personal best weight. Synthesized, public domain."
+  },
+  "sfx_achievement": {
+    "path": "res://assets/audio/feedback/sfx_achievement.wav",
+    "duration_seconds": 2.46,
+    "loop": false,
+    "description": "Open fifth plus a single glass chime — dignified achievement mark. Synthesized, public domain."
+  },
+  "sfx_focus_reward": {
+    "path": "res://assets/audio/feedback/sfx_focus_reward.wav",
+    "duration_seconds": 5.356,
+    "loop": false,
+    "description": "Scattered wind chime for the focus reward. Deliberately near-inaudible. Synthesized, public domain."
+  },
+  "sfx_competition_win": {
+    "path": "res://assets/audio/feedback/sfx_competition_win.wav",
+    "duration_seconds": 3.8,
+    "loop": false,
+    "description": "Weekly giant-fish contest gold. Full rise over a low root. Synthesized, public domain."
+  },
+  "sfx_spot_unlock": {
+    "path": "res://assets/audio/feedback/sfx_spot_unlock.wav",
+    "duration_seconds": 3.78,
+    "loop": false,
+    "description": "Wide airy rise for unlocking a new fishing spot. Synthesized, public domain."
+  },
+  "sfx_reel_tension": {
+    "path": "res://assets/audio/feedback/sfx_reel_tension.wav",
+    "duration_seconds": 1.13,
+    "loop": true,
+    "description": "Bite->catch tension loop: synthesized bowed swell (public domain) under a lowpassed real line-creak. Creak source: Wikimedia Commons 'Assorted creaking noises of office chair' (public domain) — no free fishing-line recording exists."
+  },
+  "bgm_day": {
+    "path": "res://assets/audio/music/bgm_day.ogg",
+    "duration_seconds": 123.75,
+    "loop": true,
+    "music": true,
+    "description": "Main loop: shimmering piano, low pulses, gentle pads, no percussion. Source: OpenGameArt 'First Light Particles' by Yoiyami, CC0."
+  },
+  "bgm_night": {
+    "path": "res://assets/audio/music/bgm_night.ogg",
+    "duration_seconds": 114.55,
+    "loop": true,
+    "music": true,
+    "description": "Night variation: sparse ambience, author states 'no real melody or focus'. Source: OpenGameArt 'Contemplation' by Joth, CC0."
+  },
+  "catch_good": {
+    "path": "res://assets/audio/fishing/catch_good.wav",
+    "duration_seconds": 0.639,
+    "loop": false,
+    "description": "Good-quality catch: water lift with a very faint confirmation. Sources: OGA 40 CC0 water/splash/slime splash_09 + Kenney Interface Sounds confirmation_002 (kenney.nl, CC0)."
+  },
+  "catch_epic": {
+    "path": "res://assets/audio/fishing/catch_epic.wav",
+    "duration_seconds": 4.5,
+    "loop": false,
+    "description": "Rainbow / legendary catch: big water lift, a thrashing fish, and a five-note rise with shimmer tail. Sources: OGA 40 CC0 water/splash/slime splash_01 + Wikimedia Commons 'Bathtub water splashes' (public domain) + synthesized tail (tools/synth_feedback_sfx.py)."
+  },
+  "sfx_cat_steal": {
+    "path": "res://assets/audio/feedback/sfx_cat_steal.wav",
+    "duration_seconds": 0.98,
+    "loop": false,
+    "description": "The cat steals a fish: one soft inquisitive meow, then a small paw splash. Sources: Wikimedia Commons 'Meow of a Siamese cat' by freemaster2 (CC0) + OGA 40 CC0 water/splash/slime splash_09. The meow source clips on ~0.05% of samples; harmless after normalisation to peak 0.26."
+  },
+  "sfx_fish_struggle": {
+    "path": "res://assets/audio/feedback/sfx_fish_struggle.wav",
+    "duration_seconds": 1.1,
+    "loop": false,
+    "description": "A big fish thrashing on the line, layered under the bite of tier-3+ catches. Source: Wikimedia Commons 'Bathtub water splashes' (public domain), loudest 1.1 s window, lowpassed to sit inside the watercolour palette."
+  },
+  "sfx_event_appear": {
+    "path": "res://assets/audio/feedback/sfx_event_appear.wav",
+    "duration_seconds": 2.17,
+    "loop": false,
+    "description": "Two soft notes and a chime — a random event has appeared. Synthesized, public domain."
   }
 }

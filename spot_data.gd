@@ -9,6 +9,29 @@ class_name SpotData
 ## order_bias：每日订单优先从本钓点鱼池生成（保证订单可在当前钓点完成）。
 ## wait_mult/value_mult/luck_bonus：钓点常驻系数（叠加在鱼竿/事件之上），默认中性。
 
+## 站点的真实世界坐标 Vector2(经度, 纬度)，**仅供「旅行地图」绘制**，与玩法/数值零关联。
+## 取自各站 name 里的国家标注（第1~4站中国 → 菲律宾 → 马来西亚 → 新西兰 → 澳大利亚 → 冰岛 → 斯洛文尼亚）。
+## ⚠️ 这不是玩家的现实位置——它是"这个人在哪儿钓鱼"。地图上永远只出现这 10 个枚举点，
+## 所以将来联网时上行只需一个 spot_key，不涉及任何位置数据（见 BACKLOG 决策日志 2026-07-08）。
+const GEO := {
+	"river_bend": Vector2(114.3, 30.6),      # 中国 · 长江中游河湾
+	"still_lake": Vector2(116.4, 29.2),      # 中国 · 鄱阳湖一带的冷湖
+	"mountain_stream": Vector2(99.2, 30.0),  # 中国 · 川西雪线溪谷
+	"urban_pond": Vector2(113.3, 23.1),      # 中国 · 广州（出境前最后补给）
+	"coast_pier": Vector2(120.9, 14.6),      # 菲律宾 · 马尼拉湾渔港
+	"estuary": Vector2(118.1, 5.8),          # 马来西亚 · 沙巴红树林河口
+	"deep_sea": Vector2(176.2, -37.7),       # 新西兰 · 北岛东岸外海
+	"coral_reef": Vector2(145.8, -16.9),     # 澳大利亚 · 大堡礁（凯恩斯外海）
+	"polar_lake": Vector2(-21.1, 64.2),      # 冰岛 · 辛格韦德利湖
+	"cavern_pool": Vector2(14.2, 45.8),      # 斯洛文尼亚 · 波斯托伊纳溶洞
+}
+
+
+## 站点经纬度（缺失返回 Vector2.ZERO——调用方按"无坐标不画"处理，不崩）。
+static func geo_of(id: String) -> Vector2:
+	return GEO.get(id, Vector2.ZERO)
+
+
 const SPOTS := {
 	"river_bend": {
 		# 【修改】name/desc 改为"背包客旅程手记"叙事（v2：补上国家标注——中国，出发起点）；unlock/tags/event_pool/数值等原样保留，玩法零改动。
@@ -208,6 +231,20 @@ static func unlock_text(id: String) -> String:
 		"coins": return "累计卖鱼赚 %d 金币解锁" % int(u.get("n", 0))
 		"species": return "图鉴收集 %d 种鱼解锁" % int(u.get("n", 0))
 	return ""
+
+
+## near-miss 可见化：锁定钓点的解锁进度 [当前值, 目标值]（无解锁条件返回空数组）。
+## 「还差 13 条」比静态的「累计 300 条解锁」有牵引力得多（goal-gradient：越接近越想挂）。
+static func unlock_progress_pair(id: String, lifetime_catches: int, lifetime_coins: int, species: int) -> Array:
+	var u: Dictionary = get_spot(id).get("unlock", {})
+	if u.is_empty():
+		return []
+	var n := int(u.get("n", 0))
+	match str(u.get("kind", "")):
+		"catches": return [mini(lifetime_catches, n), n]
+		"coins": return [mini(lifetime_coins, n), n]
+		"species": return [mini(species, n), n]
+	return []
 
 
 ## 判定某钓点是否满足解锁条件。catches/coins 用终身累计，species 用图鉴种数。

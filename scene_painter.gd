@@ -120,6 +120,15 @@ var _prng := RandomNumberGenerator.new()
 const FLASH_DUR := 0.6
 var _flash_t := 0.0
 
+# —— 稀有仪式三件套（P0 好玩补丁）：咬钩驻留金环 / 入手金光粒子 / 水面号外纸条。
+# 全部纯程序绘制、零外部资源、零存档；main 侧一律经 has_method 守卫调用。
+var _bite_glow_t := 0.0                       # 稀有咬钩驻留剩余秒数（>0 时浮漂处画脉动金环）
+var _bite_glow_col := Color(1.0, 0.86, 0.45)  # 金环颜色（随变体色）
+var _sparks: Array = []                       # 金光粒子 {pos, vel, life, max, size, col}
+var _news_text := ""                          # 号外纸条文字（空=不显示）
+var _news_t := 0.0
+const NEWS_DUR := 9.0                         # 号外漂过水面的总时长（秒）
+
 # —— 水彩纸纹层：程序化生成的极淡冷压纸颗粒，铺满整幅场景、叠在所有内容之上。
 # 走 painter 自身的羽化材质，会和场景一起向左上消散；把"干净插画"统一成"隔着一层手工纸"的水彩气质。
 # 整幅一次性生成（与场景同尺寸，无平铺缝），零外部资源、零存档；带框/沉浸两态通用。
@@ -281,6 +290,33 @@ func catch_flash() -> void:
 	_flash_t = FLASH_DUR
 
 
+## 稀有咬钩驻留：真·稀有在水下多挣扎几秒，浮漂处亮起脉动金环等玩家亲手起钩。
+func bite_glow(dur: float, col: Color) -> void:
+	_bite_glow_t = dur
+	_bite_glow_col = col
+
+
+## 咬钩结束（上鱼/起竿）时由 main 熄灭金环。
+func bite_glow_off() -> void:
+	_bite_glow_t = 0.0
+
+
+## 稀有入手金光粒子：一簇火花从浮漂处迸出、缓慢上飘消散（约 1.5 秒）。
+func celebrate(pos: Vector2, col: Color) -> void:
+	for i in 22:
+		var a := randf() * TAU
+		var sp := randf_range(22.0, 88.0)
+		_sparks.append({"pos": pos, "vel": Vector2(cos(a), sin(a)) * sp + Vector2(0, -34.0),
+			"life": randf_range(0.8, 1.6), "max": 1.6,
+			"size": randf_range(1.4, 3.2), "col": col})
+
+
+## 水面号外：一张米纸小条从右往左漂过水面（稀有捕获的挂件内播报，不出窗、不推系统通知）。
+func newsflash(text: String) -> void:
+	_news_text = text
+	_news_t = NEWS_DUR
+
+
 func _process(delta: float) -> void:
 	t += delta
 	if debug_tod >= 0.0:
@@ -291,6 +327,17 @@ func _process(delta: float) -> void:
 	_gp = _grade_params(_tod)
 	if _flash_t > 0.0:
 		_flash_t -= delta
+	if _bite_glow_t > 0.0:
+		_bite_glow_t -= delta
+	if _news_t > 0.0:
+		_news_t -= delta
+	for s in _sparks:
+		s["pos"] += s["vel"] * delta
+		s["vel"] -= s["vel"] * minf(1.0, delta * 2.4)   # 阻尼减速
+		s["vel"].y += 20.0 * delta                       # 轻微回落
+		s["life"] -= delta
+	if not _sparks.is_empty():
+		_sparks = _sparks.filter(func(x): return x["life"] > 0.0)
 	if _spot_fade < 1.0:
 		_spot_fade = minf(1.0, _spot_fade + delta / SPOT_FADE_DUR)
 		if _spot_fade >= 1.0:
@@ -973,8 +1020,11 @@ func _draw_composite() -> void:
 	_draw_wildlife()
 	_draw_ripples()
 	_draw_bobber_sprite()
+	_draw_bite_ring()       # 稀有咬钩驻留：浮漂脉动金环（P0 好玩补丁）
+	_draw_sparks()          # 稀有入手金光粒子
 	_draw_glow_layer()      # 灯光呼吸光晕（锚在灯笼火焰处）
 	_draw_catch_flash()     # 稀有上鱼柔和暖光脉冲（受羽化遮罩约束）
+	_draw_newsflash()       # 水面号外纸条（稀有捕获的挂件内播报）
 	_draw_paper_layer()     # 水彩纸纹（最上层介质，随羽化消散，统一全画面气质）
 
 
@@ -992,6 +1042,49 @@ func _draw_catch_flash() -> void:
 	var p: float = _flash_t / FLASH_DUR          # 1 → 0
 	var a := sin(p * PI) * 0.16                   # 0 → 峰值0.16 → 0 的柔和脉冲
 	draw_rect(Rect2(0.0, 0.0, W, H), Color(1.0, 0.86, 0.45, a))
+
+
+## 稀有咬钩驻留金环：浮漂外两圈脉动圆弧（水彩淡金），提示「此刻点起钩有惊喜」。
+func _draw_bite_ring() -> void:
+	if _bite_glow_t <= 0.0:
+		return
+	var p := bobber_pos()
+	var pulse := 0.5 + 0.5 * sin(t * 6.0)
+	var col := _bite_glow_col
+	col.a = 0.34 + 0.26 * pulse
+	draw_arc(p, 13.0 + 4.0 * pulse, 0.0, TAU, 40, col, 2.0, true)
+	col.a *= 0.45
+	draw_arc(p, 21.0 + 6.0 * pulse, 0.0, TAU, 48, col, 1.5, true)
+
+
+## 稀有入手金光粒子：小圆点随生命值淡出（水彩气质：小、软、稀）。
+func _draw_sparks() -> void:
+	for s in _sparks:
+		var k := clampf(float(s["life"]) / float(s["max"]), 0.0, 1.0)
+		var col: Color = s["col"]
+		col.a = 0.85 * k
+		draw_circle(s["pos"], float(s["size"]) * (0.6 + 0.4 * k), col)
+
+
+## 水面号外纸条：米纸底 + 暖墨字，从右缓缓漂到左、首尾淡入淡出（挂件内自足的「全服播报」平替）。
+func _draw_newsflash() -> void:
+	if _news_t <= 0.0 or _news_text == "":
+		return
+	var f: Font = ThemeDB.fallback_font   # Node2D 无主题字体，走全局回退（Windows 下含 CJK 回退链）
+	if f == null:
+		return
+	var fs := 11
+	var k := 1.0 - _news_t / NEWS_DUR            # 0 → 1
+	var tw := f.get_string_size(_news_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var x := W + 24.0 - (W + tw + 72.0) * k       # 右外 → 左外
+	var y := 292.0 + sin(t * 1.3) * 2.5           # 浮在水面上方，轻轻晃
+	var fade := clampf(minf(k, 1.0 - k) * 7.0, 0.0, 1.0)
+	var pad := 8.0
+	var rect := Rect2(x - pad, y - 15.0, tw + pad * 2.0, 22.0)
+	draw_rect(rect, Color(0.96, 0.93, 0.85, 0.88 * fade))
+	draw_rect(rect, Color(0.36, 0.29, 0.21, 0.55 * fade), false, 1.0)
+	draw_string(f, Vector2(x, y + 1.0), _news_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
+		Color(0.25, 0.19, 0.13, 0.95 * fade))
 
 
 ## 雾气微风：每层异周期正弦漂移（约 ±20~40px），透明度做明显的浓淡呼吸。

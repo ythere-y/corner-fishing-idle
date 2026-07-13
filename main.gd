@@ -8,8 +8,7 @@ class_name CornerFishing
 @onready var coins_label: Label = $HUD/Root/Coins
 @onready var toast_label: Label = $HUD/Root/Toast
 
-# 窗口比美术画布(520x400)更大，多出的空间透明、留给弹出面板自由展开；
-# 场景靠 SCENE_OFF 偏移钉在窗口右下角（视觉上仍是角落小挂件）。
+# 主窗口保持大画布；挂机画面固定在右下角，复杂面板在主窗口中央弹出。
 const WIN := Vector2i(1040, 720)
 const ART := Vector2(520, 400)
 const SCENE_OFF := Vector2(520, 320)  # = WIN - ART，场景绘制/按钮/落水点统一加此偏移
@@ -38,6 +37,7 @@ const FRAMED_BG := Color(0.105, 0.115, 0.105)   # 带框窗口实底背景（场
 # （Codex 更新美术时同步改 json 即可，不用动代码）；无 json 时用下面实测的回退值。
 # json 格式：{"buttons": {"catch": [x,y]}, "bite_point": [x,y]}
 # 升级（鱼竿/鱼饵/鱼钩）与设置都已并入鱼篓面板页签，主界面只留一个「鱼篓」按钮。
+const AnglerEquipmentScript := preload("res://systems/angler/angler_equipment.gd")
 const UI_LAYOUT_PATHS := ["res://ui_layout.json", "res://assets/art/ui/ui_layout.json"]
 var btn_centers := {
 	"catch": Vector2(452, 371),
@@ -49,9 +49,24 @@ var _state := ST_WAIT
 var _state_t := 0.0
 var _started := false
 
+# —— 亲手起钩（P0 好玩补丁）：渔获在咬钩瞬间预掷，咬钩窗口内点「起钩！」= 亲手钓获加成。
+# 设计宪法：手动只可能加成、绝不惩罚——不点照常自动上鱼，挂机永远是 100% 基线。
+var _pending_catch := {}          # 咬钩时预掷的渔获（空 = 无预掷 → _do_catch 现场掷，兼容测试直调）
+var _bite_special := false        # 本次咬钩是否稀有驻留（鎏金/七彩/神话：多挣扎几秒等你伸手）
+var hand_catches := 0             # 亲手起钩累计（存档 hand_n，旧档默认 0）
+var _capture_card_data := {}      # 稀有捕获卡当前展示的渔获（面板 kind="capture"）
+const HAND_HOOK_MULT := 1.1       # 亲手起钩：体重/卖价 ×1.1
+const SPECIAL_BITE_HOLD := 4.5    # 稀有咬钩驻留秒数（≈0.5% 竿次，平均节奏影响可忽略）
+
 # —— 存档数据 ——
 var coins := 0
 var rod_level := 1
+var reel_level := 0  # 独立速度装备：绕线轮等级，提供 speed 属性并缩短一竿周期
+var fish_line_level := 0
+var bobber_level := 0
+var sonar_level := 0
+var notebook_level := 0
+var gloves_level := 0
 var bag_level := 1
 var bait_level := 0  # FishData.BAITS 下标，金币永久升级
 var hook_level := 0  # FishData.HOOKS 下标，决定双钩几率
@@ -103,6 +118,7 @@ const UI_SCALE_MIN := 0.5                    # 自由缩放下限：0.5=520×360
 const UI_SCALE_MAX := 2.5                    # 自由缩放绝对上限（实际还会再夹到屏幕可用区）
 var ui_scale := 1.0              # 当前界面缩放倍率（连续值）；带框模式整窗等比缩放
 var _win_resize_guard := false   # 程序内主动改窗口尺寸时置位（仅 _set_ui_scale 用，保留以防误触发监听）
+var _widget_pos = null           # Variant：Vector2 或 null；透明覆盖窗内挂机组件左上角
 # —— 自绘缩放手柄（无边框窗口没有系统边框，照「自绘移动」的思路补一套缩放）——
 var _rz_active := false           # 是否正在拖拽缩放
 var _rz_anchor := Vector2.ZERO    # 锚点归一化坐标（拖动时该点在屏幕上不动）∈ {0, .5, 1}²
@@ -136,6 +152,8 @@ var _saved_win_pos = null   # Variant：Vector2i 或 null（无存档位置则�
 var _panel_dragging := false
 var _panel_drag_offset := Vector2.ZERO
 var _panel_saved_pos = null  # Variant：Vector2 或 null，记住弹出面板被拖到的位置
+var _hud_chips_box: HBoxContainer = null
+var _resize_grips: Array = []
 
 # —— 流动鱼贩（动森 CJ 模式）：随机出现的限时收购，卖价 ×1.5 ——
 const MERCHANT_MULT := 1.5
@@ -185,7 +203,7 @@ var _window_focused := true            # 窗口是否聚焦（FOCUS_IN/OUT 通�
 var _focus_away_t := 0.0               # 当前连续失焦累计秒（宽限窗外操作折算保留 80%）
 var _focus_grace_t := 0.0              # 回焦宽限窗剩余秒：窗内点击不折算专注（容纳快速卖鱼一趟）
 var _focus_granted := 0                # 本段已「实际发放」的最高档（0=无 1=25min 2=50min）——
-                                       # 记事实而非从时长反推：封顶期间越阈未发的档不能被误标已发
+									   # 记事实而非从时长反推：封顶期间越阈未发的档不能被误标已发
 var focus_pending := 0                 # 待兑奖励等级（0 无 / 1 高星 / 2 鎏金），下一竿消费
 var focus_minutes_total := 0.0         # 累计专注分钟（成就/统计）
 var focus_reward_today := 0            # 今日已发奖励次数（封顶）
@@ -219,9 +237,10 @@ func _ready() -> void:
 	# 也保证结算前 Spots/Weather 读到真实时段而非默认白昼。
 	day_phase = Weather.current_phase()
 	_load_save()
+	_layout_widget()
 	_refresh_unlocks()  # 载入期静默补登已满足解锁的钓点
 	_ensure_day_stat()  # 先沉淀"昨日收入"锚再重建周字典——跨周首启是周奖励重建的主路径，
-	                    # 顺序反了会把锚读成"上上个游玩日"（对抗审查 should-fix）
+						# 顺序反了会把锚读成"上上个游玩日"（对抗审查 should-fix）
 	_ensure_daily_order()
 	_ensure_weekly()
 	_ensure_competition()
@@ -249,6 +268,8 @@ func _ready() -> void:
 	elif _pending_offline != "":
 		_toast(_pending_offline, 4.5, Color(0.55, 0.85, 0.55))
 		_pending_offline = ""
+	if display_mode != "immersive" and test_mode:
+		_set_dev_attrs_open(true)
 
 
 # ============================ 窗体形态 ============================
@@ -270,17 +291,21 @@ func _setup_window() -> void:
 			_place_corner()  # 无存档位置 / 离屏 → 回右下角
 		_update_passthrough()
 	else:
-		# 带框普通窗口：不透明、带边框标题栏、不置顶、不穿透、居中
-		RenderingServer.set_default_clear_color(FRAMED_BG)
-		w.transparent_bg = false
-		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false)
-		w.borderless = false
-		w.always_on_top = false
-		UIPanels.set_interactive_full(self, true)  # 整窗矩形穿透：复位窗口区域、永不裁椭圆
+		# 透明覆盖窗：普通无边框窗口铺满当前屏幕可用区，不触发 macOS 系统全屏 Space。
+		RenderingServer.set_default_clear_color(Color(0, 0, 0, 0))
+		w.transparent_bg = true
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true)
+		w.borderless = true
+		w.always_on_top = true
 		await get_tree().process_frame
-		var scr := DisplayServer.screen_get_usable_rect()
-		var ws := DisplayServer.window_get_size()
-		DisplayServer.window_set_position(scr.position + (Vector2i(scr.size) - ws) / 2)
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		var usable := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
+		DisplayServer.window_set_position(usable.position)
+		DisplayServer.window_set_size(usable.size)
+		await get_tree().process_frame
+		_widget_pos = null
+		_layout_widget()
+		UIPanels.set_interactive_full(self, false)
 
 
 # —— 显示模式布置 ——
@@ -293,6 +318,10 @@ var _chip_dex: Label = null
 var _flag_box: VBoxContainer = null
 var _nav_badges := {}   # 导航徽章 {tab: PanelContainer}（鱼篓满/任务可交付）
 var _nav_bar: PanelContainer = null   # 底栏容器（背景随面板开关切透明/暗，避免与 sheet 断裂）
+var _dev_tools_bar: PanelContainer = null
+var _dev_attrs_panel: PanelContainer = null
+var _dev_attrs_open := true
+var _dev_pet_state := "无"
 
 func _apply_display_mode() -> void:
 	if display_mode == "immersive":
@@ -305,14 +334,70 @@ func _apply_display_mode() -> void:
 			fmat.set_shader_parameter("core", FEATHER_CORE)
 	else:
 		painter.material = null   # 关羽化，场景实心填窗
-		# 场景向四周各溢出 FRAMED_OVERSCAN 像素：原本左/右/底边正好压在窗口边缘，
-		# 在分数 DPI / 分数缩放的显示器上，那一列会被线性采样拉成一条浅"描边"接缝
-		# （双屏中只有缩放为分数的那台出现）。把边缘推到屏外 → 可见边永远是内部内容，无缝。
-		var os := FRAMED_OVERSCAN
-		var s := (float(WIN.x) + 2.0 * os) / ART.x   # 横向铺满窗宽 + 两侧各溢出 os
-		painter.scale = Vector2(s, s)
-		# 底对齐窗口底（场景铺到导航后面，底栏浮在场景上、无深色板）；左/底各溢出 os。
-		painter.position = Vector2(-os, float(WIN.y) + os - ART.y * s)
+		_layout_widget()
+
+
+func _stage_size() -> Vector2:
+	return get_viewport_rect().size
+
+func _widget_size() -> Vector2:
+	return ART * ui_scale
+
+
+func _default_widget_pos() -> Vector2:
+	var margin := Vector2(24, 24)
+	return _stage_size() - _widget_size() - margin
+
+
+func _clamp_widget_pos(pos: Vector2) -> Vector2:
+	var max_pos := _stage_size() - _widget_size()
+	return Vector2(clampf(pos.x, 0.0, maxf(0.0, max_pos.x)),
+		clampf(pos.y, 0.0, maxf(0.0, max_pos.y)))
+
+
+func _ensure_widget_pos() -> void:
+	if _widget_pos == null:
+		_widget_pos = _default_widget_pos()
+	_widget_pos = _clamp_widget_pos(_widget_pos)
+
+
+func _widget_point(p: Vector2) -> Vector2:
+	_ensure_widget_pos()
+	return (_widget_pos as Vector2) + p * ui_scale
+
+
+func _layout_widget() -> void:
+	if display_mode == "immersive":
+		return
+	_ensure_widget_pos()
+	var s := Vector2(ui_scale, ui_scale)
+	painter.scale = s
+	painter.position = _widget_pos as Vector2
+	toast_label.position = _widget_point(Vector2((ART.x - 440.0) * 0.5, ART.y - FRAMED_CONSOLE_H - 120.0))
+	toast_label.scale = s
+	if is_instance_valid(_hud_chips_box):
+		_hud_chips_box.position = _widget_point(Vector2(16, 12))
+		_hud_chips_box.scale = s
+	if is_instance_valid(_flag_box):
+		_flag_box.position = _widget_point(Vector2(0, 12))
+		_flag_box.size = Vector2(ART.x - 16.0, 0)
+		_flag_box.scale = s
+	if is_instance_valid(_nav_bar):
+		_nav_bar.position = _widget_point(Vector2(0, ART.y - FRAMED_CONSOLE_H))
+		_nav_bar.size = Vector2(ART.x, FRAMED_CONSOLE_H)
+		_nav_bar.scale = s
+	if is_instance_valid(_dev_tools_bar):
+		_dev_tools_bar.position = Vector2.ZERO
+		_dev_tools_bar.scale = Vector2.ONE
+	if is_instance_valid(_dev_attrs_panel):
+		var attrs_pos := Vector2(104, 0)
+		var attrs_bottom := _stage_size().y
+		_dev_attrs_panel.position = attrs_pos
+		_dev_attrs_panel.size = Vector2(360, maxf(240.0, attrs_bottom - attrs_pos.y))
+	_update_action_button()
+	_layout_resize_grips()
+	if _panel_kind == "":
+		UIPanels.set_interactive_full(self, false)
 
 
 ## 场景内 art 坐标 → 屏幕坐标（含带框缩放/偏移），飘字/落水定位用。
@@ -335,11 +420,101 @@ func _setup_immersive_hud() -> void:
 # —— 带框 App 外壳：底部导航 console + 起竿按钮 + 顶部 HUD ——
 func _build_framed_chrome() -> void:
 	coins_label.visible = false   # 带框用图标胶囊替代纯文字 HUD
-	toast_label.position = Vector2((float(WIN.x) - 440) * 0.5, float(WIN.y) - FRAMED_CONSOLE_H - 120)
 	_build_hud_chips()
 	_build_status_flags()
 	_build_bottom_nav()
+	if test_mode:
+		_build_dev_tools_bar()
 	_build_action_button()
+	_layout_widget()
+
+
+func _build_dev_tools_bar() -> void:
+	var bar := PanelContainer.new()
+	bar.name = "DevToolsBar"
+	bar.z_index = 40
+	bar.custom_minimum_size = Vector2(96, 42)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.10, 0.11, 0.10, 0.72)
+	sb.corner_radius_bottom_right = 10
+	sb.set_border_width_all(1)
+	sb.border_color = DT.GLASS_ROW_BORDER
+	bar.add_theme_stylebox_override("panel", sb)
+	var mg := MarginContainer.new()
+	mg.add_theme_constant_override("margin_left", 6)
+	mg.add_theme_constant_override("margin_right", 6)
+	mg.add_theme_constant_override("margin_top", 6)
+	mg.add_theme_constant_override("margin_bottom", 6)
+	bar.add_child(mg)
+	var attrs := Button.new()
+	attrs.text = "开发管理"
+	attrs.focus_mode = Control.FOCUS_NONE
+	attrs.custom_minimum_size = Vector2(84, 30)
+	UIPanels.apply_button_skin(attrs, false)
+	attrs.pressed.connect(func() -> void: _set_dev_attrs_open(not _dev_attrs_open))
+	mg.add_child(attrs)
+	ui_root.add_child(bar)
+	_dev_tools_bar = bar
+	_build_dev_attrs_panel()
+
+
+func _build_dev_attrs_panel() -> void:
+	var panel := PanelContainer.new()
+	panel.name = "DevAttrsPanel"
+	panel.z_index = 41
+	panel.custom_minimum_size = Vector2(360, 240)
+	panel.size = Vector2(360, 720)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.09, 0.08, 0.84)
+	sb.corner_radius_top_right = 10
+	sb.corner_radius_bottom_right = 10
+	sb.set_border_width_all(1)
+	sb.border_color = DT.GLASS_BORDER
+	sb.shadow_color = Color(0, 0, 0, 0.28)
+	sb.shadow_size = 12
+	sb.shadow_offset = Vector2(0, 4)
+	panel.add_theme_stylebox_override("panel", sb)
+	ui_root.add_child(panel)
+	_dev_attrs_panel = panel
+	_refresh_dev_attrs_panel()
+	panel.visible = _dev_attrs_open
+
+
+func _set_dev_attrs_open(open: bool) -> void:
+	_dev_attrs_open = open
+	if display_mode == "immersive":
+		return
+	if not is_instance_valid(_dev_attrs_panel):
+		_build_dev_attrs_panel()
+		return
+	_dev_attrs_panel.visible = open
+	if open:
+		_refresh_dev_attrs_panel()
+	_layout_widget()
+
+
+func _refresh_dev_attrs_panel() -> void:
+	if not is_instance_valid(_dev_attrs_panel):
+		return
+	for c in _dev_attrs_panel.get_children():
+		c.free()
+	var mg := MarginContainer.new()
+	mg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	mg.add_theme_constant_override("margin_left", 6)
+	mg.add_theme_constant_override("margin_right", 6)
+	mg.add_theme_constant_override("margin_top", 6)
+	mg.add_theme_constant_override("margin_bottom", 6)
+	_dev_attrs_panel.add_child(mg)
+	var sc := ScrollContainer.new()
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	mg.add_child(sc)
+	var v := VBoxContainer.new()
+	v.name = "V"
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 5)
+	sc.add_child(v)
+	UIPanels.fill_debug_attributes(self, v)
 
 
 ## 图标胶囊：[圆角底 + 图标 + 数值]，返回 [PanelContainer, 数值Label]
@@ -382,9 +557,9 @@ func _make_hud_chip(icon_path: String) -> Array:
 
 func _build_hud_chips() -> void:
 	var box := HBoxContainer.new()
-	box.position = Vector2(16, 12)
 	box.add_theme_constant_override("separation", 8)
 	ui_root.add_child(box)
+	_hud_chips_box = box
 	var coin := _make_hud_chip("res://assets/art/ui/icon_coin.png")
 	box.add_child(coin[0])
 	_chip_coin = coin[1]
@@ -450,10 +625,8 @@ func _build_status_flags() -> void:
 	var box := VBoxContainer.new()
 	box.name = "FlagBox"
 	box.add_theme_constant_override("separation", 5)
-	box.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	box.offset_left = 0
-	box.offset_right = -16
-	box.offset_top = 12
+	box.custom_minimum_size = Vector2(ART.x - 16.0, 0)
+	box.size = Vector2(ART.x - 16.0, 0)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_root.add_child(box)
 	_flag_box = box
@@ -479,6 +652,32 @@ func _update_status_flags() -> void:
 	if _merchant_active:
 		_flag_box.add_child(_make_flag_pill("🐟 鱼贩 ×1.5",
 			DT.MERCHANT, DT.INK_ON_GOLD, 12, 9))
+	# 下一目标（near-miss 常驻可见）：永远只显示一个最近目标，极安静的小字——
+	# 挂机的每一分钟都在逼近某个具体的东西，玩家离开时脑子里带着"快到了"。
+	var goal := _next_goal_text()
+	if goal != "":
+		_flag_box.add_child(_make_flag_pill("🎯 " + goal,
+			Color(0, 0, 0, 0), Color(0.90, 0.80, 0.55, 0.92), 11, 4))
+
+
+## 自动选取"最近的下一个目标"文案：顺序上第一个未解锁钓点的进度；全解锁后看本水域图鉴缺口。
+func _next_goal_text() -> String:
+	for sid in SpotData.SPOT_ORDER:
+		if sid in unlocked_spots:
+			continue
+		var up := SpotData.unlock_progress_pair(sid, lifetime_catches, lifetime_coins, dex.size())
+		if up.size() == 2 and int(up[1]) > 0:
+			var gap := maxi(0, int(up[1]) - int(up[0]))
+			var unit := "条"
+			match str((SpotData.get_spot(sid).get("unlock", {}) as Dictionary).get("kind", "")):
+				"coins": unit = "金币"
+				"species": unit = "种"
+			return "下一站 %s · 还差 %d %s" % [SpotData.display_name(sid), gap, unit]
+		break   # 最近一个锁定钓点无进度可显示（无条件），不再往后看
+	var sp: Array = UIPanels.spot_species_progress(self, current_spot)
+	if int(sp[1]) > 0 and int(sp[0]) < int(sp[1]):
+		return "集齐本水域 · 还差 %d 种" % (int(sp[1]) - int(sp[0]))
+	return ""
 
 
 func _update_framed_hud() -> void:
@@ -507,9 +706,8 @@ func _update_framed_hud() -> void:
 func _build_bottom_nav() -> void:
 	var bar := PanelContainer.new()
 	bar.name = "BottomNav"
-	bar.position = Vector2(0, float(WIN.y) - FRAMED_CONSOLE_H)
-	bar.custom_minimum_size = Vector2(float(WIN.x), FRAMED_CONSOLE_H)
-	bar.size = Vector2(float(WIN.x), FRAMED_CONSOLE_H)
+	bar.custom_minimum_size = Vector2(ART.x, FRAMED_CONSOLE_H)
+	bar.size = Vector2(ART.x, FRAMED_CONSOLE_H)
 	bar.add_theme_stylebox_override("panel", _nav_idle_sb())  # 闲置半透明暗底，图标不再糊进浅色场景
 	ui_root.add_child(bar)
 	_nav_bar = bar
@@ -530,8 +728,8 @@ func _build_bottom_nav() -> void:
 		["任务", 2, "res://assets/art/ui/nav_orders.png"],     # 一套水彩导航图标（已就位）；文件缺失时自动只显文字、不显乱占位
 		["钓点", 5, "res://assets/art/ui/nav_spots.png"],
 		["鱼缸", 6, "res://assets/art/ui/nav_fishtank.png"],
-		["设置", 8, "res://assets/art/ui/nav_settings.png"],
 	]
+	navs.append(["设置", 8, "res://assets/art/ui/nav_settings.png"])
 	for n in navs:
 		var tab: int = n[1]
 		var item := VBoxContainer.new()
@@ -540,6 +738,7 @@ func _build_bottom_nav() -> void:
 		item.add_theme_constant_override("separation", 2)
 		item.mouse_filter = Control.MOUSE_FILTER_STOP
 		item.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		item.tooltip_text = n[0]
 		# 图标：用 CenterContainer 保证水平居中；TextureRect 固定尺寸 + 等比不变形（不再用绝对定位）
 		var icon_box := CenterContainer.new()
 		icon_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -558,17 +757,6 @@ func _build_bottom_nav() -> void:
 				ic.add_child(badge)
 				_nav_badges[tab] = badge
 		item.add_child(icon_box)
-		var lbl := Label.new()
-		lbl.text = n[0]
-		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL   # 满宽 → 文字真正居中在该 tab 下方
-		lbl.add_theme_font_override("font", _font_bold)
-		lbl.add_theme_font_size_override("font_size", 11)   # CD .nav button 11
-		lbl.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
-		lbl.add_theme_color_override("font_outline_color", Color(0.04, 0.05, 0.04, 0.92))
-		lbl.add_theme_constant_override("outline_size", 4)
-		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		item.add_child(lbl)
 		item.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 				Audio.play_ui("ui_click")
@@ -581,6 +769,17 @@ func _build_bottom_nav() -> void:
 		item.mouse_exited.connect(func() -> void: item.modulate = Color(1, 1, 1))
 		row.add_child(item)
 	# 「自动垂钓」开关已移入设置页（见 ui_panels.fill_settings），底栏只留导航图标。
+
+
+func _rebuild_bottom_nav() -> void:
+	if display_mode != "framed":
+		return
+	if is_instance_valid(_nav_bar):
+		_nav_bar.queue_free()
+	_nav_badges.clear()
+	_build_bottom_nav()
+	_set_nav_solid(_panel_kind != "")
+	_update_framed_hud()
 
 
 ## 底栏背景上下文切换：开面板=暗(与 sheet 连成一片,无断裂)；关=透明(浮场景)。
@@ -632,7 +831,6 @@ func _build_action_button() -> void:
 	b.name = "ActionBtn"
 	b.custom_minimum_size = Vector2(220, 48)
 	b.size = Vector2(220, 48)
-	b.position = Vector2((float(WIN.x) - 220) * 0.5, float(WIN.y) - FRAMED_CONSOLE_H - 66)
 	b.focus_mode = Control.FOCUS_NONE
 	b.add_theme_font_override("font", _font_bold)       # weight 700 → embolden（落地变通）
 	b.add_theme_font_size_override("font_size", 15)     # CD .action 15
@@ -662,11 +860,15 @@ func _action_style(bg: Color, quiet := false) -> StyleBoxFlat:
 
 
 func _on_action_pressed() -> void:
+	# 满篓警示优先于起钩：此态按钮文案是「鱼篓满了 · 去兑换」，点击必须开面板（文案与行为同源）；
+	# 满篓时亲手起钩也无收益（预掷会被 _overflow_catch 丢弃），让给开面板零损失。
+	if _state == ST_BITE and not _bag_alert():
+		_manual_hook()   # 亲手起钩：任何咬钩瞬间都可点（自动模式同样生效），只加成不惩罚
+		return
 	if _bag_full():
 		_catch_tab = 0
 		_open_panel("catch")   # 满篓 → 直接开鱼篓去兑换
 		return
-	# 手动钓鱼（自动关时的起竿/起钩）task 11 接入；自动模式下点它无操作。
 
 
 func _update_action_button() -> void:
@@ -681,11 +883,23 @@ func _update_action_button() -> void:
 	if _bag_alert():
 		txt = "鱼篓满了 · 去兑换"
 		bg = DT.BAG_FULL
+	elif _state == ST_BITE and _bite_special:
+		# 稀有驻留：这一刻值得打扰——完整红按钮 + 驻留窗口 4.5s，亲手拉上来的是鎏金/七彩
+		txt = "起钩！"
+		bg = DT.RUST
+		fg = Color(1.0, 0.969, 0.937)            # #fff7ef
 	elif auto_cast:
-		# 安静态：挂机常态下它只是状态角标（用户反馈按钮形态存在感太强）
-		txt = "· 自动垂钓 ·"
-		bg = Color(0.235, 0.251, 0.220, 0.30)
-		fg = DT.TEXT_FAINT_GLASS
+		# 安静态：挂机常态下它只是状态角标（用户反馈按钮形态存在感太强）。
+		# 普通咬钩不变形不变大（0.9s 一闪即过，膨胀成大红按钮会每竿骚扰一次），
+		# 只换文案与微微泛锈——看着它的人知道此刻可点（亲手起钩），没看的人毫无打扰。
+		if _state == ST_BITE:
+			txt = "· 咬钩了！·"
+			bg = Color(0.42, 0.27, 0.18, 0.42)
+			fg = Color(0.96, 0.84, 0.72)
+		else:
+			txt = "· 自动垂钓 ·"
+			bg = Color(0.235, 0.251, 0.220, 0.30)
+			fg = DT.TEXT_FAINT_GLASS
 		quiet = true
 	elif _state == ST_BITE:
 		txt = "起钩！"
@@ -699,15 +913,17 @@ func _update_action_button() -> void:
 	var bh := 26.0 if quiet else 48.0
 	_action_btn.custom_minimum_size = Vector2(bw, bh)
 	_action_btn.size = Vector2(bw, bh)
-	_action_btn.position = Vector2((float(WIN.x) - bw) * 0.5,
-		float(WIN.y) - FRAMED_CONSOLE_H - 66.0 + (11.0 if quiet else 0.0))
+	_action_btn.position = _widget_point(Vector2((ART.x - bw) * 0.5,
+		ART.y - FRAMED_CONSOLE_H - 66.0 + (11.0 if quiet else 0.0)))
+	_action_btn.scale = Vector2(ui_scale, ui_scale)
 	_action_btn.add_theme_font_size_override("font_size", 12 if quiet else 15)
 	_action_btn.text = txt
 	_action_btn.add_theme_color_override("font_color", fg)
 	_action_btn.add_theme_stylebox_override("normal", _action_style(bg, quiet))
-	# 安静态 hover/pressed 不提亮——没有可点的暗示（自动模式下点它本就无操作）
-	_action_btn.add_theme_stylebox_override("hover", _action_style(bg if quiet else bg.lightened(0.10), quiet))
-	_action_btn.add_theme_stylebox_override("pressed", _action_style(bg if quiet else bg.darkened(0.10), quiet))
+	# 安静态 hover/pressed 平时不提亮（挂机常态点它无操作）；咬钩瞬间例外——此刻可亲手起钩
+	var lift := (not quiet) or _state == ST_BITE
+	_action_btn.add_theme_stylebox_override("hover", _action_style(bg.lightened(0.10) if lift else bg, quiet))
+	_action_btn.add_theme_stylebox_override("pressed", _action_style(bg.darkened(0.10) if lift else bg, quiet))
 
 
 # 探针取可见场景内一点（窗口右下角附近），判断挂件是否落在某块屏幕可见区内。
@@ -757,6 +973,30 @@ func _update_passthrough() -> void:
 	DisplayServer.window_set_mouse_passthrough(pts)
 
 
+func _update_widget_passthrough() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	_ensure_widget_pos()
+	var p := _widget_pos as Vector2
+	var s := _widget_size()
+	if is_instance_valid(_dev_tools_bar):
+		var left := 0.0
+		var top := 0.0
+		var stage := _stage_size()
+		var dev_right := _dev_tools_bar.position.x + _dev_tools_bar.size.x
+		var dev_bottom := _dev_tools_bar.position.y + _dev_tools_bar.size.y
+		if _dev_attrs_open and is_instance_valid(_dev_attrs_panel):
+			dev_right = _dev_attrs_panel.position.x + _dev_attrs_panel.size.x
+			dev_bottom = _dev_attrs_panel.position.y + _dev_attrs_panel.size.y
+		var right := minf(stage.x, maxf(p.x + s.x, dev_right))
+		var bottom := minf(stage.y, maxf(p.y + s.y, dev_bottom))
+		DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
+			Vector2(left, top), Vector2(right, top), Vector2(right, bottom), Vector2(left, bottom)]))
+		return
+	DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
+		p, p + Vector2(s.x, 0), p + s, p + Vector2(0, s.y)]))
+
+
 # 任意操作刷新"无操作"计时；宽限窗外的点击/按键把当前专注段折算保留 80%（你回来动手了，
 # 但一趟快速卖鱼不该没收全部进度——回焦 60s 宽限窗见 _notification 的 FOCUS_IN 分支）。
 func _input(event: InputEvent) -> void:
@@ -781,20 +1021,34 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 
-# 拖动窗口：在场景空白处按住左键拖拽（按钮/面板会先消费事件，不会误触发）。
+# 拖动挂机组件：在场景空白处按住左键拖拽（按钮/面板会先消费事件，不会误触发）。
 func _unhandled_input(event: InputEvent) -> void:
 	if DisplayServer.get_name() == "headless":
 		return
-	# 两种模式都允许「按住场景空白处拖动窗口」（带框也常没标题栏可拖；面板/导航会先消费点击）。
+	if display_mode == "immersive":
+		# 沉浸模式仍保留旧的整窗拖动。
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				_dragging = true
+				_drag_grab = DisplayServer.mouse_get_position() - DisplayServer.window_get_position()
+			elif _dragging:
+				_dragging = false
+				_save()
+		elif event is InputEventMouseMotion and _dragging:
+			DisplayServer.window_set_position(DisplayServer.mouse_get_position() - _drag_grab)
+		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
-			_dragging = true
-			_drag_grab = DisplayServer.mouse_get_position() - DisplayServer.window_get_position()
+			var mp := get_viewport().get_mouse_position()
+			if Rect2(_widget_pos as Vector2, _widget_size()).has_point(mp):
+				_dragging = true
+				_drag_grab = Vector2i(mp - (_widget_pos as Vector2))
 		elif _dragging:
 			_dragging = false
 			_save()
 	elif event is InputEventMouseMotion and _dragging:
-		DisplayServer.window_set_position(DisplayServer.mouse_get_position() - _drag_grab)
+		_widget_pos = _clamp_widget_pos(get_viewport().get_mouse_position() - Vector2(_drag_grab))
+		_layout_widget()
 
 
 # ============================ 钓鱼循环 ============================
@@ -829,7 +1083,12 @@ func _process(delta: float) -> void:
 
 func _begin_wait() -> void:
 	_state = ST_WAIT
-	var w := rng.randf_range(3.5, 7.0) * maxf(0.4, 1.0 - float(rod_level - 1) * 0.04)
+	_pending_catch = {}     # 预掷渔获绝不跨周期存活（满篓兜底等提前返回的路径在此兜底清空）
+	_bite_special = false
+	if painter.has_method("bite_glow_off"):
+		painter.bite_glow_off()
+	var w := rng.randf_range(3.5, 7.0) * maxf(0.4, 1.0 - float(rod_level - 1) * 0.04) \
+		* _speed_wait_mult() * _reaction_wait_mult()
 	w *= SpotData.wait_mult(current_spot)          # 钓点常驻系数（阶段④起生效）
 	w *= Weather.wait_mult(day_phase)              # 昼夜时段（金色时段咬钩更勤）
 	if active_event != "":
@@ -860,10 +1119,60 @@ func _apply_phase() -> void:
 
 func _begin_bite() -> void:
 	_state = ST_BITE
-	_state_t = maxf(0.12, 0.9 / test_speed)         # 测试提速：test_speed=1 时不变
-	painter.add_ripple(painter.bobber_pos(), 22.0)
+	# 渔获在咬钩瞬间预掷：稀有（鎏金/七彩/神话）驻留更久 + 浮漂金环，恰好在场的玩家来得及亲手起钩；
+	# 没人看时驻留结束照常自动上鱼，零损失。
+	_pending_catch = _roll_pending()
+	# 满篓（合约在手、篓全珍品）时预掷会被 _overflow_catch 折价兜底丢弃——金环不做空头承诺
+	_bite_special = _is_special_catch(_pending_catch) and not _bag_full()
+	# 普通咬钩继承装备的速度/反应修正；稀有咬钩固定驻留，保证玩家有时间亲手起钩。
+	var bite_hold := SPECIAL_BITE_HOLD if _bite_special else 0.9 * _speed_wait_mult() * _reaction_wait_mult()
+	_state_t = maxf(0.12, bite_hold / test_speed)
+	painter.add_ripple(painter.bobber_pos(), 44.0 if _bite_special else 22.0)
+	if _bite_special and painter.has_method("bite_glow"):
+		var vr := int(_pending_catch.get("var", 0))
+		painter.bite_glow(_state_t, FishData.variant_color(vr) if vr >= 2 else Color(1.0, 0.86, 0.45))
 	Audio.play_sfx("bite")
 	_update_action_button()
+
+
+## 预掷这一竿的渔获（含试竿保底消费）。_do_catch 优先消费预掷；
+## 无预掷（测试直调）则现场掷同一套逻辑，RNG 消费顺序与旧版逐位一致。
+func _roll_pending() -> Dictionary:
+	var luck := _catch_luck()
+	# 试竿保底（升级体感）：购买升级后的下一竿保底展示新效果——把"花钱→变强"的回路当场闭合。
+	# 只送一竿，经济影响 ≈0；概率型升级没有保底展示就永远"感觉不出来"（S12 感知阈值）。
+	# 这里只窥视不消费：保底在真实入篓时才兑现（_do_catch 清），满篓兜底丢弃预掷 /
+	# 咬钩中退出存档都不会吞掉承诺（对抗审查 must-fix：恢复旧版"顺延到下一次真结算"语义）。
+	var showcase := showcase_pending
+	if showcase == "rod":
+		luck += 4   # 高运气一竿：亲眼看见"更易上高阶鱼"
+	var c := _roll_one(luck)
+	if showcase == "bait":
+		_force_catch_grade(c, mini(bait_level, 3), 0)   # 保底展示刚解锁的新星级
+	elif showcase == "lure":
+		_force_catch_grade(c, 0, 1)                     # 保底斑斓：亲眼看见变体杠杆
+	c["_luck"] = luck
+	c["_showcase"] = showcase
+	return c
+
+
+## 稀有咬钩判定：鎏金/七彩变体或神话品阶才驻留（≈0.5% 竿次，感官预算内）。
+func _is_special_catch(c: Dictionary) -> bool:
+	return int(c.get("var", 0)) >= 2 or FishData.tier_of(str(c["id"])) >= 5
+
+
+## 亲手起钩：咬钩窗口内点「起钩！」——体重/卖价 ×1.1 并记「亲手」，随后立即结算。
+## 只加成不惩罚：错过窗口照常自动上鱼（hand_catches 在 _do_catch 消费时才累计，满篓兜底不计）。
+func _manual_hook() -> void:
+	if _state != ST_BITE:
+		return
+	if _pending_catch.is_empty():
+		_pending_catch = _roll_pending()
+	_pending_catch["hand"] = true
+	_pending_catch["w"] = snappedf(float(_pending_catch["w"]) * HAND_HOOK_MULT, 0.01)
+	_pending_catch["v"] = maxi(1, int(round(float(_pending_catch["v"]) * HAND_HOOK_MULT)))
+	Audio.play_ui("ui_click")
+	_do_catch()
 
 
 ## 更新图鉴纪录（捕获数 +1、最大体重取大、巨物/完美徽章）。返回是否打破"既有"纪录：
@@ -949,11 +1258,75 @@ func _catch_value_mult() -> float:
 	return Spots.catch_value_mult(self)
 
 
+## 属性映射采用软上限曲线：早期每级有感，后期不让二级属性盖过鱼竿/鱼饵/鱼钩/窝料主轴。
+func _stat_curve(value: float, softness := 120.0) -> float:
+	return 1.0 - exp(-maxf(0.0, value) / softness)
+
+
+func _reaction_wait_mult() -> float:
+	var stats = _angler_stats()
+	return 1.0 - 0.10 * _stat_curve(stats.reaction, 110.0)
+
+
+func _tier_attr_mults() -> Dictionary:
+	var stats = _angler_stats()
+	var curve := _stat_curve(stats.ecology * 0.75 + stats.perception * 0.25, 125.0)
+	return {
+		0: 1.0 - 0.05 * curve,
+		1: 1.0 - 0.02 * curve,
+		2: 1.0 + 0.08 * curve,
+		3: 1.0 + 0.16 * curve,
+		4: 1.0 + 0.24 * curve,
+		5: 1.0 + 0.32 * curve,
+	}
+
+
+func _effective_tier_weights(luck := 0) -> Dictionary:
+	var weights := FishData.weights_for_rod(rod_level + luck)
+	var mults := _tier_attr_mults()
+	for tier in mults:
+		weights[tier] = maxf(0.01, float(weights.get(tier, 0.0)) * float(mults[tier]))
+	return weights
+
+
+func _quality_attr_bonus() -> Array:
+	var stats = _angler_stats()
+	var curve := _stat_curve(stats.technique * 0.75 + stats.stability * 0.25, 120.0)
+	return [0.0, 0.10 * curve, 0.06 * curve, 0.03 * curve]
+
+
+func _variant_attr_bias() -> float:
+	var stats = _angler_stats()
+	return 1.20 * _stat_curve(stats.perception * 0.70 + stats.ecology * 0.30, 120.0)
+
+
+func _double_chance() -> float:
+	var stats = _angler_stats()
+	var base := float(FishData.HOOKS[clampi(hook_level, 0, FishData.HOOKS.size() - 1)]["double"])
+	var bonus := 0.12 * _stat_curve(stats.reaction * 0.70 + stats.technique * 0.30, 115.0)
+	return clampf(base + bonus, 0.0, 0.70)
+
+
+func _weight_power() -> float:
+	var stats = _angler_stats()
+	var curve := _stat_curve(stats.strength * 0.70 + stats.stability * 0.30, 125.0)
+	return 2.0 - 0.35 * curve
+
+
+func _roll_mods() -> Dictionary:
+	return {
+		"tier_mults": _tier_attr_mults(),
+		"quality_bonus": _quality_attr_bonus(),
+		"weight_power": _weight_power(),
+	}
+
+
 ## 变体偏置累加器（P2 变体杠杆）：各收集杠杆贡献相加，喂给 FishData.roll_variant 抬高变体率。
-## 目前来源：诱饵/窝料成长线（lure_level）。以后加来源（钓点亲和/悬赏等）只在此 += 一行即可。
+## 目前来源：诱饵/窝料成长线（lure_level）+ 角色感知/生态二级属性。
+## 以后加来源（钓点亲和/悬赏等）只在此 += 一行即可。
 ## 0 级窝料 → 0，与基线逐位一致；上不封顶交由 roll_variant 内部 clamp(0,10)。
 func _variant_bias() -> float:
-	return FishData.lure_vbias(lure_level)
+	return FishData.lure_vbias(lure_level) + _variant_attr_bias()
 
 
 ## 钓一条鱼：限定当前钓点鱼池，应用钓点/事件增值系数。
@@ -961,7 +1334,7 @@ func _variant_bias() -> float:
 ## 传非负值则按显式覆盖（专注奖励等强制场景留口）。
 func _roll_one(luck: int, vbias := -1.0) -> Dictionary:
 	var vb := vbias if vbias >= 0.0 else _variant_bias()
-	var c := FishData.roll_catch(rng, rod_level, bait_level, luck, _spot_pool(), vb)
+	var c := FishData.roll_catch(rng, rod_level, bait_level, luck, _spot_pool(), vb, _roll_mods())
 	var vm := _catch_value_mult()
 	if vm != 1.0:
 		c["v"] = max(1, int(round(float(c["v"]) * vm)))
@@ -975,18 +1348,27 @@ func _do_catch() -> void:
 		_overflow_catch()   # 兜底折价兑金（签约后篓全珍品时的常态路径；未签约在线到不了这里——满篓不咬钩）
 		_begin_wait()
 		return
-	var luck := _catch_luck()
-	# 试竿保底（升级体感）：购买升级后的下一竿保底展示新效果——把"花钱→变强"的回路当场闭合。
-	# 只送一竿，经济影响 ≈0；概率型升级没有保底展示就永远"感觉不出来"（S12 感知阈值）。
-	var showcase := showcase_pending
-	showcase_pending = ""
-	if showcase == "rod":
-		luck += 4   # 高运气一竿：亲眼看见"更易上高阶鱼"
-	var c := _roll_one(luck)
-	if showcase == "bait":
-		_force_catch_grade(c, mini(bait_level, 3), 0)   # 保底展示刚解锁的新星级
-	elif showcase == "lure":
-		_force_catch_grade(c, 0, 1)                     # 保底斑斓：亲眼看见变体杠杆
+	# 渔获已在咬钩瞬间预掷（_begin_bite → _roll_pending，试竿保底只窥视、在此处真结算才消费）。
+	# 兜底重掷：①无预掷（测试直调 _do_catch）；②预掷后玩家又买了升级（保底口径变了 → 弃掷
+	# 重掷当场兑现"下一竿保底"）。豁免弃掷：预掷已被玩家亲手起钩（×1.1 不没收）或亮过金环
+	# 承诺（_bite_special：亲手拉起的必须就是金环所指的稀有）——此时保底原样顺延到下一竿。
+	var c: Dictionary
+	if not _pending_catch.is_empty() \
+			and (str(_pending_catch.get("_showcase", "")) == showcase_pending \
+				or bool(_pending_catch.get("hand", false)) or _bite_special):
+		c = _pending_catch
+	else:
+		c = _roll_pending()
+	_pending_catch = {}
+	var luck := int(c.get("_luck", 0))
+	var showcase := str(c.get("_showcase", ""))
+	if showcase != "" and showcase_pending == showcase:
+		showcase_pending = ""   # 保底在真实入篓这一刻才算兑现（满篓兜底提前 return 走不到这里）
+	c.erase("_luck")
+	c.erase("_showcase")
+	var hand := bool(c.get("hand", false))
+	if hand:
+		hand_catches += 1
 	var focus_up := _apply_focus_reward(c)   # 专注奖励：把这一竿强制升级（保底高星/鎏金）
 	var tier := FishData.tier_of(c["id"])
 	var q := int(c.get("q", 0))
@@ -1003,7 +1385,8 @@ func _do_catch() -> void:
 	var broke_record := _dex_record(c["id"], float(c["w"]), is_big, q >= 3, vr)
 	var col: Color = FishData.TIER_COLORS[tier]
 	Audio.play_sfx("catch_rare" if (tier >= 2 or q >= 2 or vr >= 1) else "catch_common")
-	_popup("%s %.2fkg" % [fname, c["w"]], _scene_pt(painter.bobber_pos()) + Vector2(-22, -8),
+	_popup("%s%s %.2fkg" % [("亲手 · " if hand else ""), fname, c["w"]],
+		_scene_pt(painter.bobber_pos()) + Vector2(-22, -8),
 		FishData.variant_color(vr) if vr >= 1 else col)
 	painter.add_ripple(painter.bobber_pos(), 34.0)
 	# 庆祝 toast 门槛（P1 感官治理）：斑斓收敛后仍≈1/40 竿，浮标彩色飘字已够仪式感，
@@ -1037,8 +1420,9 @@ func _do_catch() -> void:
 	if (q >= 2 or vr >= 3) and painter.has_method("fisher_cheer"):
 		painter.fisher_cheer()
 	# 鱼钩双钩：一定几率再上一条（受背包剩余格数限制）；鱼钩试竿 → 必双钩
-	if hook_level > 0 and not _bag_full() \
-			and (showcase == "hook" or rng.randf() < float(FishData.HOOKS[hook_level]["double"])):
+	var double_chance := _double_chance()
+	if double_chance > 0.0 and not _bag_full() \
+			and (showcase == "hook" or rng.randf() < double_chance):
 		var c2 := _roll_one(luck)
 		inventory.append(c2)
 		lifetime_catches += 1
@@ -1072,7 +1456,60 @@ func _do_catch() -> void:
 			+ FishData.display_name(str(c["id"]))
 		_toast("🎁 专注奖励到手：%s（%.2fkg，%d 金币）" % [rname, float(c["w"]), int(c["v"])],
 			4.0, Color(0.74, 0.86, 0.98))
+	if vr >= 2:
+		_rare_ceremony(c)   # 稀有仪式：1/250、1/1250 竿的尖峰时刻，感官必须与杂鱼拉开量级
 	_begin_wait()
+
+
+## 稀有仪式（P0 好玩补丁）：鎏金/七彩入手 = 金光粒子 + 庆祝脉冲 + 水面号外 + 捕获卡。
+## 直调 painter.catch_flash 绕过 1800s 冷却——0.4%/0.08% 的时刻本身就稀缺，不会贬值成骚扰。
+## 专注模式全静默（存进 _capture_card_data 的仪式不补发，回来靠图鉴/鱼篓自己发现，符合"不打扰"）。
+func _rare_ceremony(c: Dictionary) -> void:
+	if focus_mode or not save_enabled:
+		return   # save_enabled=false 的测试/截图实例不弹卡，避免污染回归与自查截图
+	var vr := int(c.get("var", 0))
+	var vcol := FishData.variant_color(vr)
+	if painter.has_method("celebrate"):
+		painter.celebrate(painter.bobber_pos(), vcol)
+	if painter.has_method("catch_flash"):
+		painter.catch_flash()
+	if painter.has_method("newsflash"):
+		painter.newsflash("号外！钓起%s%s %.2fkg · 全球约 1/%d 竿" % [FishData.variant_label(vr),
+			FishData.display_name(str(c["id"])), float(c["w"]), FishData.variant_odds(vr)])
+	# 音效由 _do_catch 统一播（catch_rare），此处不重复。
+	# 弹卡只挑不打扰的时机：开场引导链（story/character/intro）不可顶掉（顶了永不重开）、
+	# 玩家正用别的面板不硬抢、沉浸模式不弹（开面板会把整窗穿透切成拦截，违背"不打扰"）。
+	# 跳过弹卡零损失：粒子/号外照放，鱼已入篓，图鉴与鱼篓自会再见到它。
+	if _panel_kind == "" and display_mode != "immersive":
+		_capture_card_data = c.duplicate()
+		_open_panel("capture")
+
+
+## 把捕获卡面板截成 PNG 存到 user://capture_cards/ 并打开文件夹——玩家自己发群 = 最轻的社交。
+func _save_capture_card() -> void:
+	if not is_instance_valid(_panel):
+		return
+	await RenderingServer.frame_post_draw
+	if not is_instance_valid(_panel):
+		return
+	var img := get_viewport().get_texture().get_image()
+	# canvas_items 拉伸下视口图是窗口物理像素、面板坐标是画布逻辑坐标（ui_scale≠100% 时两者不同），
+	# 必须过一遍视口最终变换（纯缩放，包围盒即精确结果）再裁剪
+	var xf := get_viewport().get_final_transform()
+	var r := Rect2i(xf * Rect2(_panel.global_position, _panel.size))
+	r = r.intersection(Rect2i(Vector2i.ZERO, img.get_size()))
+	if r.size.x <= 0 or r.size.y <= 0:
+		return
+	var dir := "user://capture_cards"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var fn := "%s/%s_%d.png" % [dir, str(_capture_card_data.get("id", "fish")),
+		int(Time.get_unix_time_from_system())]
+	var err := img.get_region(r).save_png(fn)
+	if err == OK:
+		_toast("📸 捕获卡已保存", 2.2, Color(0.72, 0.86, 0.78))
+		OS.shell_open(ProjectSettings.globalize_path(dir))
+	else:
+		_toast("保存失败（%d）" % err, 2.2, Color(1.0, 0.75, 0.4))
 
 
 ## 满篓兜底（调研 3.2「把痛点变成卖点」）：鱼篓满时把新鱼 c 与篓中最低价的
@@ -1322,6 +1759,8 @@ func _update_order_chip() -> void:
 ## 例外：鱼缸页签开着时不因后台上鱼而重建——否则游动的鱼每几秒被重置。
 ## 放入/捞出鱼等主动操作走 _rebuild_panel() 强制重建。
 func _refresh_panel() -> void:
+	if _dev_attrs_open:
+		_refresh_dev_attrs_panel()
 	if _panel_kind == "":
 		return
 	if _panel_kind == "catch" and _catch_tab == TANK_TAB:
@@ -2019,7 +2458,123 @@ func _check_achievements(silent := false) -> void:
 
 ## 某竿级的平均一竿周期（等待均值 + 咬钩 0.9s）——装备页数字明牌与离线结算共用同一真值。
 func _avg_wait_for(lv: int) -> float:
-	return 5.25 * maxf(0.4, 1.0 - float(lv - 1) * 0.04) + 0.9
+	return (5.25 * maxf(0.4, 1.0 - float(lv - 1) * 0.04) + 0.9) * _speed_wait_mult() * _reaction_wait_mult()
+
+
+func _avg_wait_for_reel(lv: int) -> float:
+	return (5.25 * maxf(0.4, 1.0 - float(rod_level - 1) * 0.04) + 0.9) \
+		* AnglerEquipmentScript.reel_wait_mult(lv) * _reaction_wait_mult()
+
+
+func _speed_wait_mult() -> float:
+	return AnglerEquipmentScript.reel_wait_mult(reel_level)
+
+
+func _reel_speed() -> float:
+	return AnglerEquipmentScript.reel_stats(reel_level).speed
+
+
+func _reel_speed_for(lv: int) -> float:
+	return AnglerEquipmentScript.reel_stats(lv).speed
+
+
+func _reel_upgrade_cost(count: int) -> int:
+	return AnglerEquipmentScript.reel_upgrade_cost(reel_level, count)
+
+
+func _gear_level(id: String) -> int:
+	match id:
+		"fish_line": return fish_line_level
+		"bobber": return bobber_level
+		"sonar": return sonar_level
+		"notebook": return notebook_level
+		"gloves": return gloves_level
+		_: return 0
+
+
+func _set_gear_level(id: String, level: int) -> void:
+	level = maxi(0, level)
+	match id:
+		"fish_line": fish_line_level = level
+		"bobber": bobber_level = level
+		"sonar": sonar_level = level
+		"notebook": notebook_level = level
+		"gloves": gloves_level = level
+
+
+func _gear_upgrade_cost(id: String, count: int) -> int:
+	return AnglerEquipmentScript.attr_equipment_upgrade_cost(_gear_level(id), count)
+
+
+func _gear_stats(id: String, level := -1):
+	var lv := _gear_level(id) if level < 0 else level
+	return AnglerEquipmentScript.attr_equipment_stats(id, lv)
+
+
+func _angler_stats():
+	var stats = AnglerEquipmentScript.reel_stats(reel_level)
+	for id in AnglerEquipmentScript.ATTR_EQUIPMENT_ORDER:
+		stats.add(_gear_stats(str(id)))
+	return stats
+
+
+func _equipment_unlocked(id: String) -> bool:
+	match id:
+		"fish_line": return true
+		"reel": return reel_level > 0
+		_: return _gear_level(id) > 0
+
+
+func _equipment_chain() -> Array:
+	return ["fish_line", "reel", "bobber", "sonar", "notebook", "gloves"]
+
+
+func _equipment_unlock_cost(id: String) -> int:
+	match id:
+		"reel":
+			return AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 30)
+		"bobber":
+			return AnglerEquipmentScript.reel_upgrade_cost(0, 25)
+		"sonar", "notebook", "gloves":
+			return AnglerEquipmentScript.attr_equipment_upgrade_cost(0, 25)
+		_:
+			return 0
+
+
+func _equipment_unlock_note(id: String) -> String:
+	match id:
+		"reel": return "约等于鱼线 30 级投入"
+		"bobber": return "约等于绕线轮 25 级投入"
+		"sonar": return "约等于浮漂 25 级投入"
+		"notebook": return "约等于探鱼器 25 级投入"
+		"gloves": return "约等于钓鱼笔记 25 级投入"
+		_: return ""
+
+
+func _try_unlock_equipment(id: String) -> void:
+	if _equipment_unlocked(id):
+		return
+	var chain := _equipment_chain()
+	var idx := chain.find(id)
+	if idx <= 0 or not _equipment_unlocked(str(chain[idx - 1])):
+		return
+	var cost := _equipment_unlock_cost(id)
+	if coins < cost:
+		Audio.play_ui("ui_error")
+		_toast("金币不足", 1.5, Color(1.0, 0.5, 0.4))
+		return
+	coins -= cost
+	if id == "reel":
+		reel_level = 1
+		_begin_wait()
+	else:
+		_set_gear_level(id, 1)
+	var name := "绕线轮" if id == "reel" else str(AnglerEquipmentScript.ATTR_EQUIPMENT[id]["name"])
+	Audio.play_sfx("upgrade")
+	_update_hud()
+	_toast("%s 已解锁 Lv.1" % name, 2.4, Color(0.72, 0.92, 0.58))
+	_save()
+	_refresh_panel()
 
 
 ## 把一条渔获强制抬到保底品相/变体（重算卖价）。试竿保底与专注奖励共用的抬品逻辑。
@@ -2060,6 +2615,83 @@ func _try_upgrade_rod() -> void:
 		_avg_wait_for(rod_level - 1), _avg_wait_for(rod_level), (rod_level - 1) * 8],
 		2.8, Color(0.5, 0.8, 1.0))
 	_refresh_panel()   # 升级页已是鱼篓面板「装备」页签，原地刷新即可
+
+
+func _try_upgrade_reel(count := 1) -> void:
+	count = maxi(1, count)
+	var before_speed := _reel_speed()
+	var before_interval := _avg_wait_for_reel(reel_level)
+	var cost := _reel_upgrade_cost(count)
+	if coins < cost:
+		Audio.play_ui("ui_error")
+		_toast("金币不足", 1.5, Color(1.0, 0.5, 0.4))
+		return
+	coins -= cost
+	reel_level += count
+	_begin_wait()
+	Audio.play_sfx("upgrade")
+	_update_hud()
+	_toast("绕线轮 Lv.%d！速度 %.1f→%.1f，一竿 %.2fs→%.2fs" % [
+		reel_level, before_speed, _reel_speed(), before_interval, _avg_wait_for_reel(reel_level)],
+		2.8, Color(0.58, 0.80, 0.98))
+	_save()
+	_refresh_panel()
+
+
+func _try_downgrade_reel(count := 1) -> void:
+	count = maxi(1, count)
+	if reel_level <= 0:
+		return
+	var before_speed := _reel_speed()
+	reel_level = maxi(0, reel_level - count)
+	Audio.play_sfx("upgrade")
+	_update_hud()
+	_toast("绕线轮 Lv.%d，速度属性 %.0f→%.0f" % [reel_level, before_speed, _reel_speed()],
+		2.2, Color(0.58, 0.80, 0.98))
+	_save()
+	_refresh_panel()
+
+
+func _try_upgrade_attr_gear(id: String, count := 1) -> void:
+	if not AnglerEquipmentScript.ATTR_EQUIPMENT.has(id):
+		return
+	count = maxi(1, count)
+	var cost := _gear_upgrade_cost(id, count)
+	if coins < cost:
+		Audio.play_ui("ui_error")
+		_toast("金币不足", 1.5, Color(1.0, 0.5, 0.4))
+		return
+	var before_level := _gear_level(id)
+	var before_stats = _gear_stats(id)
+	coins -= cost
+	_set_gear_level(id, before_level + count)
+	Audio.play_sfx("upgrade")
+	_update_hud()
+	var info: Dictionary = AnglerEquipmentScript.ATTR_EQUIPMENT[id]
+	_toast("%s Lv.%d！%s" % [
+		str(info["name"]), _gear_level(id), _gear_delta_text(before_stats, _gear_stats(id))],
+		2.6, Color(0.72, 0.92, 0.58))
+	_save()
+	_refresh_panel()
+
+
+func _gear_delta_text(before, after) -> String:
+	var labels := {
+		"technique": "技巧",
+		"stability": "稳定",
+		"reaction": "反应",
+		"perception": "感知",
+		"ecology": "生态",
+		"tracking": "追踪",
+		"strength": "力量",
+	}
+	var parts: Array[String] = []
+	for key in labels.keys():
+		var b := float(before.get(str(key)))
+		var a := float(after.get(str(key)))
+		if not is_equal_approx(b, a):
+			parts.append("%s %.1f→%.1f" % [labels[key], b, a])
+	return "，".join(parts)
 
 
 func _try_upgrade_bait() -> void:
@@ -2149,8 +2781,8 @@ func _set_max_fps(val: int) -> void:
 func _max_scale_for_screen() -> float:
 	if DisplayServer.get_name() == "headless":
 		return UI_SCALE_MAX
-	var u := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
-	var fit := minf(float(u.size.x) / float(WIN.x), float(u.size.y) / float(WIN.y)) * 0.98
+	var st := _stage_size()
+	var fit := minf(st.x / ART.x, st.y / ART.y) * 0.98
 	return clampf(fit, UI_SCALE_MIN, UI_SCALE_MAX)
 
 
@@ -2158,23 +2790,14 @@ func _max_scale_for_screen() -> float:
 ## 以原中心为锚夹到屏幕。canvas_items 拉伸 → 成品图整体缩放，含小字一起变大，布局不变、不溢出。
 ## 沉浸模式的羽化/穿透按设计空间标定，不在此缩放（避免裁切错位）。自由拖拽缩放见 _build_resize_grips。
 func _set_ui_scale(val: float) -> void:
-	if DisplayServer.get_name() == "headless" or display_mode != "framed":
+	if DisplayServer.get_name() == "headless" or display_mode == "immersive":
 		ui_scale = clampf(val, UI_SCALE_MIN, UI_SCALE_MAX)
 		return
+	_ensure_widget_pos()
+	var center := (_widget_pos as Vector2) + _widget_size() * 0.5
 	ui_scale = clampf(val, UI_SCALE_MIN, _max_scale_for_screen())
-	var old_size := DisplayServer.window_get_size()
-	var center := Vector2(DisplayServer.window_get_position()) + Vector2(old_size) * 0.5   # 以原中心为锚
-	var new_size := Vector2i(Vector2(WIN) * ui_scale)
-	_win_resize_guard = true
-	DisplayServer.window_set_size(new_size)
-	_win_resize_guard = false
-	var usable := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
-	var pos := Vector2i(center - Vector2(new_size) * 0.5)
-	pos.x = clampi(pos.x, usable.position.x, usable.position.x + maxi(0, usable.size.x - new_size.x))
-	pos.y = clampi(pos.y, usable.position.y, usable.position.y + maxi(0, usable.size.y - new_size.y))
-	DisplayServer.window_set_position(pos)
-	_saved_win_pos = null
-	UIPanels.set_interactive_full(self, true)   # 整窗交互区跟随新尺寸
+	_widget_pos = _clamp_widget_pos(center - _widget_size() * 0.5)
+	_layout_widget()
 
 
 ## 自绘缩放手柄：无边框窗口没有系统边框可拖，于是在画布四边四角放隐形热区 Control。
@@ -2184,8 +2807,8 @@ func _build_resize_grips() -> void:
 		return
 	var t := 6.0    # 边热区厚度
 	var c := 16.0   # 角热区边长
-	var w := float(WIN.x)
-	var h := float(WIN.y)
+	var w := ART.x
+	var h := ART.y
 	# [pos_x, pos_y, size_x, size_y, 光标, 锚点归一化(拖动不动点), 驱动轴向]
 	var defs := [
 		[0.0, c, t, h - 2 * c,        Control.CURSOR_HSIZE,     Vector2(1, 0.5), Vector2(-1, 0)],   # 左
@@ -2199,51 +2822,61 @@ func _build_resize_grips() -> void:
 	]
 	for d in defs:
 		var grip := Control.new()
-		grip.position = Vector2(d[0], d[1])
-		grip.size = Vector2(d[2], d[3])
 		grip.mouse_filter = Control.MOUSE_FILTER_STOP
 		grip.mouse_default_cursor_shape = d[4]
+		grip.set_meta("base_pos", Vector2(d[0], d[1]))
+		grip.set_meta("base_size", Vector2(d[2], d[3]))
 		grip.gui_input.connect(_on_grip_input.bind(d[5], d[6], d[4]))
 		ui_root.add_child(grip)
+		_resize_grips.append(grip)
+	_layout_resize_grips()
+
+
+func _layout_resize_grips() -> void:
+	if _resize_grips.is_empty():
+		return
+	for grip in _resize_grips:
+		if not is_instance_valid(grip):
+			continue
+		var bp: Vector2 = grip.get_meta("base_pos")
+		var bs: Vector2 = grip.get_meta("base_size")
+		grip.position = _widget_point(bp)
+		grip.size = bs * ui_scale
 
 
 ## 手柄被按下 → 记录锚点/轴向/起始几何，进入缩放拖拽（后续移动/松手在 _input 全局处理）。
 func _on_grip_input(event: InputEvent, anchor_norm: Vector2, dir: Vector2, cursor: int) -> void:
-	if _rz_active or display_mode != "framed":
+	if _rz_active or display_mode == "immersive":
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		_rz_active = true
 		_rz_anchor = anchor_norm
 		_rz_dir = dir
-		_rz_start_mouse = DisplayServer.mouse_get_position()
-		_rz_start_pos = DisplayServer.window_get_position()
-		_rz_start_size = DisplayServer.window_get_size()
+		_rz_start_mouse = Vector2i(get_viewport().get_mouse_position())
+		_rz_start_pos = Vector2i(_widget_pos as Vector2)
+		_rz_start_size = Vector2i(_widget_size())
 		Input.set_default_cursor_shape(cursor)
 
 
 ## 拖拽缩放：按驱动轴推算等比缩放，锚点（拖动不动的那角/边）屏幕坐标保持不变。
 ## 我们自己接管鼠标 → 无系统模态循环，实时改尺寸不打架。
 func _apply_grip_resize(mouse_global: Vector2i) -> void:
-	var delta := Vector2(mouse_global - _rz_start_mouse)
+	var delta := get_viewport().get_mouse_position() - Vector2(_rz_start_mouse)
 	var raw_w := float(_rz_start_size.x) + _rz_dir.x * delta.x
 	var raw_h := float(_rz_start_size.y) + _rz_dir.y * delta.y
 	var sc := ui_scale
 	if _rz_dir.x != 0.0 and _rz_dir.y != 0.0:
-		sc = maxf(raw_w / float(WIN.x), raw_h / float(WIN.y))   # 角：取较大轴，跟手
+		sc = maxf(raw_w / ART.x, raw_h / ART.y)   # 角：取较大轴，跟手
 	elif _rz_dir.x != 0.0:
-		sc = raw_w / float(WIN.x)
+		sc = raw_w / ART.x
 	else:
-		sc = raw_h / float(WIN.y)
+		sc = raw_h / ART.y
 	sc = clampf(sc, UI_SCALE_MIN, _max_scale_for_screen())
 	ui_scale = sc
-	var new_size := Vector2i(Vector2(WIN) * sc)
+	var new_size := Vector2(ART) * sc
 	var anchor_global := Vector2(_rz_start_pos) + Vector2(_rz_start_size) * _rz_anchor
-	var new_pos := Vector2i(anchor_global - Vector2(new_size) * _rz_anchor)
-	_win_resize_guard = true
-	DisplayServer.window_set_size(new_size)
-	DisplayServer.window_set_position(new_pos)
-	_win_resize_guard = false
-	UIPanels.set_interactive_full(self, true)
+	_widget_pos = _clamp_widget_pos(anchor_global - new_size * _rz_anchor)
+	_layout_widget()
 
 
 ## 专注/安静模式：停小动物事件 + 抑制飘字（_popup 已守卫）+ 场景轻微变暗。
@@ -2484,7 +3117,7 @@ func _offline_catch(elapsed: float) -> int:
 	var notable: Array = []
 	var lim_counts := {}
 	var oid := 0   # 本次结算的临时序号：结算尾部按"仍在篓中"回填 folded（_absorb_overflow 会换鱼入篓，
-	               # 折价路径 ≠ 真的被卖掉——按调用前满篓判定会把换进篓的珍稀错标"已兑金"）
+				   # 折价路径 ≠ 真的被卖掉——按调用前满篓判定会把换进篓的珍稀错标"已兑金"）
 	for s in _offline_phase_slices(elapsed):
 		var est_i := int(float(s["sec"]) / avg_interval * OFFLINE_EFFICIENCY)
 		if est_i <= 0:
@@ -2643,6 +3276,7 @@ func _new_save() -> void:
 		if painter:
 			painter.debug_tod = -1.0
 		save_enabled = true
+		_rebuild_bottom_nav()
 	# 全状态复位为默认（空字典 → apply 内每个 .get(key, default) 取默认）
 	SaveSystem.apply(self, {})
 	seen_intro = false        # 全新档：重看引导

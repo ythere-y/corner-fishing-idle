@@ -15,7 +15,9 @@ class_name SaveSystem
 ## v15 数值 P1：scales(彩鳞——重复变体折算的定向兑换货币)、yest_income(昨日卖鱼收入——周赛/
 ##     周目标奖励锚)、competition.wins(巨物赛累计夺金，跨周携带)。旧档全部默认 0，无损迁移。
 ## v16 帧率默认 30→120：≤v15 档的 max_fps=30 视为旧默认、一次性迁到 120（v16 起选 30 被尊重）。
-## v17 修 bug：dex 第 7 元 wd(刷新最大体重的日期，鱼种详情卡「破纪录于」用)。此前只存 6 元、
+## v17 独立速度装备：reel_level(绕线轮等级，提供 speed 属性并缩短一竿周期)。旧档默认 0，无损迁移。
+## v18 属性装备扩展：鱼线/浮漂/探鱼器/钓鱼笔记/钓鱼手套等级。旧档默认 0，无损迁移。
+## v19 修 bug：dex 第 7 元 wd(刷新最大体重的日期，鱼种详情卡「破纪录于」用)。此前只存 6 元、
 ##     wd 每次重启即丢，详情卡必显「—」。旧档默认 wd=""，无损迁移（新旧代码可互读）。
 
 
@@ -30,9 +32,15 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 17,   # 16→17：dex 补第 7 元 wd（破纪录日期，此前漏序列化）
+		"ver": 19,   # 18→19：dex 补第 7 元 wd（破纪录日期，此前漏序列化）
 		"coins": g.coins,
 		"rod_level": g.rod_level,
+		"reel_level": g.reel_level,
+		"fish_line_level": g.fish_line_level,
+		"bobber_level": g.bobber_level,
+		"sonar_level": g.sonar_level,
+		"notebook_level": g.notebook_level,
+		"gloves_level": g.gloves_level,
 		"bag_level": g.bag_level,
 		"bait": g.bait_level,
 		"hook": g.hook_level,
@@ -70,6 +78,7 @@ static func collect(g) -> Dictionary:
 		"focus_rd": g.focus_reward_date,       # 封顶计数对应日期
 		"focus_pend": g.focus_pending,         # 待兑专注奖励等级
 		"pet_steals": g.pet_steals,            # 桌面宠物叼走鱼计数
+		"hand_n": g.hand_catches,              # 亲手起钩累计（P0 好玩补丁；旧档无 → 载入默认 0）
 		# —— v14 鱼贩合约（自动贩卖）——
 		"autosell": {"b": g.auto_sell_bought, "on": g.auto_sell_on,
 			"n": g.auto_sold_n, "v": g.auto_sold_v},
@@ -82,6 +91,9 @@ static func collect(g) -> Dictionary:
 	if DisplayServer.get_name() != "headless":
 		var wp := DisplayServer.window_get_position()
 		data["win_pos"] = [wp.x, wp.y]
+		if g._widget_pos != null:
+			var gp: Vector2 = g._widget_pos
+			data["widget_pos"] = [gp.x, gp.y]
 	return data
 
 
@@ -94,7 +106,7 @@ static func dex_to_save(g) -> Dictionary:
 			1 if bool(r.get("perf", false)) else 0,
 			int(r.get("vmask", 0)),       # v10：见过的稀有变体位掩码
 			str(r.get("fd", "")),          # v11：首次捕获日期（水族箱纪录卡）
-			str(r.get("wd", ""))]          # v17：刷新最大体重的日期（鱼种详情卡「破纪录于」）
+			str(r.get("wd", ""))]          # v19：刷新最大体重的日期（鱼种详情卡「破纪录于」）
 	return out
 
 
@@ -128,6 +140,12 @@ static func read_file(path: String) -> Variant:
 static func apply(g, data: Dictionary) -> void:
 	g.coins = int(data.get("coins", 0))
 	g.rod_level = max(1, int(data.get("rod_level", 1)))
+	g.reel_level = maxi(0, int(data.get("reel_level", 0)))
+	g.fish_line_level = maxi(0, int(data.get("fish_line_level", 0)))
+	g.bobber_level = maxi(0, int(data.get("bobber_level", 0)))
+	g.sonar_level = maxi(0, int(data.get("sonar_level", 0)))
+	g.notebook_level = maxi(0, int(data.get("notebook_level", 0)))
+	g.gloves_level = maxi(0, int(data.get("gloves_level", 0)))
 	g.bag_level = max(1, int(data.get("bag_level", 1)))  # v1 无此字段 → 1
 	g.bait_level = clampi(int(data.get("bait", 0)), 0, FishData.BAITS.size() - 1)  # v2 及更早 → 蚯蚓
 	g.hook_level = clampi(int(data.get("hook", 0)), 0, FishData.HOOKS.size() - 1)  # 旧档 → 基础钩
@@ -166,7 +184,7 @@ static func apply(g, data: Dictionary) -> void:
 					"perf": e.size() >= 4 and int(e[3]) == 1,
 					"vmask": int(e[4]) if e.size() >= 5 else 0,   # v10 变体掩码
 					"fd": str(e[5]) if e.size() >= 6 else "",      # v11 首捕日期
-					"wd": str(e[6]) if e.size() >= 7 else ""}      # v17 破纪录日期
+					"wd": str(e[6]) if e.size() >= 7 else ""}      # v19 破纪录日期
 	elif dex_raw is Array:                   # v1~v3：仅 id 列表 → 纪录从头积累
 		for id in dex_raw:
 			if FishData.FISH.has(str(id)):
@@ -239,6 +257,7 @@ static func apply(g, data: Dictionary) -> void:
 	g.focus_reward_date = str(data.get("focus_rd", ""))
 	g.focus_pending = clampi(int(data.get("focus_pend", 0)), 0, 2)
 	g.pet_steals = int(data.get("pet_steals", 0))
+	g.hand_catches = int(data.get("hand_n", 0))   # 亲手起钩累计（旧档无 → 0，无损迁移）
 	# —— v15 数值 P1（旧档无 → 0，无损迁移；scales 为三元数组，非数组的过渡值直接归零）——
 	g.scales = [0, 0, 0]
 	var sc_raw: Variant = data.get("scales", [])
@@ -263,6 +282,9 @@ static func apply(g, data: Dictionary) -> void:
 	var wp: Variant = data.get("win_pos", null)
 	if wp is Array and wp.size() >= 2:
 		g._saved_win_pos = Vector2i(int(wp[0]), int(wp[1]))
+	var widget_pos: Variant = data.get("widget_pos", null)
+	if widget_pos is Array and widget_pos.size() >= 2:
+		g._widget_pos = Vector2(float(widget_pos[0]), float(widget_pos[1]))
 	apply_spots(g, data)
 
 

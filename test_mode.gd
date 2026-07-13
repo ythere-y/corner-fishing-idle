@@ -42,6 +42,8 @@ static func set_enabled(g, on: bool) -> void:
 		g.save_enabled = true
 		g._test_reload_real_save()      # 丢弃测试改动，回到正式档（薄壳：用 SaveSystem，运行期安全）
 		g._toast("已回到游玩模式 · 正式存档", 2.6, DT.POSITIVE)
+	if g.has_method("_rebuild_bottom_nav"):
+		g._rebuild_bottom_nav()
 	g._update_hud()
 	g._refresh_panel()
 
@@ -125,6 +127,20 @@ static func bump_gear(g, kind: String, to_max: bool) -> void:
 		"bag":
 			g.bag_level = g.BAG_CAPS.size() if to_max else mini(g.bag_level + 1, g.BAG_CAPS.size())
 	g._check_achievements()
+	g._update_hud()
+	g._refresh_panel()
+
+
+static func bump_reel(g, delta: int) -> void:
+	g.reel_level = maxi(0, int(g.reel_level) + delta)
+	g._begin_wait()
+	g._update_hud()
+	g._refresh_panel()
+
+
+static func set_reel(g, level: int) -> void:
+	g.reel_level = maxi(0, level)
+	g._begin_wait()
 	g._update_hud()
 	g._refresh_panel()
 

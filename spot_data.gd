@@ -210,6 +210,20 @@ static func unlock_text(id: String) -> String:
 	return ""
 
 
+## near-miss 可见化：锁定钓点的解锁进度 [当前值, 目标值]（无解锁条件返回空数组）。
+## 「还差 13 条」比静态的「累计 300 条解锁」有牵引力得多（goal-gradient：越接近越想挂）。
+static func unlock_progress_pair(id: String, lifetime_catches: int, lifetime_coins: int, species: int) -> Array:
+	var u: Dictionary = get_spot(id).get("unlock", {})
+	if u.is_empty():
+		return []
+	var n := int(u.get("n", 0))
+	match str(u.get("kind", "")):
+		"catches": return [mini(lifetime_catches, n), n]
+		"coins": return [mini(lifetime_coins, n), n]
+		"species": return [mini(species, n), n]
+	return []
+
+
 ## 判定某钓点是否满足解锁条件。catches/coins 用终身累计，species 用图鉴种数。
 static func unlock_met(id: String, lifetime_catches: int, lifetime_coins: int, species: int) -> bool:
 	var u: Dictionary = get_spot(id).get("unlock", {})

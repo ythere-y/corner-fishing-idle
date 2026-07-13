@@ -50,7 +50,10 @@ static func activate_buff(g: CornerFishing, id: String) -> void:
 	var tin := str(e.get("toast_in", ""))
 	if tin != "":
 		g._toast(tin, 3.5, EventData.color(id))
-	g._begin_wait()
+	# 咬钩中不打断（与 _apply_phase 同约定）：预掷渔获/稀有驻留金环不被事件掐掉，
+	# buff 的节奏变化从本竿结算后的下一次 _begin_wait 自然生效。
+	if g._state != CornerFishing.ST_BITE:
+		g._begin_wait()
 	g._update_hud()
 
 

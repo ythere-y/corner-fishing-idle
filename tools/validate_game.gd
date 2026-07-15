@@ -16,6 +16,9 @@ func _run() -> void:
 	print("=== 数据检查 ===")
 	_check_data()
 
+	print("=== 窗口 Region 坐标 / 防误拖 ===")
+	_check_window_region_geometry()
+
 	print("=== 钓点 / 事件数据 ===")
 	_check_spot_event_data()
 
@@ -176,6 +179,63 @@ func _check_data() -> void:
 		_assert(FishData.FISH.has(old_id), "旧鱼 id %s 应保留" % old_id)
 		_assert("river" in FishData.tags_of(old_id), "旧鱼 %s 应带 river 标签" % old_id)
 	print("  鱼种数 %d，按品阶分布 %s" % [FishData.FISH.size(), str(by_tier)])
+
+
+func _check_window_region_geometry() -> void:
+	# 运行期加载，避免 validate_game 作为自定义 MainLoop 编译时提前解析主场景与 Audio autoload。
+	var main_script: GDScript = load("res://main.gd")
+	# 复刻 Windows 2560×1392 + canvas_items/expand 的实机比例：逻辑 widget 必须落到原生客户区。
+	var logical := PackedVector2Array([
+		Vector2(780, 296), Vector2(1300, 296), Vector2(1300, 696), Vector2(780, 696)])
+	var stretch := Transform2D(
+		Vector2(1.930618, 0.0), Vector2(0.0, 1.930556), Vector2.ZERO)
+	var native: PackedVector2Array = main_script._region_points_to_window(
+		logical, stretch, Vector2i(2560, 1392))
+	_assert(native.size() == 4, "Region 转换应保留多边形点数")
+	_assert(native[0] == Vector2(1501, 567), "Region 左上应向外取整并保留 4px 恢复抖动余量")
+	_assert(native[1] == Vector2(2514, 567), "Region 右上应按非等比缩放并向外保留余量")
+	_assert(native[2] == Vector2(2514, 1348), "Region 右下应向外取整并保留余量")
+	_assert(native[3] == Vector2(1501, 1348), "Region 左下应保持矩形且覆盖完整 widget")
+
+	var shifted: PackedVector2Array = main_script._region_points_to_window(
+		PackedVector2Array([Vector2(-20, -10), Vector2(200, -10), Vector2(200, 100), Vector2(-20, 100)]),
+		Transform2D(Vector2(1.5, 0), Vector2(0, 1.25), Vector2(10.25, 20.75)),
+		Vector2i(240, 120))
+	_assert(shifted[0] == Vector2(0, 4), "Region 左上越界时应夹到客户区")
+	_assert(shifted[2] == Vector2(240, 120), "Region 右下越界时应夹到客户区")
+	_assert(main_script._region_points_to_window(
+		PackedVector2Array(), Transform2D.IDENTITY, Vector2i(100, 100)).is_empty(),
+		"空 Region 应保持为空")
+	_assert(not main_script._region_transform_is_usable(
+		Transform2D(Vector2.ZERO, Vector2.ZERO, Vector2.ZERO), Vector2i(2560, 1392)),
+		"恢复瞬间的零缩放 transform 不得用于 Windows Region")
+	_assert(not main_script._region_transform_is_usable(Transform2D.IDENTITY, Vector2i.ZERO),
+		"零尺寸窗口不得写 Windows Region")
+	_assert(not main_script._region_polygon_has_extent(PackedVector2Array([
+		Vector2(12, 8), Vector2(12, 8), Vector2(12, 8), Vector2(12, 8)])),
+		"退化到一点的多边形不得写 Windows Region")
+	_assert(main_script._region_polygon_has_extent(native),
+		"转换后的正常 widget Region 应具有二维面积")
+
+	var start := Vector2i(100, 100)
+	_assert(not main_script._drag_threshold_reached(start, Vector2i(105, 100)),
+		"5px 手抖不应启动窗口拖动")
+	_assert(not main_script._drag_threshold_reached(start, Vector2i(104, 104)),
+		"不足 6px 的斜向手抖不应启动窗口拖动")
+	_assert(main_script._drag_threshold_reached(start, Vector2i(106, 100)),
+		"达到 6px 后应启动窗口拖动")
+	_assert(main_script._drag_threshold_reached(start, Vector2i(105, 104)),
+		"斜向总距离超过 6px 后应启动窗口拖动")
+
+	# _ready 等真实窗口稳定的两帧里若收到关闭请求，绝不能把默认状态覆盖到玩家存档。
+	var guard_path := "user://window_init_save_guard.json"
+	if FileAccess.file_exists(guard_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(guard_path))
+	var not_loaded: Node = load("res://main.tscn").instantiate()
+	not_loaded.save_path = guard_path
+	not_loaded._save()
+	_assert(not FileAccess.file_exists(guard_path), "初次载档完成前关闭不得写入默认存档")
+	not_loaded.free()
 
 
 func _check_spot_event_data() -> void:
@@ -780,13 +840,21 @@ func _check_hud_entry() -> void:
 	g._catch_tab = 0
 	g._toggle_panel("catch")
 	_assert(g._panel_kind == "catch" and g._catch_tab == 8, "开局点金币应打开设置页")
+	_assert(g._window_interactive_full, "面板打开时窗口 Region 状态应为整窗")
+	g._layout_widget()
+	_assert(g._window_interactive_full, "面板打开时重排 widget 不得把 Region 降为挂件区")
+	g._open_panel("catch")
+	_assert(g._panel_kind == "catch" and g._window_interactive_full,
+		"同面板刷新 close(keep=true) 后应保持整窗 Region 状态")
 	# 再点金币 → 关闭(toggle)
 	g._toggle_panel("catch")
 	_assert(g._panel_kind == "", "再点金币应关闭面板")
+	_assert(not g._window_interactive_full, "面板关闭时窗口 Region 状态应恢复挂件区")
 	g.feature_unlocks["bag"] = true
 	g._catch_tab = 0
 	g._toggle_panel("catch")
 	_assert(g._panel_kind == "catch" and g._catch_tab == 0, "鱼篓开放后点金币应打开背包页")
+	_assert(g._window_interactive_full, "重新打开鱼篓时应恢复整窗 Region 状态")
 	g._toggle_panel("catch")
 	# 钓点签/订单签深链仍在
 	_assert(is_instance_valid(g.spot_chip) and is_instance_valid(g.order_chip), "钓点签/订单签应仍存在")

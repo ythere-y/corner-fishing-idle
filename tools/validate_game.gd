@@ -1129,8 +1129,8 @@ func _check_reel_speed() -> void:
 	g.notebook_level = 4
 	g.gloves_level = 5
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 21 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
-		"v21 应保存 reel_level、五件属性装备等级、功能开放状态与人情簿状态")
+	_assert(int(d["ver"]) == 22 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
+		"v22 应保存 reel_level、五件属性装备等级、功能开放状态与人情簿状态")
 	g.reel_level = 0
 	g.fish_line_level = 0
 	g.bobber_level = 0
@@ -1140,7 +1140,7 @@ func _check_reel_speed() -> void:
 	SaveSystem.apply(g, d)
 	_assert(g.reel_level == 100 and g.fish_line_level == 10 and g.bobber_level == 2
 			and g.sonar_level == 3 and g.notebook_level == 4 and g.gloves_level == 5,
-		"v21 应恢复 reel_level 与五件属性装备等级")
+		"v22 应恢复 reel_level 与五件属性装备等级")
 	var od := d.duplicate()
 	od.erase("reel_level")
 	od.erase("fish_line_level")
@@ -1218,18 +1218,34 @@ func _check_relationship_foundation() -> void:
 	g.relationship_state = RelationshipDataScript.default_state()
 	_assert((g.relationship_state.get("npc", {}) as Dictionary).size() == RelationshipDataScript.NPCS.size(),
 		"新存档应为五位河湾 NPC 建立独立关系状态")
+	_assert((g.relationship_state["npc"]["lin_aunt"] as Dictionary).has("next_visit_at") \
+		and (g.relationship_state["npc"]["zhou_uncle"] as Dictionary).has("visit_seq"),
+		"每位 NPC 应持有独立到访时间与事件序列")
 	g.lifetime_catches = 3
 	g._ensure_feature_unlocks(true)
 	_assert(g._feature_unlocked("relations"), "累计钓到 3 条鱼应开放人情入口")
-	g.relationship_state["next_visit_at"] = 0.0
 	g._sync_relationship_visits(false)
 	var visits: Dictionary = g.relationship_state.get("visits", {})
 	_assert(visits.size() == 1, "人情入口开放后应能生成第一条到访事件")
-	for i in range(8):
-		g.relationship_state["next_visit_at"] = 0.0
-		g._sync_relationship_visits(false)
+	var now: float = g._relationship_now()
+	for npc_data in RelationshipDataScript.NPCS:
+		var id := str(npc_data["id"])
+		g.relationship_state["npc"][id]["next_visit_at"] = now - 1.0
+	g._sync_relationship_visits(false)
 	visits = g.relationship_state.get("visits", {})
-	_assert(visits.size() == 5, "到访事件最多累积 5 条")
+	_assert(visits.size() == 5, "五位 NPC 独立冷却到期后应在同一周期内各自到访")
+	var old_kind := str(visits["lin_aunt"].get("kind", ""))
+	for npc_data in RelationshipDataScript.NPCS:
+		var id := str(npc_data["id"])
+		g.relationship_state["npc"][id]["next_visit_at"] = now + 3600.0
+	g.relationship_state["npc"]["lin_aunt"]["next_visit_at"] = now - 1.0
+	g._sync_relationship_visits(false)
+	visits = g.relationship_state.get("visits", {})
+	_assert(visits.size() == 5 and str(visits["lin_aunt"].get("kind", "")) != old_kind,
+		"已有到访的 NPC 冷却到期后应更新来意而不是被跳过")
+	var lin_seq := int(g.relationship_state["npc"]["lin_aunt"].get("visit_seq", 0))
+	var zhou_seq := int(g.relationship_state["npc"]["zhou_uncle"].get("visit_seq", 0))
+	_assert(lin_seq > zhou_seq, "只有独立冷却到期的 NPC 才应推进自己的事件序列")
 	var npc: Dictionary = g.relationship_state["npc"]
 	npc["zhou_uncle"]["favor"] = 4
 	var saved: Dictionary = SaveSystem.collect(g)
@@ -1241,8 +1257,18 @@ func _check_relationship_foundation() -> void:
 	SaveSystem.apply(restored, saved)
 	_assert(int(restored.relationship_state["npc"]["zhou_uncle"].get("favor", 0)) == 4,
 		"人情簿应保留单个 NPC 的独立好感")
+	_assert(int(restored.relationship_state["npc"]["lin_aunt"].get("visit_seq", 0)) == lin_seq,
+		"人情簿应保留每位 NPC 的独立到访序列")
 	_assert((restored.relationship_state.get("visits", {}) as Dictionary).size() == 5,
 		"人情簿应保留最多 5 条到访事件")
+	var legacy_relationships := {
+		"npc": {"lin_aunt": {"favor": 2, "finale_done": false}},
+		"visits": {}, "next_visit_at": 12345.0, "visit_seq": 7, "buff": {},
+	}
+	var migrated_relationships: Dictionary = SaveSystem._relationships_from_save(legacy_relationships)
+	_assert(float(migrated_relationships["npc"]["lin_aunt"].get("next_visit_at", 0.0)) == 12345.0 \
+		and int(migrated_relationships["npc"]["lin_aunt"].get("visit_seq", 0)) == 7,
+		"v21 全局到访排程应迁移到 NPC 独立排程")
 	restored.selected_relationship_visit_id = "lin_aunt"
 	restored.inventory = [{"id": "crucian", "w": 0.3, "v": 6, "q": 0}]
 	restored.relationship_state["visits"] = {"lin_aunt": RelationshipDataScript.make_visit("lin_aunt", "hint", 0.0)}
@@ -1295,8 +1321,13 @@ func _check_relationship_foundation() -> void:
 	_assert(int(restored.relationship_state["npc"]["zhou_uncle"].get("favor", 0)) == 1,
 		"委托交付合格后应提升好感")
 	restored.relationship_state["visits"] = {}
-	restored.relationship_state["npc"]["ma"] = {"favor": RelationshipDataScript.FAVOR_LEVELS.size() - 1, "finale_done": false}
-	restored.relationship_state["next_visit_at"] = 0.0
+	restored.relationship_state["npc"]["ma"]["favor"] = RelationshipDataScript.FAVOR_LEVELS.size() - 1
+	restored.relationship_state["npc"]["ma"]["finale_done"] = false
+	var finale_now: float = restored._relationship_now()
+	for npc_data in RelationshipDataScript.NPCS:
+		var id := str(npc_data["id"])
+		restored.relationship_state["npc"][id]["next_visit_at"] = finale_now + 3600.0
+	restored.relationship_state["npc"]["ma"]["next_visit_at"] = finale_now - 1.0
 	restored._sync_relationship_visits(false)
 	_assert(str((restored.relationship_state.get("visits", {}) as Dictionary).get("ma", {}).get("kind", "")) == "finale",
 		"至交且终章未完成的 NPC 应优先生成终章到访")
@@ -1313,7 +1344,7 @@ func _check_relationship_foundation() -> void:
 	_assert(bool(restored.relationship_state["npc"]["ma"].get("finale_done", false)),
 		"终章交付合格后应标记完成")
 	_assert(float(restored.coins) > finale_before, "终章交付合格后应发高额奖励")
-	print("  人情簿：五人默认状态 / 入口开放 / 到访队列 / 到访送礼 / 接受 Buff / 委托交付 / 终章大单 / 存档往返 通过")
+	print("  人情簿：五人独立排程 / 到访更新 / v21 迁移 / 送礼 / Buff / 委托 / 终章 / 存档往返 通过")
 	g.queue_free()
 	restored.queue_free()
 	buff_restored.queue_free()
@@ -1540,7 +1571,7 @@ func _check_autosell() -> void:
 	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
 	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 21, "存档版本应为 v21")
+	_assert(int(d["ver"]) == 22, "存档版本应为 v22")
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0

@@ -7,6 +7,7 @@ class_name UIPanels
 const CARD_SIZE := Vector2(520, 476)
 
 static var font_bold: Font = null   # 由 main._setup_theme 注入：系统字体假粗体（CD 按钮/页签 weight 600-700）
+const RelationshipDataScript := preload("res://relationship_data.gd")
 
 
 # ============================ 面板开关 ============================
@@ -30,10 +31,13 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 	# 【修改】新增 story / character 两个开场专用面板标题（背包客人设开场流程）；intro 标题随新项目名调整。
 	var titles := {"catch": "垂钓手册", "rod": "鱼竿 · 升级", "set": "设置", "offline": "离线小结",
 		"intro": "欢迎来到背包钓鱼手记", "story": "在开始之前……", "character": "这次是谁在路上？",
-		"worldmap": "旅行地图", "capture": "号外 · 稀有入手！"}
+		"worldmap": "旅行地图", "capture": "号外 · 稀有入手！", "relationship_visit": "到访"}
 	var title_str := str(titles.get(kind, ""))
 	if kind == "fishdetail":
 		title_str = FishData.display_name(str(g._detail_fish)) + " · 详情"
+	elif kind == "relationship_visit":
+		var npc := RelationshipDataScript.get_npc(str(g.selected_relationship_visit_id))
+		title_str = "到访 · %s" % str(npc.get("name", "熟人"))
 	elif kind == "catch" and g.display_mode != "immersive":
 		title_str = _section_name(g._catch_tab)   # 带框 sheet 标题=区名（CD）
 	var card := make_card(g, title_str)
@@ -54,6 +58,7 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 		"fishdetail": fill_fish_detail(g, v)
 		"worldmap": fill_world_map(g, v)   # 旅行地图（离线：晨昏线 + 旅程）
 		"capture": fill_capture_card(g, v)  # 稀有捕获卡（P0 好玩补丁）
+		"relationship_visit": fill_relationship_visit(g, v)
 	g.ui_root.add_child(card)
 	g._panel = card
 	g._panel_kind = kind
@@ -87,6 +92,8 @@ static func _view_sig(g: CornerFishing, kind: String) -> String:
 		return "catch:%d:%d:%d:%s" % [g._catch_tab, _dex_tier, g._bag_sort, str(g._bag_filter_order)]
 	if kind == "fishdetail":
 		return "fishdetail:%s" % g._detail_fish
+	if kind == "relationship_visit":
+		return "relationship_visit:%s" % str(g.selected_relationship_visit_id)
 	return kind
 
 
@@ -347,6 +354,7 @@ static func _section_name(tab: int) -> String:
 		6: return "鱼缸"
 		7: return "装备"
 		8: return "设置"
+		9: return "人情"
 		_: return "垂钓手册"
 
 
@@ -503,7 +511,377 @@ static func fill_bag_panel(g: CornerFishing, v: VBoxContainer) -> void:
 		5: fill_spot_tab(g, v)
 		6: fill_decor_tab(g, v)
 		7: fill_upgrades(g, v)   # 装备：鱼竿/鱼饵/鱼钩升级（原主界面「竿」面板）
+		9: fill_relationship_tab(g, v)
 		_: fill_settings(g, v)   # 8 设置：音量/专注/不透明度/退出（原主界面「设」面板）
+
+
+## 河湾人情簿第一阶段：展示五条独立关系和终章方向；到访、送礼、Buff 在后续阶段接入。
+static func fill_relationship_tab(g: CornerFishing, v: VBoxContainer) -> void:
+	var intro := Label.new()
+	intro.text = "河湾的人情不是货币。熟人会在你挂机时留下消息；到访时才能交谈、送礼或接下委托。"
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.add_theme_font_size_override("font_size", 12)
+	intro.add_theme_color_override("font_color", DT.INK_SOFT)
+	v.add_child(intro)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 8)
+	scroll.add_child(list)
+	var npc_state: Dictionary = g.relationship_state.get("npc", {})
+	for npc in RelationshipDataScript.NPCS:
+		var id := str(npc["id"])
+		var state: Dictionary = npc_state.get(id, {})
+		var card := PanelContainer.new()
+		card.add_theme_stylebox_override("panel", paper_style())
+		list.add_child(card)
+		var mg := MarginContainer.new()
+		mg.add_theme_constant_override("margin_left", 12)
+		mg.add_theme_constant_override("margin_right", 12)
+		mg.add_theme_constant_override("margin_top", 9)
+		mg.add_theme_constant_override("margin_bottom", 9)
+		card.add_child(mg)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		mg.add_child(row)
+		var avatar := ColorRect.new()
+		avatar.color = npc["color"]
+		avatar.custom_minimum_size = Vector2(30, 30)
+		avatar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(avatar)
+		var text := VBoxContainer.new()
+		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text.add_theme_constant_override("separation", 2)
+		row.add_child(text)
+		var title := Label.new()
+		title.text = "%s · %s" % [str(npc["name"]), str(npc["role"])]
+		title.add_theme_font_override("font", font_bold)
+		title.add_theme_font_size_override("font_size", 14)
+		title.add_theme_color_override("font_color", DT.INK)
+		text.add_child(title)
+		var favor := Label.new()
+		favor.text = "好感：%s　偏好：%s" % [RelationshipDataScript.favor_name(int(state.get("favor", 0))), str(npc["likes"])]
+		favor.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		favor.add_theme_font_size_override("font_size", 11)
+		favor.add_theme_color_override("font_color", DT.INK_SOFT)
+		text.add_child(favor)
+		var note := Label.new()
+		note.text = "终章：%s" % str(npc["finale"])
+		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		note.add_theme_font_size_override("font_size", 11)
+		note.add_theme_color_override("font_color", DT.BRONZE)
+		text.add_child(note)
+
+
+static func fill_relationship_visit(g: CornerFishing, v: VBoxContainer) -> void:
+	g._ensure_relationship_state()
+	var visits: Dictionary = g.relationship_state.get("visits", {})
+	var npc_id := str(g.selected_relationship_visit_id)
+	var npc := RelationshipDataScript.get_npc(npc_id)
+	var visit: Dictionary = visits.get(npc_id, {})
+	if npc.is_empty() or visit.is_empty():
+		var empty := Label.new()
+		empty.text = "这条到访消息已经不在了。"
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty.add_theme_font_size_override("font_size", 13)
+		empty.add_theme_color_override("font_color", DT.INK_SOFT)
+		v.add_child(empty)
+		return
+
+	var head := PanelContainer.new()
+	head.add_theme_stylebox_override("panel", paper_style())
+	v.add_child(head)
+	var mg := MarginContainer.new()
+	mg.add_theme_constant_override("margin_left", 14)
+	mg.add_theme_constant_override("margin_right", 14)
+	mg.add_theme_constant_override("margin_top", 12)
+	mg.add_theme_constant_override("margin_bottom", 12)
+	head.add_child(mg)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	mg.add_child(row)
+	var avatar := ColorRect.new()
+	avatar.color = npc["color"]
+	avatar.custom_minimum_size = Vector2(38, 38)
+	avatar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(avatar)
+	var text := VBoxContainer.new()
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_constant_override("separation", 3)
+	row.add_child(text)
+	var title := Label.new()
+	title.text = RelationshipDataScript.visit_title(npc, visit)
+	title.add_theme_font_override("font", font_bold)
+	title.add_theme_font_size_override("font_size", 15)
+	title.add_theme_color_override("font_color", DT.INK)
+	text.add_child(title)
+	var meta := Label.new()
+	var favor := int(g.relationship_state.get("npc", {}).get(npc_id, {}).get("favor", 0))
+	meta.text = "%s · 好感 %s · 偏好：%s" % [
+		RelationshipDataScript.visit_kind_label(str(visit.get("kind", "hint"))),
+		RelationshipDataScript.favor_name(favor),
+		str(npc["likes"]),
+	]
+	meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	meta.add_theme_font_size_override("font_size", 11)
+	meta.add_theme_color_override("font_color", DT.INK_SOFT)
+	text.add_child(meta)
+
+	var body := Label.new()
+	body.text = RelationshipDataScript.visit_body(npc, visit)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_theme_font_size_override("font_size", 13)
+	body.add_theme_color_override("font_color", DT.INK_SOFT)
+	v.add_child(body)
+
+	var finale := Label.new()
+	finale.text = "终章方向：%s" % str(npc["finale"])
+	finale.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	finale.add_theme_font_size_override("font_size", 12)
+	finale.add_theme_color_override("font_color", DT.BRONZE)
+	v.add_child(finale)
+
+	if str(visit.get("kind", "hint")) == "buff":
+		fill_relationship_buff_accept(g, v, npc_id)
+		return
+	if str(visit.get("kind", "hint")) == "task":
+		fill_relationship_task_delivery(g, v, npc_id)
+		return
+	if str(visit.get("kind", "hint")) == "finale":
+		fill_relationship_finale_delivery(g, v, npc_id)
+		return
+
+	var gift_title := Label.new()
+	gift_title.text = "选择鱼篓中的一条鱼送礼。灰色也可以点，但不合口味会被拒绝，并错过这次送礼机会。"
+	gift_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	gift_title.add_theme_font_size_override("font_size", 12)
+	gift_title.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	v.add_child(gift_title)
+	if g.inventory.is_empty():
+		v.add_child(_empty_note("鱼篓是空的。\n这次只能先聊聊。"))
+	else:
+		var sc := ScrollContainer.new()
+		sc.custom_minimum_size = Vector2(0, 248)
+		sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		v.add_child(sc)
+		var grid := GridContainer.new()
+		grid.columns = 8 if g.display_mode != "immersive" else 4
+		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_theme_constant_override("h_separation", DT.SP_3)
+		grid.add_theme_constant_override("v_separation", DT.SP_3)
+		sc.add_child(grid)
+		for i in g._sorted_bag_indices(false):
+			grid.add_child(gift_fish_cell(g, npc_id, g.inventory[i], i))
+	var close := Button.new()
+	close.text = "稍后"
+	close.focus_mode = Control.FOCUS_NONE
+	apply_button_skin(close, false)
+	close.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		g._close_panel())
+	v.add_child(close)
+
+
+static func fill_relationship_buff_accept(g: CornerFishing, v: VBoxContainer, npc_id: String) -> void:
+	var lines := RelationshipDataScript.buff_dialogue(npc_id)
+	var chat := PanelContainer.new()
+	chat.add_theme_stylebox_override("panel", dark_row_style(0.42))
+	v.add_child(chat)
+	var mg := MarginContainer.new()
+	mg.add_theme_constant_override("margin_left", 12)
+	mg.add_theme_constant_override("margin_right", 12)
+	mg.add_theme_constant_override("margin_top", 10)
+	mg.add_theme_constant_override("margin_bottom", 10)
+	chat.add_child(mg)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	mg.add_child(box)
+	for line in lines:
+		var l := Label.new()
+		l.text = str(line)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.add_theme_font_size_override("font_size", 13)
+		l.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+		box.add_child(l)
+	var effect := Label.new()
+	effect.text = "接受后获得 10 分钟「%s」。同一时间只保留一份人情帮忙，新的会覆盖旧的。" % RelationshipDataScript.buff_name(npc_id)
+	effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	effect.add_theme_font_size_override("font_size", 12)
+	effect.add_theme_color_override("font_color", DT.BRONZE)
+	v.add_child(effect)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 8)
+	v.add_child(actions)
+	var accept := Button.new()
+	accept.text = "接受帮忙"
+	accept.focus_mode = Control.FOCUS_NONE
+	apply_button_skin(accept, true)
+	accept.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		g._accept_relationship_buff())
+	actions.add_child(accept)
+	var later := Button.new()
+	later.text = "稍后"
+	later.focus_mode = Control.FOCUS_NONE
+	apply_button_skin(later, false)
+	later.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		g._close_panel())
+	actions.add_child(later)
+
+
+static func fill_relationship_task_delivery(g: CornerFishing, v: VBoxContainer, npc_id: String) -> void:
+	var title := Label.new()
+	title.text = "%s。选择一条合格的鱼交付；灰色鱼点了会被拒绝，但委托会继续保留。" % RelationshipDataScript.task_title(npc_id)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.add_theme_font_size_override("font_size", 12)
+	title.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	v.add_child(title)
+	if g.inventory.is_empty():
+		v.add_child(_empty_note("鱼篓是空的。\n先去钓到合适的鱼再回来。"))
+	else:
+		var sc := ScrollContainer.new()
+		sc.custom_minimum_size = Vector2(0, 248)
+		sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		v.add_child(sc)
+		var grid := GridContainer.new()
+		grid.columns = 8 if g.display_mode != "immersive" else 4
+		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_theme_constant_override("h_separation", DT.SP_3)
+		grid.add_theme_constant_override("v_separation", DT.SP_3)
+		sc.add_child(grid)
+		for i in g._sorted_bag_indices(false):
+			var ok := RelationshipDataScript.task_match(npc_id, g.inventory[i])
+			var tip := "符合委托，点击交付" if ok else "不符合委托，点击会被拒绝但委托保留"
+			grid.add_child(relationship_fish_cell(g, g.inventory[i], i, ok, "交付" if ok else "会拒收", tip,
+				func(real_idx: int) -> void: g._complete_relationship_task(real_idx)))
+	var close := Button.new()
+	close.text = "稍后"
+	close.focus_mode = Control.FOCUS_NONE
+	apply_button_skin(close, false)
+	close.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		g._close_panel())
+	v.add_child(close)
+
+
+static func fill_relationship_finale_delivery(g: CornerFishing, v: VBoxContainer, npc_id: String) -> void:
+	var title := Label.new()
+	title.text = "终章大单需要河湾之外的渔获。合格鱼会高亮；灰色鱼点了只会被拒绝，大单会继续保留。"
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.add_theme_font_size_override("font_size", 12)
+	title.add_theme_color_override("font_color", DT.BRONZE)
+	v.add_child(title)
+	if g.inventory.is_empty():
+		v.add_child(_empty_note("鱼篓是空的。\n去其他地点带回合适的鱼。"))
+	else:
+		var sc := ScrollContainer.new()
+		sc.custom_minimum_size = Vector2(0, 248)
+		sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		v.add_child(sc)
+		var grid := GridContainer.new()
+		grid.columns = 8 if g.display_mode != "immersive" else 4
+		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_theme_constant_override("h_separation", DT.SP_3)
+		grid.add_theme_constant_override("v_separation", DT.SP_3)
+		sc.add_child(grid)
+		for i in g._sorted_bag_indices(false):
+			var ok := RelationshipDataScript.finale_match(npc_id, g.inventory[i])
+			var tip := "符合终章大单，点击交付" if ok else "不符合终章大单，点击会被拒绝但大单保留"
+			grid.add_child(relationship_fish_cell(g, g.inventory[i], i, ok, "终章" if ok else "会拒收", tip,
+				func(real_idx: int) -> void: g._complete_relationship_finale(real_idx)))
+	var close := Button.new()
+	close.text = "稍后"
+	close.focus_mode = Control.FOCUS_NONE
+	apply_button_skin(close, false)
+	close.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		g._close_panel())
+	v.add_child(close)
+
+
+static func gift_fish_cell(g: CornerFishing, npc_id: String, c: Dictionary, idx: int) -> Control:
+	var accepted := RelationshipDataScript.gift_match(npc_id, c)
+	var tip := "合口味，点击送出" if accepted else "不合口味，点击会被拒绝并错失本次机会"
+	return relationship_fish_cell(g, c, idx, accepted, "送出" if accepted else "会拒收", tip,
+		func(real_idx: int) -> void: g._relationship_gift(real_idx))
+
+
+static func relationship_fish_cell(g: CornerFishing, c: Dictionary, idx: int, accepted: bool,
+		action_label: String, tip: String, on_click: Callable) -> Control:
+	var id := str(c["id"])
+	var tier := FishData.tier_of(id)
+	var vr := int(c.get("var", 0))
+	var edge := FishData.variant_color(vr) if vr >= 1 else g._ui_tier_color(tier, false)
+	var cell := PanelContainer.new()
+	cell.custom_minimum_size = Vector2(0, 106)
+	cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cell.mouse_filter = Control.MOUSE_FILTER_STOP
+	var sb := dark_row_style(0.48 if accepted else 0.22)
+	sb.set_border_width_all(2)
+	sb.border_color = Color(edge.r, edge.g, edge.b, 0.85 if accepted else 0.24)
+	cell.add_theme_stylebox_override("panel", sb)
+	cell.modulate = Color(1, 1, 1, 1) if accepted else Color(0.52, 0.52, 0.52, 0.82)
+	cell.tooltip_text = "%s · %.2fkg · %s" % [
+		FishData.display_name(id), float(c["w"]), tip,
+	]
+	cell.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			on_click.call(idx))
+	var mg := MarginContainer.new()
+	mg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mg.add_theme_constant_override("margin_left", 6)
+	mg.add_theme_constant_override("margin_right", 6)
+	mg.add_theme_constant_override("margin_top", 6)
+	mg.add_theme_constant_override("margin_bottom", 6)
+	cell.add_child(mg)
+	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_theme_constant_override("separation", 2)
+	mg.add_child(box)
+	var icon := g._fish_icon(id, 46)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box.add_child(icon)
+	var nm := Label.new()
+	nm.text = ("◆" + FishData.display_name(id)) if vr >= 1 else FishData.display_name(id)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.clip_text = true
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	nm.add_theme_font_override("font", g._font_bold)
+	nm.add_theme_font_size_override("font_size", DT.FS_2XS + 1)
+	nm.add_theme_color_override("font_color", edge if accepted else DT.TEXT_FAINT_GLASS)
+	box.add_child(nm)
+	var meta := Label.new()
+	var parts: Array[String] = []
+	var q := int(c.get("q", 0))
+	if q > 0:
+		parts.append("★".repeat(q))
+	var sztag := FishData.size_tag(id, c["w"]).replace("·", "").strip_edges()
+	if sztag != "":
+		parts.append(sztag)
+	parts.append("%.2fkg" % float(c["w"]))
+	meta.text = " ".join(parts)
+	meta.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	meta.clip_text = true
+	meta.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	meta.add_theme_font_size_override("font_size", DT.FS_MICRO)
+	meta.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS if accepted else DT.TEXT_FAINT_GLASS)
+	box.add_child(meta)
+	var state := Label.new()
+	state.text = action_label
+	state.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	state.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	state.add_theme_font_override("font", g._font_bold)
+	state.add_theme_font_size_override("font_size", DT.FS_XS)
+	state.add_theme_color_override("font_color", DT.GOLD_BRIGHT if accepted else DT.TEXT_FAINT_GLASS)
+	box.add_child(state)
+	return cell
 
 
 ## 开发期属性页：独立于玩家面板，展示属性层如何影响最终钓鱼结果。
@@ -664,6 +1042,54 @@ static func fill_debug_attributes(g: CornerFishing, v: VBoxContainer) -> void:
 		var vlabel: String = "普鱼" if vi == 0 else FishData.VARIANT_NAMES[vi]
 		_debug_kv(loot_grid, vlabel, "%.3f%%" % (float(vp[vi]) * 100.0), DT.VARIANT[vi],
 			"%s + 感知/生态 · 卖价 x%.1f · vbias %.2f" % [lure["name"], float(FishData.VARIANT_MULTS[vi]), vb])
+
+
+static func fill_relationship_debug_panel(g: CornerFishing, v: VBoxContainer) -> void:
+	g._ensure_relationship_state()
+	var title := Label.new()
+	title.text = "人情模块"
+	title.add_theme_font_size_override("font_size", 16)
+	title.add_theme_color_override("font_color", DT.GOLD_BRIGHT)
+	v.add_child(title)
+	var note := Label.new()
+	var buff: Dictionary = g.relationship_state.get("buff", {})
+	note.text = "到访 %d/5 · Buff %s · 测试改动仅本会话生效" % [
+		(g.relationship_state.get("visits", {}) as Dictionary).size(),
+		RelationshipDataScript.buff_name(str(buff.get("npc", ""))) if not buff.is_empty() else "无",
+	]
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.add_theme_font_size_override("font_size", 12)
+	note.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	v.add_child(note)
+	var top := _test_row(v)
+	_test_seg(top, "开放人情", false, func() -> void: TestMode.set_relationships_unlocked(g, true))
+	_test_seg(top, "打开人情簿", false, func() -> void: TestMode.open_relationship_book(g))
+	_test_seg(top, "清空到访", false, func() -> void: TestMode.clear_relationship_visits(g))
+	_test_seg(top, "清除Buff", false, func() -> void: TestMode.clear_relationship_buff(g))
+	for npc in RelationshipDataScript.NPCS:
+		var id := str(npc["id"])
+		var captured_id := id
+		var state: Dictionary = (g.relationship_state.get("npc", {}) as Dictionary).get(id, {})
+		_test_head(v, "%s · %s · %s" % [
+			str(npc["name"]),
+			RelationshipDataScript.favor_name(int(state.get("favor", 0))),
+			"终章已完成" if bool(state.get("finale_done", false)) else "终章未完成",
+		])
+		var row1 := _test_row(v)
+		_test_seg(row1, "闲谈", false, func() -> void: TestMode.summon_relationship_visit(g, captured_id, "hint"))
+		_test_seg(row1, "委托", false, func() -> void: TestMode.summon_relationship_visit(g, captured_id, "task"))
+		_test_seg(row1, "Buff", false, func() -> void: TestMode.summon_relationship_visit(g, captured_id, "buff"))
+		_test_seg(row1, "终章", false, func() -> void: TestMode.summon_relationship_visit(g, captured_id, "finale"))
+		var row2 := _test_row(v)
+		_test_seg(row2, "打开面板", false, func() -> void: TestMode.open_relationship_visit(g, captured_id))
+		_test_seg(row2, "给偏好鱼", false, func() -> void: TestMode.give_relationship_gift_fish(g, captured_id))
+		_test_seg(row2, "给终章鱼", false, func() -> void: TestMode.give_relationship_finale_fish(g, captured_id))
+		var row3 := _test_row(v)
+		_test_seg(row3, "好感-1", false, func() -> void: TestMode.adjust_relationship_favor(g, captured_id, -1))
+		_test_seg(row3, "好感+1", false, func() -> void: TestMode.adjust_relationship_favor(g, captured_id, 1))
+		_test_seg(row3, "设至交", false, func() -> void: TestMode.set_relationship_favor(g, captured_id, RelationshipDataScript.FAVOR_LEVELS.size() - 1))
+		_test_seg(row3, "重置终章", false, func() -> void: TestMode.set_relationship_finale_done(g, captured_id, false))
+		_test_seg(row3, "完成终章", false, func() -> void: TestMode.set_relationship_finale_done(g, captured_id, true))
 
 
 static func _debug_group(box: BoxContainer, title: String, col: Color) -> VBoxContainer:

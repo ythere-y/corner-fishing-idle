@@ -1,6 +1,7 @@
 class_name SaveSystem
 ## 存档系统（从 main.gd 拆出）：序列化 / 反序列化 / 迁移 / 原子写 / .bak 回退。
 ## 纯函数，游戏状态在主节点 g 上读写。main 只保留薄壳调用 + 离线结算。
+const RelationshipDataScript := preload("res://relationship_data.gd")
 ## 存档结构升级历史：v1 id列表→图鉴纪录轴；inv 三→四→五元组；dex 2→4元组徽章；
 ## daily_order 补 kind/tier/minw；新增 hook/weekly/day_stat/best_q/giant/ach/seen_intro/focus/win_pos；
 ## v8 多钓点：spot(当前钓点)/unlocked(已解锁)/seen(已造访)/event(在场 buff)，旧档默认 river_bend。
@@ -20,6 +21,7 @@ class_name SaveSystem
 ## v19 修 bug：dex 第 7 元 wd(刷新最大体重的日期，鱼种详情卡「破纪录于」用)。此前只存 6 元、
 ##     wd 每次重启即丢，详情卡必显「—」。旧档默认 wd=""，无损迁移（新旧代码可互读）。
 ## v20 功能渐进开放：features(底栏系统开放状态)、feature_spend_equipment(装备消费累计)。
+## v21 河湾人情簿：relationships（NPC 独立好感、到访队列与排程）。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -33,7 +35,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 20,   # 19→20：新增功能渐进开放状态
+		"ver": 21,   # 20→21：新增河湾人情簿状态
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"reel_level": g.reel_level,
@@ -61,6 +63,7 @@ static func collect(g) -> Dictionary:
 		"ach": g.achievements_done.keys(),
 		"features": g.feature_unlocks,
 		"feature_spend_equipment": g.feature_spend_equipment,
+		"relationships": g.relationship_state,
 		"opacity": g._opacity,
 		"max_fps": g.max_fps,           # 帧率上限设置（旧档无 → 载入默认 120）
 		"ui_scale": g.ui_scale,         # 界面缩放设置（旧档无 → 载入默认 1.0）
@@ -183,6 +186,7 @@ static func apply(g, data: Dictionary) -> void:
 			g.feature_unlocks[str(fid)] = bool(features_raw[fid])
 	g.feature_unlocks["settings"] = true
 	g.feature_spend_equipment = maxf(0.0, float(data.get("feature_spend_equipment", 0.0)))
+	g.relationship_state = _relationships_from_save(data.get("relationships", {}))
 	g.dex = {}
 	var dex_raw: Variant = data.get("dex", [])
 	if dex_raw is Dictionary:                # v4+：{id: [n, w_max, big?, perf?]}
@@ -330,3 +334,44 @@ static func apply_spots(g, data: Dictionary) -> void:
 	# 旧档订单缺 spot → 归到当前钓点
 	if g.daily_order is Dictionary and str(g.daily_order.get("spot", "")) == "":
 		g.daily_order["spot"] = g.current_spot
+
+
+static func _relationships_from_save(raw: Variant) -> Dictionary:
+	var out: Dictionary = RelationshipDataScript.default_state()
+	if not (raw is Dictionary):
+		return out
+	var saved_npc: Variant = raw.get("npc", {})
+	if saved_npc is Dictionary:
+		for d in RelationshipDataScript.NPCS:
+			var id := str(d["id"])
+			var saved: Variant = saved_npc.get(id, {})
+			if saved is Dictionary:
+				out["npc"][id] = {
+					"favor": clampi(int(saved.get("favor", 0)), 0, RelationshipDataScript.FAVOR_LEVELS.size() - 1),
+					"finale_done": bool(saved.get("finale_done", false)),
+				}
+	var saved_visits: Variant = raw.get("visits", {})
+	if saved_visits is Dictionary:
+		for key in saved_visits:
+			if (out["visits"] as Dictionary).size() >= 5:
+				break
+			var saved_visit: Variant = saved_visits[key]
+			if not (saved_visit is Dictionary):
+				continue
+			var npc_id := str(saved_visit.get("npc", key))
+			if RelationshipDataScript.get_npc(npc_id).is_empty():
+				continue
+			if (out["visits"] as Dictionary).has(npc_id):
+				continue
+			var kind := str(saved_visit.get("kind", "hint"))
+			var created_at := maxf(0.0, float(saved_visit.get("created_at", 0.0)))
+			(out["visits"] as Dictionary)[npc_id] = RelationshipDataScript.make_visit(npc_id, kind, created_at)
+	out["next_visit_at"] = maxf(0.0, float(raw.get("next_visit_at", 0.0)))
+	out["visit_seq"] = max(0, int(raw.get("visit_seq", 0)))
+	var saved_buff: Variant = raw.get("buff", {})
+	if saved_buff is Dictionary:
+		var npc_id := str(saved_buff.get("npc", ""))
+		var t := maxf(0.0, float(saved_buff.get("t", 0.0)))
+		if t > 0.0 and not RelationshipDataScript.buff_for(npc_id).is_empty():
+			out["buff"] = {"npc": npc_id, "t": t}
+	return out

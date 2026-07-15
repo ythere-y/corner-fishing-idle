@@ -16,6 +16,7 @@ class_name TestMode
 
 # 各时段在「连续昼夜调色」里的代表时刻（喂给 painter.debug_tod，使氛围色与强制时段一致）。
 const PHASE_TOD := {"dawn": 6.0, "day": 12.0, "dusk": 18.5, "night": 23.0}
+const RelationshipDataScript := preload("res://relationship_data.gd")
 
 # 钓鱼提速档位：等待/咬钩时长除以此值（1=正常，最后一档≈即时）。
 const SPEED_OPTIONS := [1.0, 3.0, 10.0, 40.0]
@@ -58,6 +59,10 @@ static func set_enabled(g, on: bool) -> void:
 				g._dev_attrs_panel.queue_free()
 			if is_instance_valid(g._feature_mgmt_panel):
 				g._feature_mgmt_panel.queue_free()
+			if "_relationship_debug_panel" in g and is_instance_valid(g._relationship_debug_panel):
+				g._relationship_debug_panel.queue_free()
+			if "_relationship_debug_open" in g:
+				g._relationship_debug_open = false
 	g._update_hud()
 	g._refresh_panel()
 
@@ -254,6 +259,126 @@ static func set_feature_unlock(g, id: String, on: bool) -> void:
 	if g.has_method("_layout_widget"):
 		g._layout_widget()
 	g._toast("%s：%s" % [id, "开放" if on else "关闭"], 1.6, DT.GOLD)
+
+
+# ============================ 人情模块 ============================
+
+static func set_relationships_unlocked(g, on := true) -> void:
+	set_feature_unlock(g, "relations", on)
+	if on:
+		g.relationship_state = RelationshipDataScript.default_state() if g.relationship_state.is_empty() else g.relationship_state
+		g._ensure_relationship_state()
+		g._update_relationship_visit_bar()
+		if g.has_method("_refresh_relationship_debug_panel"):
+			g._refresh_relationship_debug_panel()
+
+
+static func summon_relationship_visit(g, npc_id: String, kind: String) -> void:
+	g._ensure_relationship_state()
+	g.feature_unlocks["relations"] = true
+	var visits: Dictionary = g.relationship_state.get("visits", {})
+	visits[npc_id] = RelationshipDataScript.make_visit(npc_id, kind, Time.get_unix_time_from_system())
+	g.relationship_state["visits"] = visits
+	g.selected_relationship_visit_id = npc_id
+	g._update_relationship_visit_bar()
+	g._open_panel("relationship_visit")
+	if g.has_method("_refresh_relationship_debug_panel"):
+		g._refresh_relationship_debug_panel()
+
+
+static func open_relationship_book(g) -> void:
+	g.feature_unlocks["relations"] = true
+	g._catch_tab = 9
+	g._open_panel("catch")
+	g._update_relationship_visit_bar()
+
+
+static func open_relationship_visit(g, npc_id: String) -> void:
+	g._ensure_relationship_state()
+	var visits: Dictionary = g.relationship_state.get("visits", {})
+	if not visits.has(npc_id):
+		visits[npc_id] = RelationshipDataScript.make_visit(npc_id, "hint", Time.get_unix_time_from_system())
+		g.relationship_state["visits"] = visits
+	g.selected_relationship_visit_id = npc_id
+	g._open_panel("relationship_visit")
+	g._update_relationship_visit_bar()
+
+
+static func adjust_relationship_favor(g, npc_id: String, delta: int) -> void:
+	g._ensure_relationship_state()
+	var npc_state: Dictionary = g.relationship_state.get("npc", {})
+	var state: Dictionary = npc_state.get(npc_id, {"favor": 0, "finale_done": false})
+	state["favor"] = clampi(int(state.get("favor", 0)) + delta, 0, RelationshipDataScript.FAVOR_LEVELS.size() - 1)
+	npc_state[npc_id] = state
+	g.relationship_state["npc"] = npc_state
+	g._refresh_panel()
+	if g.has_method("_refresh_relationship_debug_panel"):
+		g._refresh_relationship_debug_panel()
+
+
+static func set_relationship_favor(g, npc_id: String, value: int) -> void:
+	g._ensure_relationship_state()
+	var npc_state: Dictionary = g.relationship_state.get("npc", {})
+	var state: Dictionary = npc_state.get(npc_id, {"favor": 0, "finale_done": false})
+	state["favor"] = clampi(value, 0, RelationshipDataScript.FAVOR_LEVELS.size() - 1)
+	npc_state[npc_id] = state
+	g.relationship_state["npc"] = npc_state
+	g._refresh_panel()
+	if g.has_method("_refresh_relationship_debug_panel"):
+		g._refresh_relationship_debug_panel()
+
+
+static func set_relationship_finale_done(g, npc_id: String, done: bool) -> void:
+	g._ensure_relationship_state()
+	var npc_state: Dictionary = g.relationship_state.get("npc", {})
+	var state: Dictionary = npc_state.get(npc_id, {"favor": 0, "finale_done": false})
+	state["finale_done"] = done
+	npc_state[npc_id] = state
+	g.relationship_state["npc"] = npc_state
+	if g.has_method("_refresh_relationship_debug_panel"):
+		g._refresh_relationship_debug_panel()
+
+
+static func give_relationship_gift_fish(g, npc_id: String) -> void:
+	var id := "crucian"
+	match npc_id:
+		"lin_aunt": id = "crucian"
+		"zhou_uncle": id = "carp"
+		"tang": id = "bass"
+		"xiaoman": id = "minnow"
+		"ma": id = "loach"
+	give_fish(g, id, 1, 0)
+
+
+static func give_relationship_finale_fish(g, npc_id: String) -> void:
+	var id := "mackerel"
+	match npc_id:
+		"lin_aunt": id = "mackerel"
+		"zhou_uncle": id = "oarfish" if FishData.FISH.has("oarfish") else "mackerel"
+		"tang": id = "oarfish" if FishData.FISH.has("oarfish") else "koi"
+		"xiaoman": id = "icefish"
+		"ma": id = "catfish"
+	if not FishData.FISH.has(id):
+		id = "mackerel"
+	give_fish(g, id, 2, 1)
+
+
+static func clear_relationship_visits(g) -> void:
+	g._ensure_relationship_state()
+	g.relationship_state["visits"] = {}
+	g.selected_relationship_visit_id = ""
+	g._update_relationship_visit_bar()
+	g._refresh_panel()
+	if g.has_method("_refresh_relationship_debug_panel"):
+		g._refresh_relationship_debug_panel()
+
+
+static func clear_relationship_buff(g) -> void:
+	g._ensure_relationship_state()
+	g.relationship_state["buff"] = {}
+	g._update_hud()
+	if g.has_method("_refresh_relationship_debug_panel"):
+		g._refresh_relationship_debug_panel()
 
 
 ## 点亮全图鉴：每种鱼登记一条满纪录（最大体重 + 巨物/完美 + 三种稀有变体已见）。

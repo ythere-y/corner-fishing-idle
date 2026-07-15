@@ -4,6 +4,7 @@ extends SceneTree
 
 var failures := 0
 const AnglerEquipmentScript := preload("res://systems/angler/angler_equipment.gd")
+const RelationshipDataScript := preload("res://relationship_data.gd")
 
 
 func _init() -> void:
@@ -41,6 +42,9 @@ func _run() -> void:
 
 	print("=== 功能渐进开放 ===")
 	await _check_feature_unlocks()
+
+	print("=== 河湾人情簿基础状态 ===")
+	await _check_relationship_foundation()
 
 	print("=== 角色属性 → 钓鱼属性映射 ===")
 	await _check_attribute_mapping()
@@ -1057,8 +1061,8 @@ func _check_reel_speed() -> void:
 	g.notebook_level = 4
 	g.gloves_level = 5
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 20 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
-		"v20 应保存 reel_level、五件属性装备等级与功能开放状态")
+	_assert(int(d["ver"]) == 21 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
+		"v21 应保存 reel_level、五件属性装备等级、功能开放状态与人情簿状态")
 	g.reel_level = 0
 	g.fish_line_level = 0
 	g.bobber_level = 0
@@ -1068,7 +1072,7 @@ func _check_reel_speed() -> void:
 	SaveSystem.apply(g, d)
 	_assert(g.reel_level == 100 and g.fish_line_level == 10 and g.bobber_level == 2
 			and g.sonar_level == 3 and g.notebook_level == 4 and g.gloves_level == 5,
-		"v20 应恢复 reel_level 与五件属性装备等级")
+		"v21 应恢复 reel_level 与五件属性装备等级")
 	var od := d.duplicate()
 	od.erase("reel_level")
 	od.erase("fish_line_level")
@@ -1135,6 +1139,116 @@ func _check_feature_unlocks() -> void:
 		"存档应包含功能开放状态与装备消费累计")
 	print("  功能开放：设置开局 / 鱼篓 / 装备 / 任务 / 图鉴 / 钓点 / 鱼缸 / 测试开关 通过")
 	g.queue_free()
+	await process_frame
+
+
+func _check_relationship_foundation() -> void:
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	g.relationship_state = RelationshipDataScript.default_state()
+	_assert((g.relationship_state.get("npc", {}) as Dictionary).size() == RelationshipDataScript.NPCS.size(),
+		"新存档应为五位河湾 NPC 建立独立关系状态")
+	g.lifetime_catches = 3
+	g._ensure_feature_unlocks(true)
+	_assert(g._feature_unlocked("relations"), "累计钓到 3 条鱼应开放人情入口")
+	g.relationship_state["next_visit_at"] = 0.0
+	g._sync_relationship_visits(false)
+	var visits: Dictionary = g.relationship_state.get("visits", {})
+	_assert(visits.size() == 1, "人情入口开放后应能生成第一条到访事件")
+	for i in range(8):
+		g.relationship_state["next_visit_at"] = 0.0
+		g._sync_relationship_visits(false)
+	visits = g.relationship_state.get("visits", {})
+	_assert(visits.size() == 5, "到访事件最多累积 5 条")
+	var npc: Dictionary = g.relationship_state["npc"]
+	npc["zhou_uncle"]["favor"] = 4
+	var saved: Dictionary = SaveSystem.collect(g)
+	_assert((saved.get("relationships", {}) as Dictionary).has("npc"), "存档应包含人情簿状态")
+	var restored: Node = load("res://main.tscn").instantiate()
+	restored.save_enabled = false
+	root.add_child(restored)
+	await process_frame
+	SaveSystem.apply(restored, saved)
+	_assert(int(restored.relationship_state["npc"]["zhou_uncle"].get("favor", 0)) == 4,
+		"人情簿应保留单个 NPC 的独立好感")
+	_assert((restored.relationship_state.get("visits", {}) as Dictionary).size() == 5,
+		"人情簿应保留最多 5 条到访事件")
+	restored.selected_relationship_visit_id = "lin_aunt"
+	restored.inventory = [{"id": "crucian", "w": 0.3, "v": 6, "q": 0}]
+	restored.relationship_state["visits"] = {"lin_aunt": RelationshipDataScript.make_visit("lin_aunt", "hint", 0.0)}
+	restored.relationship_state["npc"]["lin_aunt"]["favor"] = 0
+	restored._relationship_gift(0)
+	_assert(restored.inventory.is_empty(), "偏好鱼送礼成功后应从鱼篓扣除")
+	_assert(int(restored.relationship_state["npc"]["lin_aunt"].get("favor", 0)) == 1,
+		"偏好鱼送礼成功后应提升好感")
+	_assert(not (restored.relationship_state.get("visits", {}) as Dictionary).has("lin_aunt"),
+		"送礼成功后应结束该 NPC 的到访")
+	restored.selected_relationship_visit_id = "lin_aunt"
+	restored.inventory = [{"id": "sardine", "w": 0.05, "v": 3, "q": 0}]
+	restored.relationship_state["visits"] = {"lin_aunt": RelationshipDataScript.make_visit("lin_aunt", "hint", 0.0)}
+	restored._relationship_gift(0)
+	_assert(restored.inventory.size() == 1, "不合口味被拒后不应消耗鱼")
+	_assert(not (restored.relationship_state.get("visits", {}) as Dictionary).has("lin_aunt"),
+		"不合口味被拒后也应错失本次到访送礼机会")
+	restored.selected_relationship_visit_id = "tang"
+	restored.relationship_state["visits"] = {"tang": RelationshipDataScript.make_visit("tang", "buff", 0.0)}
+	restored._accept_relationship_buff()
+	_assert(not (restored.relationship_state.get("visits", {}) as Dictionary).has("tang"),
+		"接受 Buff 后应结束该 NPC 的到访")
+	_assert(str((restored.relationship_state.get("buff", {}) as Dictionary).get("npc", "")) == "tang",
+		"接受 Buff 后应记录当前人情 Buff 来源")
+	_assert(restored._catch_value_mult() > 1.0, "阿棠 Buff 应提高渔获结算倍率")
+	var buff_saved: Dictionary = SaveSystem.collect(restored)
+	var buff_restored: Node = load("res://main.tscn").instantiate()
+	buff_restored.save_enabled = false
+	root.add_child(buff_restored)
+	await process_frame
+	SaveSystem.apply(buff_restored, buff_saved)
+	_assert(str((buff_restored.relationship_state.get("buff", {}) as Dictionary).get("npc", "")) == "tang",
+		"人情 Buff 应能存档往返")
+	restored.selected_relationship_visit_id = "zhou_uncle"
+	restored.relationship_state["visits"] = {"zhou_uncle": RelationshipDataScript.make_visit("zhou_uncle", "task", 0.0)}
+	restored.inventory = [{"id": "sardine", "w": 0.05, "v": 3, "q": 0}]
+	var coins_before := float(restored.coins)
+	restored._complete_relationship_task(0)
+	_assert(restored.inventory.size() == 1, "委托交付不合格时不应消耗鱼")
+	_assert((restored.relationship_state.get("visits", {}) as Dictionary).has("zhou_uncle"),
+		"委托交付不合格时应保留该到访委托")
+	_assert(float(restored.coins) == coins_before, "委托交付不合格时不应发奖励")
+	restored.inventory = [{"id": "carp", "w": 6.0, "v": 40, "q": 0}]
+	restored.relationship_state["npc"]["zhou_uncle"]["favor"] = 0
+	restored._complete_relationship_task(0)
+	_assert(restored.inventory.is_empty(), "委托交付合格后应消耗鱼")
+	_assert(not (restored.relationship_state.get("visits", {}) as Dictionary).has("zhou_uncle"),
+		"委托交付合格后应结束该 NPC 的到访")
+	_assert(float(restored.coins) > coins_before, "委托交付合格后应发金币奖励")
+	_assert(int(restored.relationship_state["npc"]["zhou_uncle"].get("favor", 0)) == 1,
+		"委托交付合格后应提升好感")
+	restored.relationship_state["visits"] = {}
+	restored.relationship_state["npc"]["ma"] = {"favor": RelationshipDataScript.FAVOR_LEVELS.size() - 1, "finale_done": false}
+	restored.relationship_state["next_visit_at"] = 0.0
+	restored._sync_relationship_visits(false)
+	_assert(str((restored.relationship_state.get("visits", {}) as Dictionary).get("ma", {}).get("kind", "")) == "finale",
+		"至交且终章未完成的 NPC 应优先生成终章到访")
+	restored.selected_relationship_visit_id = "ma"
+	restored.inventory = [{"id": "crucian", "w": 0.3, "v": 6, "q": 0}]
+	var finale_before := float(restored.coins)
+	restored._complete_relationship_finale(0)
+	_assert(restored.inventory.size() == 1, "终章交付不合格时不应消耗鱼")
+	_assert((restored.relationship_state.get("visits", {}) as Dictionary).has("ma"),
+		"终章交付不合格时应保留大单")
+	restored.inventory = [{"id": "catfish", "w": 3.0, "v": 50, "q": 1}]
+	restored._complete_relationship_finale(0)
+	_assert(restored.inventory.is_empty(), "终章交付合格后应消耗鱼")
+	_assert(bool(restored.relationship_state["npc"]["ma"].get("finale_done", false)),
+		"终章交付合格后应标记完成")
+	_assert(float(restored.coins) > finale_before, "终章交付合格后应发高额奖励")
+	print("  人情簿：五人默认状态 / 入口开放 / 到访队列 / 到访送礼 / 接受 Buff / 委托交付 / 终章大单 / 存档往返 通过")
+	g.queue_free()
+	restored.queue_free()
+	buff_restored.queue_free()
 	await process_frame
 
 
@@ -1358,7 +1472,7 @@ func _check_autosell() -> void:
 	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
 	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 20, "存档版本应为 v20")
+	_assert(int(d["ver"]) == 21, "存档版本应为 v21")
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0
@@ -2360,10 +2474,24 @@ func _check_test_mode() -> void:
 	g._set_dev_attrs_open(true)
 	await process_frame
 	_assert(is_instance_valid(g._dev_attrs_panel) and g._dev_attrs_panel.visible, "测试模式下属性面板应独立构建并显示")
+	g._set_relationship_debug_open(true)
+	await process_frame
+	_assert(is_instance_valid(g._relationship_debug_panel) and g._relationship_debug_panel.visible,
+		"测试模式下人情模块面板应独立构建并显示")
+	TestMode.summon_relationship_visit(g, "lin_aunt", "task")
+	_assert((g.relationship_state.get("visits", {}) as Dictionary).has("lin_aunt"),
+		"人情调试面板应能立即召唤指定到访事件")
+	TestMode.set_relationship_favor(g, "lin_aunt", RelationshipDataScript.FAVOR_LEVELS.size() - 1)
+	_assert(int(g.relationship_state["npc"]["lin_aunt"].get("favor", 0)) == RelationshipDataScript.FAVOR_LEVELS.size() - 1,
+		"人情调试面板应能调整好感度")
 	g._open_panel("catch")
 	await process_frame
-	_assert(is_instance_valid(g._panel) and is_instance_valid(g._dev_attrs_panel) and g._dev_attrs_panel.visible,
-		"打开鱼篓等玩家面板不应关闭开发属性面板")
+	_assert(is_instance_valid(g._panel) and is_instance_valid(g._relationship_debug_panel) and g._relationship_debug_panel.visible,
+		"打开鱼篓等玩家面板不应关闭开发人情面板")
+	g._set_dev_attrs_open(true)
+	await process_frame
+	_assert(is_instance_valid(g._dev_attrs_panel) and g._dev_attrs_panel.visible,
+		"测试模式下属性面板应能重新打开")
 	g._open_panel("set")
 	await process_frame
 	# 改钱 / 给鱼即时生效（仅内存）

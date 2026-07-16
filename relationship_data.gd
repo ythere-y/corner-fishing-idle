@@ -49,8 +49,13 @@ const NPCS := [
 static func default_state() -> Dictionary:
 	var npc := {}
 	for d in NPCS:
-		npc[str(d["id"])] = {"favor": 0, "finale_done": false}
-	return {"npc": npc, "visits": {}, "next_visit_at": 0.0, "visit_seq": 0, "buff": {}}
+		npc[str(d["id"])] = {
+			"favor": 0,
+			"finale_done": false,
+			"next_visit_at": 0.0,
+			"visit_seq": 0,
+		}
+	return {"npc": npc, "visits": {}, "buff": {}}
 
 
 static func get_npc(id: String) -> Dictionary:

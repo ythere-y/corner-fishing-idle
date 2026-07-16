@@ -22,6 +22,7 @@ const RelationshipDataScript := preload("res://relationship_data.gd")
 ##     wd 每次重启即丢，详情卡必显「—」。旧档默认 wd=""，无损迁移（新旧代码可互读）。
 ## v20 功能渐进开放：features(底栏系统开放状态)、feature_spend_equipment(装备消费累计)。
 ## v21 河湾人情簿：relationships（NPC 独立好感、到访队列与排程）。
+## v22 人情到访修复：全局排程迁移为五位 NPC 各自独立的 next_visit_at / visit_seq。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -35,7 +36,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 21,   # 20→21：新增河湾人情簿状态
+		"ver": 22,   # 21→22：人情到访改为每位 NPC 独立排程
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"reel_level": g.reel_level,
@@ -340,15 +341,20 @@ static func _relationships_from_save(raw: Variant) -> Dictionary:
 	var out: Dictionary = RelationshipDataScript.default_state()
 	if not (raw is Dictionary):
 		return out
+	var legacy_next: float = maxf(0.0, float(raw.get("next_visit_at", 0.0)))
+	var legacy_seq: int = maxi(0, int(raw.get("visit_seq", 0)))
 	var saved_npc: Variant = raw.get("npc", {})
 	if saved_npc is Dictionary:
-		for d in RelationshipDataScript.NPCS:
+		for i in range(RelationshipDataScript.NPCS.size()):
+			var d: Dictionary = RelationshipDataScript.NPCS[i]
 			var id := str(d["id"])
 			var saved: Variant = saved_npc.get(id, {})
 			if saved is Dictionary:
 				out["npc"][id] = {
 					"favor": clampi(int(saved.get("favor", 0)), 0, RelationshipDataScript.FAVOR_LEVELS.size() - 1),
 					"finale_done": bool(saved.get("finale_done", false)),
+					"next_visit_at": maxf(0.0, float(saved.get("next_visit_at", legacy_next))),
+					"visit_seq": max(0, int(saved.get("visit_seq", legacy_seq + i))),
 				}
 	var saved_visits: Variant = raw.get("visits", {})
 	if saved_visits is Dictionary:
@@ -366,8 +372,6 @@ static func _relationships_from_save(raw: Variant) -> Dictionary:
 			var kind := str(saved_visit.get("kind", "hint"))
 			var created_at := maxf(0.0, float(saved_visit.get("created_at", 0.0)))
 			(out["visits"] as Dictionary)[npc_id] = RelationshipDataScript.make_visit(npc_id, kind, created_at)
-	out["next_visit_at"] = maxf(0.0, float(raw.get("next_visit_at", 0.0)))
-	out["visit_seq"] = max(0, int(raw.get("visit_seq", 0)))
 	var saved_buff: Variant = raw.get("buff", {})
 	if saved_buff is Dictionary:
 		var npc_id := str(saved_buff.get("npc", ""))

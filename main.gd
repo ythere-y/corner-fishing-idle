@@ -91,7 +91,7 @@ var caught_giant := false  # 是否钓到过「巨物」（成就用）
 var achievements_done := {}  # id -> true，已达成的成就（toast 只触发一次）
 var feature_unlocks := {"settings": true}  # 渐进开放的系统入口；开局只显示设置
 var feature_spend_equipment := 0.0          # 装备消费累计，达到 10K 后开放任务
-var relationship_state := {}                 # v21 河湾人情簿：NPC 好感、到访队列与排程（首阶段仅存档/展示）
+var relationship_state := {}                 # v22 河湾人情簿：NPC 好感、独立到访排程、Buff 与终章状态
 
 # 背包容量与扩容费用（bag_level 1 起步；费用 = 升到下一级）。
 # 调研定标：起始 20 格（Melvor 同款），整档 +5 格，费用走 1-2-5 阶梯（首扩几分钟产出可买）。
@@ -153,7 +153,6 @@ var _pending_offline := ""               # 仅"满篓没钓到"等无渔获情�
 var _offline_report := {}                # 离线小结：{dur,count,full,value,top,notable[]}
 
 const RELATION_VISIT_INTERVAL := 3.0 * 60.0 * 60.0
-const RELATION_VISIT_CAP := 5
 var selected_relationship_visit_id := ""
 var _relationship_tick_t := 0.0
 
@@ -370,10 +369,20 @@ func _ensure_relationship_state() -> void:
 		relationship_state = RelationshipDataScript.default_state()
 	if not (relationship_state.get("visits", {}) is Dictionary):
 		relationship_state["visits"] = {}
-	if not relationship_state.has("next_visit_at"):
-		relationship_state["next_visit_at"] = 0.0
-	if not relationship_state.has("visit_seq"):
-		relationship_state["visit_seq"] = 0
+	var legacy_next := maxf(0.0, float(relationship_state.get("next_visit_at", 0.0)))
+	var legacy_seq := maxi(0, int(relationship_state.get("visit_seq", 0)))
+	var npc_state: Dictionary = relationship_state.get("npc", {})
+	for i in range(RelationshipDataScript.NPCS.size()):
+		var id := str(RelationshipDataScript.NPCS[i]["id"])
+		var state: Dictionary = npc_state.get(id, {})
+		state["favor"] = clampi(int(state.get("favor", 0)), 0, RelationshipDataScript.FAVOR_LEVELS.size() - 1)
+		state["finale_done"] = bool(state.get("finale_done", false))
+		state["next_visit_at"] = maxf(0.0, float(state.get("next_visit_at", legacy_next)))
+		state["visit_seq"] = maxi(0, int(state.get("visit_seq", legacy_seq + i)))
+		npc_state[id] = state
+	relationship_state["npc"] = npc_state
+	relationship_state.erase("next_visit_at")
+	relationship_state.erase("visit_seq")
 	if not (relationship_state.get("buff", {}) is Dictionary):
 		relationship_state["buff"] = {}
 
@@ -454,21 +463,6 @@ func _relationship_now() -> float:
 	return Time.get_unix_time_from_system()
 
 
-func _next_relationship_visit_npc(visits: Dictionary) -> String:
-	var npc_state: Dictionary = relationship_state.get("npc", {})
-	for npc in RelationshipDataScript.NPCS:
-		var id := str(npc["id"])
-		var state: Dictionary = npc_state.get(id, {})
-		if not visits.has(id) and int(state.get("favor", 0)) >= RelationshipDataScript.FAVOR_LEVELS.size() - 1 \
-				and not bool(state.get("finale_done", false)):
-			return id
-	for npc in RelationshipDataScript.NPCS:
-		var id := str(npc["id"])
-		if not visits.has(id):
-			return id
-	return ""
-
-
 func _relationship_visit_kind_for(npc_id: String, seq: int) -> String:
 	var npc_state: Dictionary = relationship_state.get("npc", {})
 	var state: Dictionary = npc_state.get(npc_id, {})
@@ -483,25 +477,38 @@ func _sync_relationship_visits(show_toast := true) -> bool:
 	if not _feature_unlocked("relations"):
 		return false
 	var visits: Dictionary = relationship_state.get("visits", {})
+	var npc_state: Dictionary = relationship_state.get("npc", {})
 	var now := _relationship_now()
-	var next_at := float(relationship_state.get("next_visit_at", 0.0))
-	if next_at <= 0.0:
-		next_at = now
-	var changed := false
-	while now >= next_at and visits.size() < RELATION_VISIT_CAP:
-		var npc_id := _next_relationship_visit_npc(visits)
-		if npc_id == "":
+	var schedule_initialized := false
+	for npc in RelationshipDataScript.NPCS:
+		if float((npc_state.get(str(npc["id"]), {}) as Dictionary).get("next_visit_at", 0.0)) > 0.0:
+			schedule_initialized = true
 			break
-		var seq := maxi(0, int(relationship_state.get("visit_seq", 0)))
-		var kind := _relationship_visit_kind_for(npc_id, seq)
-		visits[npc_id] = RelationshipDataScript.make_visit(npc_id, kind, now)
-		relationship_state["visit_seq"] = seq + 1
-		next_at += RELATION_VISIT_INTERVAL
+	if not schedule_initialized:
+		for i in range(RelationshipDataScript.NPCS.size()):
+			var id := str(RelationshipDataScript.NPCS[i]["id"])
+			var state: Dictionary = npc_state[id]
+			state["next_visit_at"] = now if i == 0 else now + RELATION_VISIT_INTERVAL
+			npc_state[id] = state
+	var changed := false
+	for npc in RelationshipDataScript.NPCS:
+		var npc_id := str(npc["id"])
+		var state: Dictionary = npc_state[npc_id]
+		var next_at := float(state.get("next_visit_at", 0.0))
+		if next_at <= 0.0 or now < next_at:
+			continue
+		var elapsed_cycles := maxi(1, int(floor((now - next_at) / RELATION_VISIT_INTERVAL)) + 1)
+		var seq := maxi(0, int(state.get("visit_seq", 0)))
+		var latest_seq := seq + elapsed_cycles - 1
+		var created_at := next_at + float(elapsed_cycles - 1) * RELATION_VISIT_INTERVAL
+		visits[npc_id] = RelationshipDataScript.make_visit(
+			npc_id, _relationship_visit_kind_for(npc_id, latest_seq), created_at)
+		state["visit_seq"] = seq + elapsed_cycles
+		state["next_visit_at"] = next_at + float(elapsed_cycles) * RELATION_VISIT_INTERVAL
+		npc_state[npc_id] = state
 		changed = true
-	if visits.size() >= RELATION_VISIT_CAP and next_at <= now:
-		next_at = now + RELATION_VISIT_INTERVAL
 	relationship_state["visits"] = visits
-	relationship_state["next_visit_at"] = next_at
+	relationship_state["npc"] = npc_state
 	if changed and show_toast:
 		_toast("有人到访：人情簿里多了新消息", 2.6, Color(0.86, 0.76, 0.45))
 	return changed

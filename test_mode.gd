@@ -335,6 +335,13 @@ static func set_relationship_finale_done(g, npc_id: String, done: bool) -> void:
 	state["finale_done"] = done
 	npc_state[npc_id] = state
 	g.relationship_state["npc"] = npc_state
+	var unlocks: Dictionary = g.relationship_state.get("unlocks", {})
+	var reward_id := RelationshipDataScript.finale_reward_id(npc_id)
+	if done and reward_id != "":
+		unlocks[reward_id] = true
+	elif reward_id != "":
+		unlocks.erase(reward_id)
+	g.relationship_state["unlocks"] = unlocks
 	if g.has_method("_refresh_relationship_debug_panel"):
 		g._refresh_relationship_debug_panel()
 

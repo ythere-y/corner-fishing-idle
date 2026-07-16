@@ -91,7 +91,7 @@ var caught_giant := false  # 是否钓到过「巨物」（成就用）
 var achievements_done := {}  # id -> true，已达成的成就（toast 只触发一次）
 var feature_unlocks := {"settings": true}  # 渐进开放的系统入口；开局只显示设置
 var feature_spend_equipment := 0.0          # 装备消费累计，达到 10K 后开放任务
-var relationship_state := {}                 # v22 河湾人情簿：NPC 好感、独立到访排程、Buff 与终章状态
+var relationship_state := {}                 # v23 河湾人情簿：独立排程、Buff、终章与永久解锁
 
 # 背包容量与扩容费用（bag_level 1 起步；费用 = 升到下一级）。
 # 调研定标：起始 20 格（Melvor 同款），整档 +5 格，费用走 1-2-5 阶梯（首扩几分钟产出可买）。
@@ -383,6 +383,13 @@ func _ensure_relationship_state() -> void:
 	relationship_state["npc"] = npc_state
 	relationship_state.erase("next_visit_at")
 	relationship_state.erase("visit_seq")
+	var unlocks: Dictionary = relationship_state.get("unlocks", {})
+	for npc in RelationshipDataScript.NPCS:
+		var id := str(npc["id"])
+		var reward_id := RelationshipDataScript.finale_reward_id(id)
+		if reward_id != "" and bool((npc_state.get(id, {}) as Dictionary).get("finale_done", false)):
+			unlocks[reward_id] = true
+	relationship_state["unlocks"] = unlocks
 	if not (relationship_state.get("buff", {}) is Dictionary):
 		relationship_state["buff"] = {}
 
@@ -1453,6 +1460,18 @@ func _complete_relationship_finale(idx: int) -> void:
 	if visit.is_empty() or str(visit.get("kind", "")) != "finale":
 		_toast("这次到访没有可交付的终章大单", 2.0, Color(0.95, 0.55, 0.45))
 		return
+	var npc_state: Dictionary = relationship_state.get("npc", {})
+	var state: Dictionary = npc_state.get(npc_id, {
+		"favor": RelationshipDataScript.FAVOR_LEVELS.size() - 1, "finale_done": false})
+	if bool(state.get("finale_done", false)):
+		visits.erase(npc_id)
+		relationship_state["visits"] = visits
+		selected_relationship_visit_id = ""
+		_toast("这段终章已经完成，永久奖励不会重复领取", 2.4, Color(0.86, 0.76, 0.45))
+		_update_relationship_visit_bar()
+		_close_panel()
+		_save()
+		return
 	if idx < 0 or idx >= inventory.size():
 		_toast("这条鱼已经不在鱼篓里了", 1.8, Color(0.95, 0.55, 0.45))
 		return
@@ -1466,20 +1485,25 @@ func _complete_relationship_finale(idx: int) -> void:
 		], 3.0, Color(0.95, 0.55, 0.45))
 		return
 	var reward := _relationship_finale_reward(c)
-	inventory.remove_at(idx)
+	if RelationshipDataScript.finale_consumes_catch(npc_id):
+		inventory.remove_at(idx)
 	_add_coins_safe(reward)
 	_add_lifetime_coins_safe(reward)
 	visits.erase(npc_id)
 	relationship_state["visits"] = visits
-	var npc_state: Dictionary = relationship_state.get("npc", {})
-	var state: Dictionary = npc_state.get(npc_id, {"favor": RelationshipDataScript.FAVOR_LEVELS.size() - 1, "finale_done": false})
 	state["favor"] = RelationshipDataScript.FAVOR_LEVELS.size() - 1
 	state["finale_done"] = true
 	npc_state[npc_id] = state
 	relationship_state["npc"] = npc_state
+	var unlocks: Dictionary = relationship_state.get("unlocks", {})
+	var reward_id := RelationshipDataScript.finale_reward_id(npc_id)
+	if reward_id != "":
+		unlocks[reward_id] = true
+	relationship_state["unlocks"] = unlocks
 	selected_relationship_visit_id = ""
 	Audio.play_sfx("coin")
-	_toast("%s终章完成：+%s 金币" % [str(npc.get("name", "对方")), _coin_str(reward)],
+	_toast("%s终章完成：%s · +%s 金币" % [
+		str(npc.get("name", "对方")), RelationshipDataScript.finale_reward_name(npc_id), _coin_str(reward)],
 		3.2, Color(1.0, 0.86, 0.32))
 	_check_achievements()
 	_update_relationship_visit_bar()

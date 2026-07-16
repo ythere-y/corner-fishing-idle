@@ -552,7 +552,14 @@ static func fill_relationship_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		favor.add_theme_color_override("font_color", DT.INK_SOFT)
 		text.add_child(favor)
 		var note := Label.new()
-		note.text = "终章：%s" % str(npc["finale"])
+		if bool(state.get("finale_done", false)):
+			note.text = "永久解锁：%s\n%s" % [
+				RelationshipDataScript.finale_reward_name(id),
+				RelationshipDataScript.finale_reward_description(id),
+			]
+		else:
+			note.text = "终章：%s\n奖励：%s" % [
+				str(npc["finale"]), RelationshipDataScript.finale_reward_name(id)]
 		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		note.add_theme_font_size_override("font_size", 11)
 		note.add_theme_color_override("font_color", DT.BRONZE)
@@ -755,11 +762,24 @@ static func fill_relationship_task_delivery(g: CornerFishing, v: VBoxContainer, 
 
 static func fill_relationship_finale_delivery(g: CornerFishing, v: VBoxContainer, npc_id: String) -> void:
 	var title := Label.new()
-	title.text = "终章大单需要河湾之外的渔获。合格鱼会高亮；灰色鱼点了只会被拒绝，大单会继续保留。"
+	var consumes := RelationshipDataScript.finale_consumes_catch(npc_id)
+	title.text = "%s需要河湾之外的渔获。合格鱼会高亮；%s" % [
+		"终章收购" if consumes else "终章纪录",
+		"确认后会消耗这条鱼。" if consumes else "确认后只登记纪录，不会消耗这条鱼；锁定鱼也可登记。",
+	]
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title.add_theme_font_size_override("font_size", 12)
 	title.add_theme_color_override("font_color", DT.BRONZE)
 	v.add_child(title)
+	var reward := Label.new()
+	reward.text = "完成后永久解锁「%s」：%s" % [
+		RelationshipDataScript.finale_reward_name(npc_id),
+		RelationshipDataScript.finale_reward_description(npc_id),
+	]
+	reward.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	reward.add_theme_font_size_override("font_size", 12)
+	reward.add_theme_color_override("font_color", DT.INK_SOFT)
+	v.add_child(reward)
 	if g.inventory.is_empty():
 		v.add_child(_empty_note("鱼篓是空的。\n去其他地点带回合适的鱼。"))
 	else:
@@ -776,8 +796,9 @@ static func fill_relationship_finale_delivery(g: CornerFishing, v: VBoxContainer
 		sc.add_child(grid)
 		for i in g._sorted_bag_indices(false):
 			var ok := RelationshipDataScript.finale_match(npc_id, g.inventory[i])
-			var tip := "符合终章大单，点击交付" if ok else "不符合终章大单，点击会被拒绝但大单保留"
-			grid.add_child(relationship_fish_cell(g, g.inventory[i], i, ok, "终章" if ok else "会拒收", tip,
+			var action := "交付" if consumes else "登记"
+			var tip := "符合终章，点击%s" % action if ok else "不符合终章，点击会被拒绝但终章保留"
+			grid.add_child(relationship_fish_cell(g, g.inventory[i], i, ok, action if ok else "会拒收", tip,
 				func(real_idx: int) -> void: g._complete_relationship_finale(real_idx)))
 	var close := Button.new()
 	close.text = "稍后"

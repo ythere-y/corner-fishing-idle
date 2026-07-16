@@ -1,6 +1,10 @@
 ; Engine configuration file.
-; 【修改】原「角落垂钓」→ 最终定名「背包钓鱼手记」（Backpack & Bait，候选名单见 docs/lore_backpacker.md）
-; 背包钓鱼手记 — 背包客桌面角落挂机钓鱼挂件
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -19,19 +23,12 @@ Audio="*res://audio_manager.gd"
 window/size/viewport_width=1040
 window/size/viewport_height=720
 window/size/borderless=true
-window/size/transparent=true
 window/size/always_on_top=true
-window/size/no_focus=false
-; 运行态使用普通无边框透明覆盖窗：窗口铺满屏幕可用区，但不进入系统全屏 Space。
-; 挂机组件和菜单都在这个透明窗口内布局。
-window/per_pixel_transparency/allowed=true
+window/size/transparent=true
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-; 关逐显示器 DPI 感知：交给 Windows 统一按显示器缩放整窗位图。
-; 否则在「主屏高缩放(如150%) + 副屏100%」混合多屏下，窗口挪到副屏时视口贴不齐
-; 物理客户区，左/右/上会露 1px 窗口底色，像一条浅"描边"。代价：高缩放屏上水彩被
-; 系统放大略柔（安静水彩风通常无感）。
 window/dpi/allow_hidpi=false
+window/per_pixel_transparency/allowed=true
 
 [rendering]
 

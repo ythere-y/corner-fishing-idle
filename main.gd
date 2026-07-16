@@ -2496,6 +2496,7 @@ func _toggle_panel(kind: String) -> void:
 var _catch_tab := 0  # 0=鱼篓 1=图鉴 2=订单 3=成就
 var _bag_sort := 0   # 0=最新 1=价值 2=品阶 3=重量
 var _bag_filter_order := false  # 只看订单目标鱼
+var _sell_tier := 0   # 批量“卖掉XX及以下”的品阶上限（0=普通）
 const BAG_SORT_NAMES := ["最新", "价值", "品阶", "重量"]
 
 
@@ -2849,6 +2850,37 @@ func _sell_junk() -> void:
 	Audio.play_sfx("coin")
 	_toast("卖出杂鱼 %d 条 +%s 金币（订单鱼与收藏保留）" % [n, _coin_str(total)], 2.2, Color(0.85, 0.7, 0.35))
 	_check_achievements()
+	_update_hud()
+	_refresh_panel()
+	_save()
+
+
+## 批量「卖掉≤某品阶及以下」：未上锁、非订单、非珍稀（鎏金/七彩/★★★）、
+## 且品阶 ≤ 选定品阶的鱼（收藏锁保留）。按钮永远可点，空集合时给提示避免“点不动”错觉。
+func _sell_below_tier(tier: int) -> void:
+	var total := 0
+	var n := 0
+	var keep: Array = []
+	for c in inventory:
+		if bool(c.get("lock", false)) or _order_matches(c) \
+				or int(c.get("var", 0)) >= 2 or int(c.get("q", 0)) >= 3 \
+				or FishData.tier_of(str(c["id"])) > tier:
+			keep.append(c)       # 锁/订单/珍稀/高于选定品阶：跳过
+		else:
+			total += _sell_value(c)
+			n += 1
+	if n == 0:
+		_toast("没有可卖的%s及以下的鱼（订单鱼与收藏已保留）" % FishData.TIER_NAMES[tier], 2.0)
+		return
+	inventory = keep
+	_add_coins_safe(total)
+	_add_lifetime_coins_safe(total)
+	Audio.play_sfx("coin")
+	var msg := "卖出 %d 条%s及以下鱼 +%s 金币%s" % [n, FishData.TIER_NAMES[tier], _coin_str(total),
+		"（鱼贩×1.5）" if _merchant_active else ""]
+	_toast(msg, 2.2, Color(0.85, 0.7, 0.35))
+	_check_achievements()
+	_ensure_feature_unlocks()
 	_update_hud()
 	_refresh_panel()
 	_save()

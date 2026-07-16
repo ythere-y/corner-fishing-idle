@@ -4,6 +4,28 @@ class_name RelationshipData
 const FAVOR_LEVELS := ["初识", "点头之交", "熟脸", "熟人", "靠得住", "旧交", "至交"]
 const VISIT_KINDS := ["hint", "task", "buff", "finale"]
 const BUFF_DURATION := 600.0
+const FINALE_REWARDS := {
+	"lin_aunt": {
+		"id": "family_letter", "name": "家书纪念", "consumes": true,
+		"description": "林阿姨把外地家宴写进家书，作为这段邻里关系的永久纪念。",
+	},
+	"zhou_uncle": {
+		"id": "old_boat_pass", "name": "老钓友船牌", "consumes": false,
+		"description": "周叔留下旧船通行牌；冬泊湖水文台接入后可用于深水观测。",
+	},
+	"tang": {
+		"id": "trade_contact", "name": "跨城收购名片", "consumes": true,
+		"description": "阿棠留下跨城收购联系人的名片，永久记入人情簿。",
+	},
+	"xiaoman": {
+		"id": "marking_permit", "name": "高级标记许可", "consumes": false,
+		"description": "小满签发高级标记许可；雪线溪谷放流簿接入后可用于高阶记录。",
+	},
+	"ma": {
+		"id": "travel_contacts", "name": "旅途联系人名册", "consumes": false,
+		"description": "马会长交出旅途联系人名册，永久记录后续旅程的人脉线索。",
+	},
+}
 const BUFFS := {
 	"lin_aunt": {"name": "热茶暖手", "wait_mult": 0.88, "value_mult": 1.0, "luck": 0, "variant_bias": 0.0,
 		"dialogue": ["林阿姨：手冻僵了吧？喝口热茶再钓。", "玩家：这下浮漂看得清多了。"]},
@@ -55,7 +77,7 @@ static func default_state() -> Dictionary:
 			"next_visit_at": 0.0,
 			"visit_seq": 0,
 		}
-	return {"npc": npc, "visits": {}, "buff": {}}
+	return {"npc": npc, "visits": {}, "buff": {}, "unlocks": {}}
 
 
 static func get_npc(id: String) -> Dictionary:
@@ -194,7 +216,7 @@ static func is_external_fish(catch: Dictionary) -> bool:
 
 
 static func finale_match(npc_id: String, catch: Dictionary) -> bool:
-	if bool(catch.get("lock", false)) or not is_external_fish(catch):
+	if (bool(catch.get("lock", false)) and finale_consumes_catch(npc_id)) or not is_external_fish(catch):
 		return false
 	var fish_id := str(catch.get("id", ""))
 	if not FishData.FISH.has(fish_id):
@@ -220,9 +242,38 @@ static func finale_match(npc_id: String, catch: Dictionary) -> bool:
 
 
 static func finale_reject_reason(npc_id: String, catch: Dictionary) -> String:
-	if bool(catch.get("lock", false)):
+	if bool(catch.get("lock", false)) and finale_consumes_catch(npc_id):
 		return "这条鱼还锁着，不能交给终章大单。"
 	if not is_external_fish(catch):
 		return "终章大单需要来自河湾之外的渔获。"
 	var npc := get_npc(npc_id)
 	return "这条还不符合%s的终章方向：%s" % [str(npc.get("name", "对方")), str(npc.get("finale", ""))]
+
+
+static func finale_reward_for(npc_id: String) -> Dictionary:
+	return FINALE_REWARDS.get(npc_id, {}).duplicate(true)
+
+
+static func finale_reward_id(npc_id: String) -> String:
+	return str(finale_reward_for(npc_id).get("id", ""))
+
+
+static func finale_reward_name(npc_id: String) -> String:
+	return str(finale_reward_for(npc_id).get("name", "终章纪念"))
+
+
+static func finale_reward_description(npc_id: String) -> String:
+	return str(finale_reward_for(npc_id).get("description", ""))
+
+
+static func finale_consumes_catch(npc_id: String) -> bool:
+	return bool(finale_reward_for(npc_id).get("consumes", true))
+
+
+static func finale_unlock_ids() -> Array:
+	var out: Array = []
+	for npc in NPCS:
+		var reward_id := finale_reward_id(str(npc["id"]))
+		if reward_id != "":
+			out.append(reward_id)
+	return out

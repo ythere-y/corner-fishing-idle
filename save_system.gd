@@ -23,6 +23,7 @@ const RelationshipDataScript := preload("res://relationship_data.gd")
 ## v20 功能渐进开放：features(底栏系统开放状态)、feature_spend_equipment(装备消费累计)。
 ## v21 河湾人情簿：relationships（NPC 独立好感、到访队列与排程）。
 ## v22 人情到访修复：全局排程迁移为五位 NPC 各自独立的 next_visit_at / visit_seq。
+## v23 人情终章奖励：unlocks 保存五条一次性终章授予的永久纪念／许可／联系人标记。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -36,7 +37,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 22,   # 21→22：人情到访改为每位 NPC 独立排程
+		"ver": 23,   # 22→23：新增人情终章永久解锁标记
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"reel_level": g.reel_level,
@@ -356,6 +357,18 @@ static func _relationships_from_save(raw: Variant) -> Dictionary:
 					"next_visit_at": maxf(0.0, float(saved.get("next_visit_at", legacy_next))),
 					"visit_seq": max(0, int(saved.get("visit_seq", legacy_seq + i))),
 				}
+	var saved_unlocks: Variant = raw.get("unlocks", {})
+	if saved_unlocks is Dictionary:
+		for reward_id in RelationshipDataScript.finale_unlock_ids():
+			if bool(saved_unlocks.get(str(reward_id), false)):
+				out["unlocks"][str(reward_id)] = true
+	# v21/v22 已完成终章的存档没有 unlocks；按 finale_done 无损补发对应永久标记。
+	for d in RelationshipDataScript.NPCS:
+		var id := str(d["id"])
+		if bool((out["npc"][id] as Dictionary).get("finale_done", false)):
+			var reward_id := RelationshipDataScript.finale_reward_id(id)
+			if reward_id != "":
+				out["unlocks"][reward_id] = true
 	var saved_visits: Variant = raw.get("visits", {})
 	if saved_visits is Dictionary:
 		for key in saved_visits:

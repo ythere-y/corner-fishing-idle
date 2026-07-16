@@ -1129,8 +1129,8 @@ func _check_reel_speed() -> void:
 	g.notebook_level = 4
 	g.gloves_level = 5
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 23 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
-		"v23 应保存 reel_level、五件属性装备等级、功能开放状态与人情簿状态")
+	_assert(int(d["ver"]) == 24 and int(d["reel_level"]) == 100 and int(d["gloves_level"]) == 5,
+		"v24 应保存 reel_level、五件属性装备等级、功能开放状态与人情簿状态")
 	g.reel_level = 0
 	g.fish_line_level = 0
 	g.bobber_level = 0
@@ -1140,7 +1140,7 @@ func _check_reel_speed() -> void:
 	SaveSystem.apply(g, d)
 	_assert(g.reel_level == 100 and g.fish_line_level == 10 and g.bobber_level == 2
 			and g.sonar_level == 3 and g.notebook_level == 4 and g.gloves_level == 5,
-		"v23 应恢复 reel_level 与五件属性装备等级")
+		"v24 应恢复 reel_level 与五件属性装备等级")
 	var od := d.duplicate()
 	od.erase("reel_level")
 	od.erase("fish_line_level")
@@ -1224,28 +1224,41 @@ func _check_relationship_foundation() -> void:
 	_assert((g.relationship_state.get("unlocks", {}) as Dictionary).is_empty() \
 		and RelationshipDataScript.finale_unlock_ids().size() == RelationshipDataScript.NPCS.size(),
 		"新存档应有空的永久解锁表，且五位 NPC 各有一个终章奖励")
+	for npc_data in RelationshipDataScript.NPCS:
+		var id := str(npc_data["id"])
+		_assert(int(g.relationship_state["npc"][id].get("story_seen", 0)) == -1 \
+			and not RelationshipDataScript.level_event_for(id, 0).is_empty() \
+			and not RelationshipDataScript.level_event_for(id, RelationshipDataScript.STORY_LEVEL_MAX).is_empty(),
+			"每位 NPC 应从未读状态开始并配置初识到旧交的六条人物事件")
+	_assert(RelationshipDataScript.repeat_visit_kinds(0) == ["hint"] \
+		and "task" in RelationshipDataScript.repeat_visit_kinds(1) \
+		and not ("buff" in RelationshipDataScript.repeat_visit_kinds(3)) \
+		and "buff" in RelationshipDataScript.repeat_visit_kinds(4),
+		"等级池应按初识闲谈 / 点头委托 / 靠得住 Buff 分段开放")
 	g.lifetime_catches = 3
 	g._ensure_feature_unlocks(true)
 	_assert(g._feature_unlocked("relations"), "累计钓到 3 条鱼应开放人情入口")
 	g._sync_relationship_visits(false)
 	var visits: Dictionary = g.relationship_state.get("visits", {})
-	_assert(visits.size() == 1, "人情入口开放后应能生成第一条到访事件")
+	_assert(visits.size() == 1 and str(visits["lin_aunt"].get("kind", "")) == "story" \
+		and int(visits["lin_aunt"].get("story_level", -1)) == 0,
+		"人情入口开放后应优先生成初识人物事件")
 	var now: float = g._relationship_now()
 	for npc_data in RelationshipDataScript.NPCS:
 		var id := str(npc_data["id"])
 		g.relationship_state["npc"][id]["next_visit_at"] = now - 1.0
 	g._sync_relationship_visits(false)
 	visits = g.relationship_state.get("visits", {})
-	_assert(visits.size() == 5, "五位 NPC 独立冷却到期后应在同一周期内各自到访")
-	var old_kind := str(visits["lin_aunt"].get("kind", ""))
+	_assert(visits.size() == 5 and str(visits["ma"].get("kind", "")) == "story",
+		"五位 NPC 独立冷却到期后应在同一周期内各自投放未读人物事件")
 	for npc_data in RelationshipDataScript.NPCS:
 		var id := str(npc_data["id"])
 		g.relationship_state["npc"][id]["next_visit_at"] = now + 3600.0
-	g.relationship_state["npc"]["lin_aunt"]["next_visit_at"] = now - 1.0
+	g.relationship_state["npc"]["lin_aunt"]["next_visit_at"] = now - 0.25
 	g._sync_relationship_visits(false)
 	visits = g.relationship_state.get("visits", {})
-	_assert(visits.size() == 5 and str(visits["lin_aunt"].get("kind", "")) != old_kind,
-		"已有到访的 NPC 冷却到期后应更新来意而不是被跳过")
+	_assert(visits.size() == 5 and str(visits["lin_aunt"].get("kind", "")) == "story",
+		"未读人物事件尚未确认时，后续冷却更新仍应保留同一优先事件")
 	var lin_seq := int(g.relationship_state["npc"]["lin_aunt"].get("visit_seq", 0))
 	var zhou_seq := int(g.relationship_state["npc"]["zhou_uncle"].get("visit_seq", 0))
 	_assert(lin_seq > zhou_seq, "只有独立冷却到期的 NPC 才应推进自己的事件序列")
@@ -1274,6 +1287,8 @@ func _check_relationship_foundation() -> void:
 		"v21 全局到访排程应迁移到 NPC 独立排程")
 	_assert(bool(migrated_relationships["unlocks"].get("family_letter", false)),
 		"v21/v22 已完成终章的存档应补发对应永久解锁标记")
+	_assert(int(migrated_relationships["npc"]["lin_aunt"].get("story_seen", 0)) == -1,
+		"v23 及更早存档应从初识人物事件开始补读")
 	restored.selected_relationship_visit_id = "lin_aunt"
 	restored.inventory = [{"id": "crucian", "w": 0.3, "v": 6, "q": 0}]
 	restored.relationship_state["visits"] = {"lin_aunt": RelationshipDataScript.make_visit("lin_aunt", "hint", 0.0)}
@@ -1284,6 +1299,34 @@ func _check_relationship_foundation() -> void:
 		"偏好鱼送礼成功后应提升好感")
 	_assert(not (restored.relationship_state.get("visits", {}) as Dictionary).has("lin_aunt"),
 		"送礼成功后应结束该 NPC 的到访")
+	var story_now: float = restored._relationship_now()
+	for npc_data in RelationshipDataScript.NPCS:
+		var id := str(npc_data["id"])
+		restored.relationship_state["npc"][id]["next_visit_at"] = story_now + 3600.0
+	restored.relationship_state["npc"]["lin_aunt"]["next_visit_at"] = story_now - 1.0
+	restored._sync_relationship_visits(false)
+	_assert(str(restored.relationship_state["visits"]["lin_aunt"].get("kind", "")) == "story" \
+		and int(restored.relationship_state["visits"]["lin_aunt"].get("story_level", -1)) == 0,
+		"升到点头之交后仍应先补读初识人物事件")
+	restored.selected_relationship_visit_id = "lin_aunt"
+	restored._complete_relationship_story()
+	_assert(int(restored.relationship_state["npc"]["lin_aunt"].get("story_seen", -1)) == 0,
+		"确认人物事件后应记录已读等级并移除到访")
+	restored.relationship_state["npc"]["lin_aunt"]["favor"] = 3
+	restored.relationship_state["npc"]["lin_aunt"]["next_visit_at"] = story_now - 1.0
+	restored._sync_relationship_visits(false)
+	_assert(int(restored.relationship_state["visits"]["lin_aunt"].get("story_level", -1)) == 1,
+		"跨级后应按顺序补读点头之交事件，不得跳到当前等级")
+	restored.selected_relationship_visit_id = "lin_aunt"
+	restored._complete_relationship_story()
+	restored.relationship_state["npc"]["lin_aunt"]["next_visit_at"] = story_now - 1.0
+	restored._sync_relationship_visits(false)
+	_assert(int(restored.relationship_state["visits"]["lin_aunt"].get("story_level", -1)) == 2,
+		"补读一段后下一次应继续投放最低未读人物事件")
+	var story_saved: Dictionary = SaveSystem._relationships_from_save(
+		(SaveSystem.collect(restored).get("relationships", {}) as Dictionary))
+	_assert(int(story_saved["npc"]["lin_aunt"].get("story_seen", -1)) == 1,
+		"v24 应保存并恢复每位 NPC 的人物事件已读进度")
 	restored.selected_relationship_visit_id = "lin_aunt"
 	restored.inventory = [{"id": "sardine", "w": 0.05, "v": 3, "q": 0}]
 	restored.relationship_state["visits"] = {"lin_aunt": RelationshipDataScript.make_visit("lin_aunt", "hint", 0.0)}
@@ -1323,8 +1366,8 @@ func _check_relationship_foundation() -> void:
 	_assert(not (restored.relationship_state.get("visits", {}) as Dictionary).has("zhou_uncle"),
 		"委托交付合格后应结束该 NPC 的到访")
 	_assert(float(restored.coins) > coins_before, "委托交付合格后应发金币奖励")
-	_assert(int(restored.relationship_state["npc"]["zhou_uncle"].get("favor", 0)) == 1,
-		"委托交付合格后应提升好感")
+	_assert(int(restored.relationship_state["npc"]["zhou_uncle"].get("favor", 0)) == 0,
+		"普通委托只发金币，不应提升好感")
 	restored.relationship_state["visits"] = {}
 	restored.relationship_state["npc"]["ma"]["favor"] = RelationshipDataScript.FAVOR_LEVELS.size() - 1
 	restored.relationship_state["npc"]["ma"]["finale_done"] = false
@@ -1374,7 +1417,7 @@ func _check_relationship_foundation() -> void:
 		"已完成终章即使残留到访也不得重复扣鱼或发奖")
 	_assert(not (restored.relationship_state.get("visits", {}) as Dictionary).has("tang"),
 		"一次性终章的残留到访应在拦截重复领取时清除")
-	print("  人情簿：独立排程 / v21-v22 迁移 / 送礼 / Buff / 委托 / 一次性终章永久奖励 通过")
+	print("  人情簿：逐级事件池 / 跨级补读 / 礼物好感 / 金币委托 / Buff 门槛 / 一次性终章 通过")
 	g.queue_free()
 	restored.queue_free()
 	buff_restored.queue_free()
@@ -1601,7 +1644,7 @@ func _check_autosell() -> void:
 	_assert(g.auto_sell_on and g._try_auto_sell(), "重新开启后应恢复自动卖")
 	# 存档往返：v14 四字段全覆盖（n=3 次卖出：5+10+10 → v=25）
 	var d: Dictionary = SaveSystem.collect(g)
-	_assert(int(d["ver"]) == 23, "存档版本应为 v23")
+	_assert(int(d["ver"]) == 24, "存档版本应为 v24")
 	g.auto_sell_bought = false
 	g.auto_sell_on = false
 	g.auto_sold_n = 0
@@ -2613,6 +2656,11 @@ func _check_test_mode() -> void:
 	TestMode.set_relationship_favor(g, "lin_aunt", RelationshipDataScript.FAVOR_LEVELS.size() - 1)
 	_assert(int(g.relationship_state["npc"]["lin_aunt"].get("favor", 0)) == RelationshipDataScript.FAVOR_LEVELS.size() - 1,
 		"人情调试面板应能调整好感度")
+	TestMode.set_relationship_story_seen(g, "lin_aunt", -1)
+	TestMode.summon_relationship_visit(g, "lin_aunt", "story")
+	_assert(str(g.relationship_state["visits"]["lin_aunt"].get("kind", "")) == "story" \
+		and int(g.relationship_state["visits"]["lin_aunt"].get("story_level", -1)) == 0,
+		"人情调试面板应能重置并召唤最低未读人物事件")
 	g._open_panel("catch")
 	await process_frame
 	_assert(is_instance_valid(g._panel) and is_instance_valid(g._relationship_debug_panel) and g._relationship_debug_panel.visible,

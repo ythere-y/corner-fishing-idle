@@ -24,6 +24,7 @@ const RelationshipDataScript := preload("res://relationship_data.gd")
 ## v21 河湾人情簿：relationships（NPC 独立好感、到访队列与排程）。
 ## v22 人情到访修复：全局排程迁移为五位 NPC 各自独立的 next_visit_at / visit_seq。
 ## v23 人情终章奖励：unlocks 保存五条一次性终章授予的永久纪念／许可／联系人标记。
+## v24 好感逐级事件：每位 NPC 保存 story_seen，未读人物事件按等级顺序补看。
 
 
 ## 把主节点状态收集成可序列化字典。
@@ -37,7 +38,7 @@ static func collect(g) -> Dictionary:
 		disp.append([c["id"], c["w"], c["v"], int(c.get("q", 0)),
 			1 if bool(c.get("lock", false)) else 0, int(c.get("var", 0))])
 	var data := {
-		"ver": 23,   # 22→23：新增人情终章永久解锁标记
+		"ver": 24,   # 23→24：新增每位 NPC 的逐级人物事件已读进度
 		"coins": g.coins,
 		"rod_level": g.rod_level,
 		"reel_level": g.reel_level,
@@ -354,6 +355,7 @@ static func _relationships_from_save(raw: Variant) -> Dictionary:
 				out["npc"][id] = {
 					"favor": clampi(int(saved.get("favor", 0)), 0, RelationshipDataScript.FAVOR_LEVELS.size() - 1),
 					"finale_done": bool(saved.get("finale_done", false)),
+					"story_seen": clampi(int(saved.get("story_seen", -1)), -1, RelationshipDataScript.STORY_LEVEL_MAX),
 					"next_visit_at": maxf(0.0, float(saved.get("next_visit_at", legacy_next))),
 					"visit_seq": max(0, int(saved.get("visit_seq", legacy_seq + i))),
 				}
@@ -384,7 +386,9 @@ static func _relationships_from_save(raw: Variant) -> Dictionary:
 				continue
 			var kind := str(saved_visit.get("kind", "hint"))
 			var created_at := maxf(0.0, float(saved_visit.get("created_at", 0.0)))
-			(out["visits"] as Dictionary)[npc_id] = RelationshipDataScript.make_visit(npc_id, kind, created_at)
+			var story_level := int(saved_visit.get("story_level", 0))
+			(out["visits"] as Dictionary)[npc_id] = RelationshipDataScript.make_visit(
+				npc_id, kind, created_at, story_level)
 	var saved_buff: Variant = raw.get("buff", {})
 	if saved_buff is Dictionary:
 		var npc_id := str(saved_buff.get("npc", ""))

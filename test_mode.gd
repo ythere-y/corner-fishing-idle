@@ -277,7 +277,14 @@ static func summon_relationship_visit(g, npc_id: String, kind: String) -> void:
 	g._ensure_relationship_state()
 	g.feature_unlocks["relations"] = true
 	var visits: Dictionary = g.relationship_state.get("visits", {})
-	visits[npc_id] = RelationshipDataScript.make_visit(npc_id, kind, Time.get_unix_time_from_system())
+	var story_level := -1
+	if kind == "story":
+		var state: Dictionary = (g.relationship_state.get("npc", {}) as Dictionary).get(npc_id, {})
+		story_level = RelationshipDataScript.next_story_level(state)
+		if story_level < 0:
+			story_level = clampi(int(state.get("favor", 0)), 0, RelationshipDataScript.STORY_LEVEL_MAX)
+	visits[npc_id] = RelationshipDataScript.make_visit(
+		npc_id, kind, Time.get_unix_time_from_system(), story_level)
 	g.relationship_state["visits"] = visits
 	g.selected_relationship_visit_id = npc_id
 	g._update_relationship_visit_bar()
@@ -342,6 +349,22 @@ static func set_relationship_finale_done(g, npc_id: String, done: bool) -> void:
 	elif reward_id != "":
 		unlocks.erase(reward_id)
 	g.relationship_state["unlocks"] = unlocks
+	if g.has_method("_refresh_relationship_debug_panel"):
+		g._refresh_relationship_debug_panel()
+
+
+static func set_relationship_story_seen(g, npc_id: String, value: int) -> void:
+	g._ensure_relationship_state()
+	var npc_state: Dictionary = g.relationship_state.get("npc", {})
+	var state: Dictionary = npc_state.get(npc_id, {})
+	state["story_seen"] = clampi(value, -1, RelationshipDataScript.STORY_LEVEL_MAX)
+	npc_state[npc_id] = state
+	g.relationship_state["npc"] = npc_state
+	var visits: Dictionary = g.relationship_state.get("visits", {})
+	if str((visits.get(npc_id, {}) as Dictionary).get("kind", "")) == "story":
+		visits.erase(npc_id)
+		g.relationship_state["visits"] = visits
+	g._refresh_panel()
 	if g.has_method("_refresh_relationship_debug_panel"):
 		g._refresh_relationship_debug_panel()
 

@@ -87,10 +87,10 @@ func _run() -> void:
 	# 2f) 河湾人情簿：五位 NPC 的独立好感与终章方向（首阶段总览）。
 	_main.relationship_state = RelationshipDataScript.default_state()
 	_main.relationship_state["npc"]["zhou_uncle"]["favor"] = 4
-	_main.relationship_state["visits"]["lin_aunt"] = RelationshipDataScript.make_visit("lin_aunt", "hint", Time.get_unix_time_from_system())
+	_main.relationship_state["npc"]["zhou_uncle"]["story_seen"] = 3
+	_main.relationship_state["visits"]["lin_aunt"] = RelationshipDataScript.make_visit("lin_aunt", "story", Time.get_unix_time_from_system(), 0)
 	_main.relationship_state["visits"]["zhou_uncle"] = RelationshipDataScript.make_visit("zhou_uncle", "task", Time.get_unix_time_from_system())
 	_main.relationship_state["visits"]["tang"] = RelationshipDataScript.make_visit("tang", "buff", Time.get_unix_time_from_system())
-	_main.relationship_state["next_visit_at"] = Time.get_unix_time_from_system() + 3600.0
 	_main.feature_unlocks["relations"] = true
 	_main._update_relationship_visit_bar()
 	_main._catch_tab = 9
@@ -98,14 +98,14 @@ func _run() -> void:
 	await _settle(2)
 	_snap("panel_relations.png")
 
-	# 2g) 单条到访事件面板：从右侧纯色圆进入后的提示/委托/Buff 承载面。
+	# 2g) 一次性人物近况面板：确认后记录已读等级，不重复投放。
 	_main.inventory = [
 		{"id": "crucian", "w": 0.36, "v": 8, "q": 0},
 		{"id": "carp", "w": 5.80, "v": 33, "q": 1},
 		{"id": "sardine", "w": 0.06, "v": 4, "q": 0},
 		{"id": "oarfish", "w": 18.0, "v": 900, "q": 2, "lock": true},
 	]
-	_main.selected_relationship_visit_id = "zhou_uncle"
+	_main.selected_relationship_visit_id = "lin_aunt"
 	_main._open_panel("relationship_visit")
 	await _settle(2)
 	_snap("panel_relationship_visit.png")

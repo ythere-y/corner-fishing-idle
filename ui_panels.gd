@@ -546,7 +546,10 @@ static func fill_relationship_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		title.add_theme_color_override("font_color", DT.INK)
 		text.add_child(title)
 		var favor := Label.new()
-		favor.text = "好感：%s　偏好：%s" % [RelationshipDataScript.favor_name(int(state.get("favor", 0))), str(npc["likes"])]
+		favor.text = "好感：%s　偏好：%s　近况：%d/6" % [
+			RelationshipDataScript.favor_name(int(state.get("favor", 0))), str(npc["likes"]),
+			clampi(int(state.get("story_seen", -1)) + 1, 0, RelationshipDataScript.STORY_LEVEL_MAX + 1),
+		]
 		favor.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		favor.add_theme_font_size_override("font_size", 11)
 		favor.add_theme_color_override("font_color", DT.INK_SOFT)
@@ -643,6 +646,9 @@ static func fill_relationship_visit(g: CornerFishing, v: VBoxContainer) -> void:
 	if str(visit.get("kind", "hint")) == "finale":
 		fill_relationship_finale_delivery(g, v, npc_id)
 		return
+	if str(visit.get("kind", "hint")) == "story":
+		fill_relationship_story_ack(g, v)
+		return
 
 	var gift_title := Label.new()
 	gift_title.text = "选择鱼篓中的一条鱼送礼。灰色也可以点，但不合口味会被拒绝，并错过这次送礼机会。"
@@ -674,6 +680,24 @@ static func fill_relationship_visit(g: CornerFishing, v: VBoxContainer) -> void:
 		Audio.play_ui("ui_click")
 		g._close_panel())
 	v.add_child(close)
+
+
+static func fill_relationship_story_ack(g: CornerFishing, v: VBoxContainer) -> void:
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 8)
+	v.add_child(actions)
+	var accept := Button.new()
+	accept.text = "记下了"
+	accept.focus_mode = Control.FOCUS_NONE
+	apply_button_skin(accept, true)
+	accept.pressed.connect(func() -> void: g._complete_relationship_story())
+	actions.add_child(accept)
+	var later := Button.new()
+	later.text = "稍后"
+	later.focus_mode = Control.FOCUS_NONE
+	apply_button_skin(later, false)
+	later.pressed.connect(func() -> void: g._close_panel())
+	actions.add_child(later)
 
 
 static func fill_relationship_buff_accept(g: CornerFishing, v: VBoxContainer, npc_id: String) -> void:
@@ -1078,9 +1102,11 @@ static func fill_relationship_debug_panel(g: CornerFishing, v: VBoxContainer) ->
 		_test_head(v, "%s · %s · %s" % [
 			str(npc["name"]),
 			RelationshipDataScript.favor_name(int(state.get("favor", 0))),
-			"终章已完成" if bool(state.get("finale_done", false)) else "终章未完成",
+			("终章已完成" if bool(state.get("finale_done", false)) else "终章未完成") \
+				+ " · 近况%d/6" % clampi(int(state.get("story_seen", -1)) + 1, 0, 6),
 		])
 		var row1 := _test_row(v)
+		_test_seg(row1, "近况", false, func() -> void: TestMode.summon_relationship_visit(g, captured_id, "story"))
 		_test_seg(row1, "闲谈", false, func() -> void: TestMode.summon_relationship_visit(g, captured_id, "hint"))
 		_test_seg(row1, "委托", false, func() -> void: TestMode.summon_relationship_visit(g, captured_id, "task"))
 		_test_seg(row1, "Buff", false, func() -> void: TestMode.summon_relationship_visit(g, captured_id, "buff"))
@@ -1095,6 +1121,9 @@ static func fill_relationship_debug_panel(g: CornerFishing, v: VBoxContainer) ->
 		_test_seg(row3, "设至交", false, func() -> void: TestMode.set_relationship_favor(g, captured_id, RelationshipDataScript.FAVOR_LEVELS.size() - 1))
 		_test_seg(row3, "重置终章", false, func() -> void: TestMode.set_relationship_finale_done(g, captured_id, false))
 		_test_seg(row3, "完成终章", false, func() -> void: TestMode.set_relationship_finale_done(g, captured_id, true))
+		var row4 := _test_row(v)
+		_test_seg(row4, "重置近况", false, func() -> void: TestMode.set_relationship_story_seen(g, captured_id, -1))
+		_test_seg(row4, "读完近况", false, func() -> void: TestMode.set_relationship_story_seen(g, captured_id, RelationshipDataScript.STORY_LEVEL_MAX))
 
 
 static func _debug_group(box: BoxContainer, title: String, col: Color) -> VBoxContainer:

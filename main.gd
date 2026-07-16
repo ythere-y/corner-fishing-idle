@@ -91,7 +91,7 @@ var caught_giant := false  # 是否钓到过「巨物」（成就用）
 var achievements_done := {}  # id -> true，已达成的成就（toast 只触发一次）
 var feature_unlocks := {"settings": true}  # 渐进开放的系统入口；开局只显示设置
 var feature_spend_equipment := 0.0          # 装备消费累计，达到 10K 后开放任务
-var relationship_state := {}                 # v23 河湾人情簿：独立排程、Buff、终章与永久解锁
+var relationship_state := {}                 # v24 河湾人情簿：逐级事件、独立排程、Buff 与终章解锁
 
 # 背包容量与扩容费用（bag_level 1 起步；费用 = 升到下一级）。
 # 调研定标：起始 20 格（Melvor 同款），整档 +5 格，费用走 1-2-5 阶梯（首扩几分钟产出可买）。
@@ -377,6 +377,7 @@ func _ensure_relationship_state() -> void:
 		var state: Dictionary = npc_state.get(id, {})
 		state["favor"] = clampi(int(state.get("favor", 0)), 0, RelationshipDataScript.FAVOR_LEVELS.size() - 1)
 		state["finale_done"] = bool(state.get("finale_done", false))
+		state["story_seen"] = clampi(int(state.get("story_seen", -1)), -1, RelationshipDataScript.STORY_LEVEL_MAX)
 		state["next_visit_at"] = maxf(0.0, float(state.get("next_visit_at", legacy_next)))
 		state["visit_seq"] = maxi(0, int(state.get("visit_seq", legacy_seq + i)))
 		npc_state[id] = state
@@ -470,13 +471,18 @@ func _relationship_now() -> float:
 	return Time.get_unix_time_from_system()
 
 
-func _relationship_visit_kind_for(npc_id: String, seq: int) -> String:
+func _relationship_visit_for(npc_id: String, seq: int, created_at: float) -> Dictionary:
 	var npc_state: Dictionary = relationship_state.get("npc", {})
 	var state: Dictionary = npc_state.get(npc_id, {})
-	if int(state.get("favor", 0)) >= RelationshipDataScript.FAVOR_LEVELS.size() - 1 \
+	var favor := int(state.get("favor", 0))
+	if favor >= RelationshipDataScript.FAVOR_LEVELS.size() - 1 \
 			and not bool(state.get("finale_done", false)):
-		return "finale"
-	return str(RelationshipDataScript.VISIT_KINDS[seq % 3])
+		return RelationshipDataScript.make_visit(npc_id, "finale", created_at)
+	var story_level := RelationshipDataScript.next_story_level(state)
+	if story_level >= 0:
+		return RelationshipDataScript.make_visit(npc_id, "story", created_at, story_level)
+	var kinds := RelationshipDataScript.repeat_visit_kinds(favor)
+	return RelationshipDataScript.make_visit(npc_id, str(kinds[seq % kinds.size()]), created_at)
 
 
 func _sync_relationship_visits(show_toast := true) -> bool:
@@ -508,8 +514,7 @@ func _sync_relationship_visits(show_toast := true) -> bool:
 		var seq := maxi(0, int(state.get("visit_seq", 0)))
 		var latest_seq := seq + elapsed_cycles - 1
 		var created_at := next_at + float(elapsed_cycles - 1) * RELATION_VISIT_INTERVAL
-		visits[npc_id] = RelationshipDataScript.make_visit(
-			npc_id, _relationship_visit_kind_for(npc_id, latest_seq), created_at)
+		visits[npc_id] = _relationship_visit_for(npc_id, latest_seq, created_at)
 		state["visit_seq"] = seq + elapsed_cycles
 		state["next_visit_at"] = next_at + float(elapsed_cycles) * RELATION_VISIT_INTERVAL
 		npc_state[npc_id] = state
@@ -1355,6 +1360,44 @@ func _open_relationship_visit(npc_id: String) -> void:
 	_open_panel("relationship_visit")
 
 
+func _complete_relationship_story() -> void:
+	_ensure_relationship_state()
+	var npc_id := selected_relationship_visit_id
+	var visits: Dictionary = relationship_state.get("visits", {})
+	var visit: Dictionary = visits.get(npc_id, {})
+	if visit.is_empty() or str(visit.get("kind", "")) != "story":
+		_toast("这次到访没有未读近况", 2.0, Color(0.95, 0.55, 0.45))
+		return
+	var npc_state: Dictionary = relationship_state.get("npc", {})
+	var state: Dictionary = npc_state.get(npc_id, {})
+	var story_level := clampi(int(visit.get("story_level", 0)), 0, RelationshipDataScript.STORY_LEVEL_MAX)
+	if story_level != RelationshipDataScript.next_story_level(state):
+		visits.erase(npc_id)
+		relationship_state["visits"] = visits
+		selected_relationship_visit_id = ""
+		_toast("这段近况已经读过或尚未解锁", 2.2, Color(0.86, 0.76, 0.45))
+		_update_relationship_visit_bar()
+		_close_panel()
+		_save()
+		return
+	state["story_seen"] = maxi(int(state.get("story_seen", -1)), story_level)
+	npc_state[npc_id] = state
+	relationship_state["npc"] = npc_state
+	visits.erase(npc_id)
+	relationship_state["visits"] = visits
+	selected_relationship_visit_id = ""
+	var npc := RelationshipDataScript.get_npc(npc_id)
+	var event := RelationshipDataScript.level_event_for(npc_id, story_level)
+	Audio.play_ui("ui_click")
+	_toast("记下了%s的近况：%s" % [
+		str(npc.get("name", "熟人")), str(event.get("title", "河湾近况"))],
+		2.6, Color(0.86, 0.76, 0.45))
+	_update_relationship_visit_bar()
+	_update_hud()
+	_close_panel()
+	_save()
+
+
 func _relationship_gift(idx: int) -> void:
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
@@ -1429,18 +1472,11 @@ func _complete_relationship_task(idx: int) -> void:
 	_add_lifetime_coins_safe(reward)
 	visits.erase(npc_id)
 	relationship_state["visits"] = visits
-	var npc_state: Dictionary = relationship_state.get("npc", {})
-	var state: Dictionary = npc_state.get(npc_id, {"favor": 0, "finale_done": false})
-	state["favor"] = clampi(int(state.get("favor", 0)) + 1, 0, RelationshipDataScript.FAVOR_LEVELS.size() - 1)
-	npc_state[npc_id] = state
-	relationship_state["npc"] = npc_state
 	selected_relationship_visit_id = ""
 	Audio.play_sfx("coin")
-	_toast("%s委托完成：+%s 金币，好感 %s" % [
-		str(npc.get("name", "对方")),
-		_coin_str(reward),
-		RelationshipDataScript.favor_name(int(state.get("favor", 0))),
-	], 2.8, Color(0.98, 0.82, 0.40))
+	_toast("%s委托完成：+%s 金币" % [
+		str(npc.get("name", "对方")), _coin_str(reward)],
+		2.8, Color(0.98, 0.82, 0.40))
 	_check_achievements()
 	_update_relationship_visit_bar()
 	_update_hud()

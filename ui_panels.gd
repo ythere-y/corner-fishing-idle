@@ -2162,12 +2162,17 @@ static func fill_bag_tab(g: CornerFishing, v: VBoxContainer) -> void:
 	var total := 0
 	var unlocked := 0
 	var junk := 0
+	var below := 0
 	for c in g.inventory:
 		if not bool(c.get("lock", false)):
 			total += g._sell_value(c)
 			unlocked += 1
 			if not g._order_matches(c):
 				junk += 1
+			if int(c.get("var", 0)) < 2 and int(c.get("q", 0)) < 3 \
+					and not g._order_matches(c) \
+					and FishData.tier_of(str(c["id"])) <= g._sell_tier:
+				below += 1
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", DT.CHIP_GAP)
 	var cap := Label.new()
@@ -2198,6 +2203,27 @@ static func fill_bag_tab(g: CornerFishing, v: VBoxContainer) -> void:
 	apply_button_skin(sell_all, true)
 	sell_all.pressed.connect(g._sell_all)
 	head.add_child(sell_all)
+	# —— 批量「卖掉≤品阶及以下」：品阶选择 + 永远可点的卖按钮 ——
+	var tier_ob := OptionButton.new()
+	tier_ob.focus_mode = Control.FOCUS_NONE
+	tier_ob.custom_minimum_size = Vector2(0, 28)
+	tier_ob.add_theme_font_size_override("font_size", DT.FS_XS)
+	for t in FishData.TIER_NAMES.size():
+		tier_ob.add_item(FishData.TIER_NAMES[t], t)
+	tier_ob.select(g._sell_tier)
+	tier_ob.item_selected.connect(func(idx: int) -> void:
+		g._sell_tier = idx
+		g._open_panel("catch"))   # 重绘以更新按钮文案/数量
+	head.add_child(tier_ob)
+	var sell_below := Button.new()
+	sell_below.text = "卖掉%s及以下(%d)" % [FishData.TIER_NAMES[g._sell_tier], below]
+	sell_below.custom_minimum_size = Vector2(0, 28)
+	sell_below.disabled = false   # 永远可点；无符合鱼时在 _sell_below_tier 内给提示，避免“点不动”错觉
+	sell_below.tooltip_text = "卖出未上锁、非订单、非珍稀（鎏金/七彩/★★★），且品阶≤%s 的鱼（收藏锁保留）。当前可卖 %d 条" % [FishData.TIER_NAMES[g._sell_tier], below]
+	sell_below.add_theme_font_size_override("font_size", DT.FS_XS)
+	apply_button_skin(sell_below, false)
+	sell_below.pressed.connect(func() -> void: g._sell_below_tier(g._sell_tier))
+	head.add_child(sell_below)
 	if g.bag_level <= g.BAG_COSTS.size():
 		var cost: int = g.BAG_COSTS[g.bag_level - 1]
 		var expand := Button.new()
@@ -2258,14 +2284,17 @@ static func fish_cell(g: CornerFishing, c: Dictionary, idx: int) -> Control:
 	var tier := FishData.tier_of(id)
 	var vr := int(c.get("var", 0))
 	var locked: bool = bool(c.get("lock", false))
-	var edge := FishData.variant_color(vr) if vr >= 1 else g._ui_tier_color(tier, false)
+	# 边框始终按【品阶】着色，保证"品阶排序"后同品阶鱼视觉成组（不再出现
+	# 变体蓝边鱼混在橙边鱼中间的错觉）。变体身份改由「◆」前缀 + 名字颜色表达。
+	var tier_edge := g._ui_tier_color(tier, false)
+	var edge := FishData.variant_color(vr) if vr >= 1 else tier_edge
 	var cell := PanelContainer.new()
 	cell.custom_minimum_size = Vector2(0, 106)
 	cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cell.mouse_filter = Control.MOUSE_FILTER_STOP
 	var sb := dark_row_style(0.42)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(edge.r, edge.g, edge.b, 0.85)
+	sb.border_color = Color(tier_edge.r, tier_edge.g, tier_edge.b, 0.85)
 	cell.add_theme_stylebox_override("panel", sb)
 	cell.tooltip_text = "%s · %.2fkg · 点击卖出" % [FishData.display_name(id), float(c["w"])]
 	cell.gui_input.connect(func(e: InputEvent) -> void:

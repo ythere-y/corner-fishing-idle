@@ -104,6 +104,10 @@ static func rep_fish_of_tier(t: int, local: RandomNumberGenerator, pool: Array =
 
 ## 一条渔获是否满足当前订单（不含上锁判定）。
 static func order_matches(g: CornerFishing, c: Dictionary) -> bool:
+	# 订单完成后，所有鱼不再被"订单鱼"状态拦截——
+	# 否则 weight/tier 类订单会长期霸占整篓，导致"卖掉XX及以下"永远 0 条可卖（严重 BUG）。
+	if bool(g.daily_order.get("done", false)):
+		return false
 	match str(g.daily_order.get("kind", "species")):
 		"tier":
 			return FishData.tier_of(str(c.get("id", ""))) >= int(g.daily_order.get("tier", 1))

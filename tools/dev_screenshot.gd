@@ -109,6 +109,17 @@ func _run() -> void:
 	_main._open_panel("relationship_visit")
 	await _settle(2)
 	_snap("panel_relationship_visit.png")
+	_main.relationship_state["visits"]["lin_aunt"] = RelationshipDataScript.make_visit("lin_aunt", "hint", Time.get_unix_time_from_system())
+	_main.relationship_picker_open = true
+	_main._open_panel("relationship_visit")
+	await _settle(2)
+	_snap("panel_relationship_gift.png")
+	_main.relationship_picker_open = true
+	_main.selected_relationship_visit_id = "zhou_uncle"
+	_main._open_panel("relationship_visit")
+	await _settle(2)
+	_snap("panel_relationship_task.png")
+	_main.relationship_picker_open = false
 	_main.selected_relationship_visit_id = "tang"
 	_main._open_panel("relationship_visit")
 	await _settle(2)
@@ -120,6 +131,15 @@ func _run() -> void:
 	_main._open_panel("relationship_visit")
 	await _settle(2)
 	_snap("panel_relationship_finale.png")
+	_main.relationship_state["visits"].erase("ma")
+	_main.relationship_visit_feedback = {
+		"text": "马会长郑重收下这份记录。\n终章完成：旅途联系人名册 · +704 金币",
+		"tone": "good",
+	}
+	_main._open_panel("relationship_visit")
+	await _settle(2)
+	_snap("panel_relationship_feedback.png")
+	_main.relationship_visit_feedback = {}
 	_main.relationship_state["visits"] = {}
 	_main.relationship_state["buff"] = {}
 	_main.selected_relationship_visit_id = ""

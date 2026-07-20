@@ -603,7 +603,7 @@ static func fill_relationship_visit(g: CornerFishing, v: VBoxContainer) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	mg.add_child(row)
-	var avatar := RelationshipPortraitScript.make(npc, "hero")
+	var avatar := RelationshipPortraitScript.make(npc, "card")
 	avatar.name = "RelationshipPortraitHero"
 	row.add_child(avatar)
 	var text := VBoxContainer.new()

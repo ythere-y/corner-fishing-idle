@@ -29,6 +29,15 @@ static func make(npc: Dictionary, mode: String) -> Control:
 
 	var texture := texture_for(npc)
 	if texture == null:
+		var placeholder := Label.new()
+		placeholder.name = "RelationshipPortraitPlaceholder"
+		var npc_name := str(npc.get("name", "人"))
+		placeholder.text = npc_name.substr(0, 1) if npc_name != "" else "人"
+		placeholder.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		placeholder.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		placeholder.add_theme_font_size_override("font_size", 18 if safe_mode == "circle" else 28)
+		placeholder.add_theme_color_override("font_color", Color(1.0, 0.96, 0.86, 0.96))
+		frame.add_child(placeholder)
 		return frame
 	var image := TextureRect.new()
 	image.texture = texture

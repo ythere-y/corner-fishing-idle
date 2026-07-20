@@ -458,15 +458,14 @@ func _accept_relationship_buff() -> void:
 	if visit.is_empty() or str(visit.get("kind", "")) != "buff":
 		_toast("这次到访没有可领取的帮忙", 2.0, Color(0.95, 0.55, 0.45))
 		return
-	var npc := RelationshipDataScript.get_npc(npc_id)
 	visits.erase(npc_id)
 	relationship_state["visits"] = visits
 	relationship_state["buff"] = {"npc": npc_id, "t": RelationshipDataScript.BUFF_DURATION}
 	Audio.play_sfx("upgrade")
 	_begin_wait()
 	_save()
-	_show_relationship_feedback("%s点点头，替你照看接下来十分钟的鱼情。\n获得「%s」。" % [
-		str(npc.get("name", "熟人")), RelationshipDataScript.buff_name(npc_id)], "good")
+	_show_relationship_feedback("好，这阵子我替你盯着。\n获得「%s」。" %
+		RelationshipDataScript.buff_name(npc_id), "good")
 
 
 func _decline_relationship_buff() -> void:
@@ -1430,12 +1429,11 @@ func _complete_relationship_story() -> void:
 	relationship_state["npc"] = npc_state
 	visits.erase(npc_id)
 	relationship_state["visits"] = visits
-	var npc := RelationshipDataScript.get_npc(npc_id)
 	var event := RelationshipDataScript.level_event_for(npc_id, story_level)
 	Audio.play_ui("ui_click")
 	_save()
-	_show_relationship_feedback("%s见你认真记下，笑着把话题收住了。\n已记录：%s" % [
-		str(npc.get("name", "熟人")), str(event.get("title", "河湾近况"))], "good")
+	_show_relationship_feedback("好，那我就放心了。\n已记录：%s" %
+		str(event.get("title", "河湾近况")), "good")
 
 
 func _relationship_gift(idx: int) -> void:
@@ -1495,7 +1493,6 @@ func _complete_relationship_task(idx: int) -> void:
 		return
 	relationship_visit_notice = ""
 	var c: Dictionary = inventory[idx]
-	var npc := RelationshipDataScript.get_npc(npc_id)
 	if not RelationshipDataScript.task_match(npc_id, c):
 		Audio.play_ui("ui_click")
 		relationship_visit_notice = RelationshipDataScript.task_reject_reason(npc_id, c)
@@ -1510,8 +1507,7 @@ func _complete_relationship_task(idx: int) -> void:
 	Audio.play_sfx("coin")
 	_check_achievements()
 	_save()
-	_show_relationship_feedback("%s收下了鱼，把约好的报酬递过来。\n委托完成：+%s 金币" % [
-		str(npc.get("name", "对方")), _coin_str(reward)], "good")
+	_show_relationship_feedback("正是我要的，多谢。\n委托完成：+%s 金币" % _coin_str(reward), "good")
 
 
 func _relationship_finale_reward(c: Dictionary) -> int:
@@ -1546,7 +1542,6 @@ func _complete_relationship_finale(idx: int) -> void:
 		return
 	relationship_visit_notice = ""
 	var c: Dictionary = inventory[idx]
-	var npc := RelationshipDataScript.get_npc(npc_id)
 	if not RelationshipDataScript.finale_match(npc_id, c):
 		Audio.play_ui("ui_click")
 		relationship_visit_notice = RelationshipDataScript.finale_reject_reason(npc_id, c)
@@ -1571,8 +1566,8 @@ func _complete_relationship_finale(idx: int) -> void:
 	Audio.play_sfx("coin")
 	_check_achievements()
 	_save()
-	_show_relationship_feedback("%s郑重收下这份记录。\n终章完成：%s · +%s 金币" % [
-		str(npc.get("name", "对方")), RelationshipDataScript.finale_reward_name(npc_id), _coin_str(reward)], "good")
+	_show_relationship_feedback("就是这份记录，多谢你带回来。\n终章完成：%s · +%s 金币" % [
+		RelationshipDataScript.finale_reward_name(npc_id), _coin_str(reward)], "good")
 
 
 func _update_framed_hud() -> void:

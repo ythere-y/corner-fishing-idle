@@ -91,8 +91,13 @@ func _run() -> void:
 	_main.relationship_state["visits"]["lin_aunt"] = RelationshipDataScript.make_visit("lin_aunt", "story", Time.get_unix_time_from_system(), 0)
 	_main.relationship_state["visits"]["zhou_uncle"] = RelationshipDataScript.make_visit("zhou_uncle", "task", Time.get_unix_time_from_system())
 	_main.relationship_state["visits"]["tang"] = RelationshipDataScript.make_visit("tang", "buff", Time.get_unix_time_from_system())
+	_main.relationship_state["visits"]["xiaoman"] = RelationshipDataScript.make_visit("xiaoman", "hint", Time.get_unix_time_from_system())
+	_main.relationship_state["visits"]["ma"] = RelationshipDataScript.make_visit("ma", "hint", Time.get_unix_time_from_system())
 	_main.feature_unlocks["relations"] = true
 	_main._update_relationship_visit_bar()
+	_main._close_panel()
+	await _settle(2)
+	_snap("relationship_visit_heads.png")
 	_main._catch_tab = 9
 	_main._open_panel("catch")
 	await _settle(2)
@@ -133,7 +138,7 @@ func _run() -> void:
 	_snap("panel_relationship_finale.png")
 	_main.relationship_state["visits"].erase("ma")
 	_main.relationship_visit_feedback = {
-		"text": "马会长郑重收下这份记录。\n终章完成：旅途联系人名册 · +704 金币",
+		"text": "就是这份记录，多谢你带回来。\n终章完成：旅途联系人名册 · +704 金币",
 		"tone": "good",
 	}
 	_main._open_panel("relationship_visit")

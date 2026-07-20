@@ -10,12 +10,26 @@ const MODE_SIZES := {
 static var _circle_shader: Shader = null
 
 
-static func texture_for(npc: Dictionary) -> Texture2D:
+static func texture_for(npc: Dictionary, mode := "card") -> Texture2D:
 	var path := str(npc.get("portrait", ""))
 	if path == "" or not ResourceLoader.exists(path):
 		return null
 	var resource := load(path)
-	return resource as Texture2D if resource is Texture2D else null
+	if not resource is Texture2D:
+		return null
+	var texture := resource as Texture2D
+	if mode != "circle":
+		return texture
+	var region: Rect2 = npc.get("head_crop", Rect2())
+	var texture_size := texture.get_size()
+	if region.size.x <= 0.0 or region.size.x != region.size.y \
+			or region.position.x < 0.0 or region.position.y < 0.0 \
+			or region.end.x > texture_size.x or region.end.y > texture_size.y:
+		return null
+	var cropped := AtlasTexture.new()
+	cropped.atlas = texture
+	cropped.region = region
+	return cropped
 
 
 static func make(npc: Dictionary, mode: String) -> Control:
@@ -27,7 +41,7 @@ static func make(npc: Dictionary, mode: String) -> Control:
 	frame.clip_contents = true
 	frame.add_theme_stylebox_override("panel", _frame_style(npc, safe_mode))
 
-	var texture := texture_for(npc)
+	var texture := texture_for(npc, safe_mode)
 	if texture == null:
 		var placeholder := Label.new()
 		placeholder.name = "RelationshipPortraitPlaceholder"

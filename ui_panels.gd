@@ -627,11 +627,10 @@ static func fill_relationship_visit(g: CornerFishing, v: VBoxContainer) -> void:
 	log.add_theme_constant_override("separation", 8)
 	v.add_child(log)
 	if not visit.is_empty():
-		_relationship_dialogue_line(log, str(npc["name"]), RelationshipDataScript.visit_title(npc, visit))
 		var kind := str(visit.get("kind", "hint"))
 		if kind == "buff":
 			for line in RelationshipDataScript.buff_dialogue(npc_id):
-				_relationship_dialogue_line(log, "", str(line))
+				_relationship_dialogue_line(log, str(npc["name"]), str(line))
 		else:
 			_relationship_dialogue_line(log, str(npc["name"]), RelationshipDataScript.visit_body(npc, visit))
 	if g.relationship_visit_notice != "":
@@ -701,18 +700,17 @@ static func _relationship_visit_decisions(g: CornerFishing, v: VBoxContainer, np
 		actions.add_theme_constant_override("separation", 8)
 		decisions.add_child(actions)
 		if kind == "story":
-			_relationship_action(actions, "记下了", true, func() -> void: g._complete_relationship_story())
+			_relationship_action(actions, "好，我记住了。", true, func() -> void: g._complete_relationship_story())
 		elif kind == "buff":
-			_relationship_action(actions, "接受帮忙", true, func() -> void: g._accept_relationship_buff())
-			_relationship_action(actions, "婉拒", false, func() -> void: g._decline_relationship_buff())
+			_relationship_action(actions, "好，麻烦你了。", true, func() -> void: g._accept_relationship_buff())
+			_relationship_action(actions, "今天先不了。", false, func() -> void: g._decline_relationship_buff())
 		else:
-			var action_text := "挑一条鱼"
-			if kind == "task": action_text = "交付一条鱼"
-			if kind == "finale": action_text = "登记一条鱼" if not RelationshipDataScript.finale_consumes_catch(npc_id) else "交付一条鱼"
+			var action_text := "我挑一条。"
+			if kind in ["task", "finale"]: action_text = "给你看看。"
 			_relationship_action(actions, action_text, true, func() -> void:
 				g.relationship_picker_open = true
 				g._open_panel("relationship_visit"))
-		_relationship_action(actions, "稍后", false, func() -> void: g._close_panel())
+		_relationship_action(actions, "我再想想。", false, func() -> void: g._close_panel())
 
 
 static func _relationship_action(parent: HBoxContainer, label: String, primary: bool,
@@ -764,10 +762,10 @@ static func _relationship_visit_fish_picker(g: CornerFishing, parent: VBoxContai
 	var back := HBoxContainer.new()
 	back.add_theme_constant_override("separation", 8)
 	picker.add_child(back)
-	_relationship_action(back, "收起鱼篓", false, func() -> void:
+	_relationship_action(back, "先收起来。", false, func() -> void:
 		g.relationship_picker_open = false
 		g._open_panel("relationship_visit"))
-	_relationship_action(back, "稍后", false, func() -> void: g._close_panel())
+	_relationship_action(back, "我再想想。", false, func() -> void: g._close_panel())
 
 
 static func fill_relationship_story_ack(g: CornerFishing, v: VBoxContainer) -> void:
@@ -775,13 +773,13 @@ static func fill_relationship_story_ack(g: CornerFishing, v: VBoxContainer) -> v
 	actions.add_theme_constant_override("separation", 8)
 	v.add_child(actions)
 	var accept := Button.new()
-	accept.text = "记下了"
+	accept.text = "好，我记住了。"
 	accept.focus_mode = Control.FOCUS_NONE
 	apply_button_skin(accept, true)
 	accept.pressed.connect(func() -> void: g._complete_relationship_story())
 	actions.add_child(accept)
 	var later := Button.new()
-	later.text = "稍后"
+	later.text = "我再想想。"
 	later.focus_mode = Control.FOCUS_NONE
 	apply_button_skin(later, false)
 	later.pressed.connect(func() -> void: g._close_panel())
@@ -819,7 +817,7 @@ static func fill_relationship_buff_accept(g: CornerFishing, v: VBoxContainer, np
 	actions.add_theme_constant_override("separation", 8)
 	v.add_child(actions)
 	var accept := Button.new()
-	accept.text = "接受帮忙"
+	accept.text = "好，麻烦你了。"
 	accept.focus_mode = Control.FOCUS_NONE
 	apply_button_skin(accept, true)
 	accept.pressed.connect(func() -> void:
@@ -827,7 +825,7 @@ static func fill_relationship_buff_accept(g: CornerFishing, v: VBoxContainer, np
 		g._accept_relationship_buff())
 	actions.add_child(accept)
 	var later := Button.new()
-	later.text = "稍后"
+	later.text = "今天先不了。"
 	later.focus_mode = Control.FOCUS_NONE
 	apply_button_skin(later, false)
 	later.pressed.connect(func() -> void:
@@ -863,7 +861,7 @@ static func fill_relationship_task_delivery(g: CornerFishing, v: VBoxContainer, 
 			grid.add_child(relationship_fish_cell(g, g.inventory[i], i, ok, "交付" if ok else "会拒收", tip,
 				func(real_idx: int) -> void: g._complete_relationship_task(real_idx)))
 	var close := Button.new()
-	close.text = "稍后"
+	close.text = "我再想想。"
 	close.focus_mode = Control.FOCUS_NONE
 	apply_button_skin(close, false)
 	close.pressed.connect(func() -> void:
@@ -913,7 +911,7 @@ static func fill_relationship_finale_delivery(g: CornerFishing, v: VBoxContainer
 			grid.add_child(relationship_fish_cell(g, g.inventory[i], i, ok, action if ok else "会拒收", tip,
 				func(real_idx: int) -> void: g._complete_relationship_finale(real_idx)))
 	var close := Button.new()
-	close.text = "稍后"
+	close.text = "我再想想。"
 	close.focus_mode = Control.FOCUS_NONE
 	apply_button_skin(close, false)
 	close.pressed.connect(func() -> void:

@@ -1233,6 +1233,15 @@ func _check_relationship_foundation() -> void:
 			"每位河湾 NPC 应配置可加载的运行时头像")
 		_assert(RelationshipPortraitScript.texture_for(npc_data) != null,
 			"每位河湾 NPC 的头像应加载为纹理")
+		var head_crop: Rect2 = npc_data.get("head_crop", Rect2())
+		_assert(head_crop.size.x == head_crop.size.y and head_crop.size.x > 0.0 \
+			and head_crop.position.x >= 0.0 and head_crop.position.y >= 0.0 \
+			and head_crop.end.x <= 1254.0 and head_crop.end.y <= 1254.0,
+			"每位河湾 NPC 应配置位于原图内的正方形头部裁切")
+		_assert(RelationshipPortraitScript.texture_for(npc_data, "circle") is AtlasTexture,
+			"圆形到访头像应使用头部裁切纹理")
+		_assert(not (RelationshipPortraitScript.texture_for(npc_data, "card") is AtlasTexture),
+			"人情簿卡片应继续使用完整人物图")
 		_assert(int(g.relationship_state["npc"][id].get("story_seen", 0)) == -1 \
 			and not RelationshipDataScript.level_event_for(id, 0).is_empty() \
 			and not RelationshipDataScript.level_event_for(id, RelationshipDataScript.STORY_LEVEL_MAX).is_empty(),
@@ -1294,6 +1303,19 @@ func _check_relationship_foundation() -> void:
 	_assert(g._panel.find_child("RelationshipDialogueLog", true, false) != null \
 		and g._panel.find_child("RelationshipDecisionArea", true, false) != null,
 		"到访页应使用对话记录和当前抉择区")
+	var dialogue_text := ""
+	for label in g._panel.find_child("RelationshipDialogueLog", true, false).find_children("*", "Label", true, false):
+		dialogue_text += str(label.text)
+	_assert(not dialogue_text.contains(RelationshipDataScript.visit_title(lin, visits["lin_aunt"])),
+		"到访对话不应把系统事件标题当成 NPC 发言")
+	var decision_texts: Array[String] = []
+	for button in g._panel.find_child("RelationshipDecisionArea", true, false).find_children("*", "Button", true, false):
+		decision_texts.append(str(button.text))
+	_assert("好，我记住了。" in decision_texts and "我再想想。" in decision_texts,
+		"人物事件抉择应使用简短、真实的玩家回复")
+	for system_label in ["记下了", "接受帮忙", "婉拒", "挑一条鱼", "交付一条鱼", "登记一条鱼", "稍后"]:
+		_assert(not system_label in decision_texts,
+			"到访抉择不得继续使用系统操作文案：%s" % system_label)
 	var now: float = g._relationship_now()
 	for npc_data in RelationshipDataScript.NPCS:
 		var id := str(npc_data["id"])

@@ -1247,6 +1247,16 @@ func _check_relationship_foundation() -> void:
 	g._rebuild_bottom_nav()
 	_assert(g._nav_bar.find_child("NavIconPlaceholder_relations", true, false) != null,
 		"人情菜单缺少专属图标时应显示文字占位")
+	var lin := RelationshipDataScript.get_npc("lin_aunt")
+	_assert(RelationshipDataScript.preference_text(lin, 0) == "???",
+		"低好感时人物偏好应完全隐藏")
+	_assert(RelationshipDataScript.preference_text(lin, 2) == str(lin["likes_hint"]),
+		"中段好感应只显示模糊偏好线索")
+	_assert(RelationshipDataScript.preference_text(lin, 4) == str(lin["likes"]),
+		"高段好感才应显示完整偏好")
+	var rejected := RelationshipDataScript.gift_feedback("lin_aunt", {"id": "sardine"}, false)
+	_assert(not rejected.contains(str(lin["likes"])),
+		"送错鱼的反馈不得泄露完整偏好")
 	_assert(RelationshipDataScript.repeat_visit_kinds(0) == ["hint"] \
 		and "task" in RelationshipDataScript.repeat_visit_kinds(1) \
 		and not ("buff" in RelationshipDataScript.repeat_visit_kinds(3)) \

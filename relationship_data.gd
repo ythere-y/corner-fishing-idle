@@ -86,31 +86,36 @@ const NPCS := [
 	{
 		"id": "lin_aunt", "name": "林阿姨", "role": "隔壁邻居", "color": Color("C98472"),
 		"portrait": "res://assets/art/character/npc/lin_aunt.png",
-		"likes": "家常河鱼：鲫鱼、鲤鱼", "hint": "她总记得河湾哪一段水草边最有鱼口。",
+		"likes": "家常河鱼：鲫鱼、鲤鱼", "likes_hint": "似乎偏爱能端上家常饭桌的河鱼",
+		"hint": "她总记得河湾哪一段水草边最有鱼口。",
 		"buff": "河湾咬钩速度提升", "finale": "外地家宴：指定优质食用鱼的大单",
 	},
 	{
 		"id": "zhou_uncle", "name": "周叔", "role": "老钓友", "color": Color("6F8EA3"),
 		"portrait": "res://assets/art/character/npc/zhou_uncle.png",
-		"likes": "大体型河鱼、重量纪录鱼", "hint": "他只对压得住竿梢的大家伙多看两眼。",
+		"likes": "大体型河鱼、重量纪录鱼", "likes_hint": "谈到压得住竿梢的大家伙时格外来劲",
+		"hint": "他只对压得住竿梢的大家伙多看两眼。",
 		"buff": "大体型尾部概率提升", "finale": "远方旧竿：跨图重量纪录委托",
 	},
 	{
 		"id": "tang", "name": "阿棠", "role": "河边摊主", "color": Color("C49A50"),
 		"portrait": "res://assets/art/character/npc/tang.png",
-		"likes": "高价值河鱼、特色鱼", "hint": "她能一眼看出哪条鱼值得留给识货的人。",
+		"likes": "高价值河鱼、特色鱼", "likes_hint": "眼光总落在值钱或少见的河鱼上",
+		"hint": "她能一眼看出哪条鱼值得留给识货的人。",
 		"buff": "河湾售鱼／人情委托结算提升", "finale": "跨城收购：外地高价值鱼终极大单",
 	},
 	{
 		"id": "xiaoman", "name": "小满", "role": "自然观察员", "color": Color("76A68A"),
 		"portrait": "res://assets/art/character/npc/xiaoman.png",
-		"likes": "原生鱼、保护鱼", "hint": "她把每一种鱼都当成河流留下的线索。",
+		"likes": "原生鱼、保护鱼", "likes_hint": "更关心能说明河流生态状况的鱼",
+		"hint": "她把每一种鱼都当成河流留下的线索。",
 		"buff": "未发现鱼与原生鱼权重提升", "finale": "冷水报告：溪谷标记放流／回捕记录",
 	},
 	{
 		"id": "ma", "name": "马会长", "role": "旅行钓友", "color": Color("9075A6"),
 		"portrait": "res://assets/art/character/npc/ma.png",
-		"likes": "夜行鱼、稀有变体鱼", "hint": "他总能从旅人的口中带回下一站的消息。",
+		"likes": "夜行鱼、稀有变体鱼", "likes_hint": "喜欢带着夜色或旅途奇闻的渔获",
+		"hint": "他总能从旅人的口中带回下一站的消息。",
 		"buff": "事件匹配时的稀有权重小幅提升", "finale": "旅程联络：外地稀有渔获清单",
 	},
 ]
@@ -138,6 +143,29 @@ static func get_npc(id: String) -> Dictionary:
 
 static func favor_name(value: int) -> String:
 	return str(FAVOR_LEVELS[clampi(value, 0, FAVOR_LEVELS.size() - 1)])
+
+
+static func preference_stage(favor: int) -> int:
+	if favor < 2:
+		return 0
+	return 1 if favor < 4 else 2
+
+
+static func preference_text(npc: Dictionary, favor: int) -> String:
+	match preference_stage(favor):
+		0: return "???"
+		1: return str(npc.get("likes_hint", "似乎有自己的偏好"))
+		_: return str(npc.get("likes", "尚未摸清"))
+
+
+static func gift_feedback(npc_id: String, catch: Dictionary, accepted: bool) -> String:
+	var npc := get_npc(npc_id)
+	var fish_name := FishData.display_name(str(catch.get("id", "")))
+	if accepted:
+		return "%s收下了%s，神情明显柔和下来。" % [str(npc.get("name", "对方")), fish_name]
+	if bool(catch.get("lock", false)):
+		return "这条鱼还被你仔细留着，先别拿来送人。"
+	return "%s摆摆手：这条还是留给更合适的人吧。" % str(npc.get("name", "对方"))
 
 
 static func make_visit(npc_id: String, kind: String, now: float, story_level := -1) -> Dictionary:

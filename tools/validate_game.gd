@@ -5,6 +5,7 @@ extends SceneTree
 var failures := 0
 const AnglerEquipmentScript := preload("res://systems/angler/angler_equipment.gd")
 const RelationshipDataScript := preload("res://relationship_data.gd")
+const RelationshipPortraitScript := preload("res://relationship_portrait.gd")
 
 
 func _init() -> void:
@@ -1226,10 +1227,20 @@ func _check_relationship_foundation() -> void:
 		"新存档应有空的永久解锁表，且五位 NPC 各有一个终章奖励")
 	for npc_data in RelationshipDataScript.NPCS:
 		var id := str(npc_data["id"])
+		var portrait_path := str(npc_data.get("portrait", ""))
+		_assert(portrait_path.begins_with("res://assets/art/character/npc/") \
+			and ResourceLoader.exists(portrait_path),
+			"每位河湾 NPC 应配置可加载的运行时头像")
+		_assert(RelationshipPortraitScript.texture_for(npc_data) != null,
+			"每位河湾 NPC 的头像应加载为纹理")
 		_assert(int(g.relationship_state["npc"][id].get("story_seen", 0)) == -1 \
 			and not RelationshipDataScript.level_event_for(id, 0).is_empty() \
 			and not RelationshipDataScript.level_event_for(id, RelationshipDataScript.STORY_LEVEL_MAX).is_empty(),
 			"每位 NPC 应从未读状态开始并配置初识到旧交的六条人物事件")
+	var fallback := RelationshipPortraitScript.make({"color": Color("C98472")}, "circle")
+	_assert(fallback != null and fallback.custom_minimum_size == Vector2(40, 40),
+		"头像缺失时应返回可见的主题色回退控件")
+	fallback.free()
 	_assert(RelationshipDataScript.repeat_visit_kinds(0) == ["hint"] \
 		and "task" in RelationshipDataScript.repeat_visit_kinds(1) \
 		and not ("buff" in RelationshipDataScript.repeat_visit_kinds(3)) \
@@ -1243,6 +1254,19 @@ func _check_relationship_foundation() -> void:
 	_assert(visits.size() == 1 and str(visits["lin_aunt"].get("kind", "")) == "story" \
 		and int(visits["lin_aunt"].get("story_level", -1)) == 0,
 		"人情入口开放后应优先生成初识人物事件")
+	g._update_relationship_visit_bar()
+	_assert(g._relationship_visit_bar.find_child("RelationshipPortraitCircle", true, false) != null,
+		"右侧到访入口应使用圆形人物头像")
+	g._catch_tab = 9
+	g._open_panel("catch")
+	await process_frame
+	_assert(g._panel.find_child("RelationshipPortraitCard", true, false) != null,
+		"人情簿应使用人物卡片头像")
+	g.selected_relationship_visit_id = "lin_aunt"
+	g._open_panel("relationship_visit")
+	await process_frame
+	_assert(g._panel.find_child("RelationshipPortraitHero", true, false) != null,
+		"到访面板应使用透明人物立绘")
 	var now: float = g._relationship_now()
 	for npc_data in RelationshipDataScript.NPCS:
 		var id := str(npc_data["id"])

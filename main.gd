@@ -39,6 +39,7 @@ const FRAMED_BG := Color(0.105, 0.115, 0.105)   # 带框窗口实底背景（场
 # 升级（鱼竿/鱼饵/鱼钩）与设置都已并入鱼篓面板页签，主界面只留一个「鱼篓」按钮。
 const AnglerEquipmentScript := preload("res://systems/angler/angler_equipment.gd")
 const RelationshipDataScript := preload("res://relationship_data.gd")
+const RelationshipPortraitScript := preload("res://relationship_portrait.gd")
 const UI_LAYOUT_PATHS := ["res://ui_layout.json", "res://assets/art/ui/ui_layout.json"]
 var btn_centers := {
 	"catch": Vector2(452, 371),
@@ -1339,7 +1340,7 @@ func _update_relationship_visit_bar() -> void:
 		var visit: Dictionary = visits[id]
 		var b := Button.new()
 		b.text = ""
-		b.custom_minimum_size = Vector2(34, 34)
+		b.custom_minimum_size = Vector2(42, 42)
 		b.focus_mode = Control.FOCUS_NONE
 		b.mouse_filter = Control.MOUSE_FILTER_STOP
 		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -1347,6 +1348,10 @@ func _update_relationship_visit_bar() -> void:
 		b.add_theme_stylebox_override("normal", _visit_circle_style(npc["color"], 0.88))
 		b.add_theme_stylebox_override("hover", _visit_circle_style(npc["color"], 1.0))
 		b.add_theme_stylebox_override("pressed", _visit_circle_style(npc["color"], 0.78))
+		var portrait := RelationshipPortraitScript.make(npc, "circle")
+		portrait.name = "RelationshipPortraitCircle"
+		portrait.position = Vector2(1, 1)
+		b.add_child(portrait)
 		var captured_id := id
 		b.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:

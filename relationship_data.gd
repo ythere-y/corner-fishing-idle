@@ -201,13 +201,13 @@ static func visit_body(npc: Dictionary, visit: Dictionary) -> String:
 		"story":
 			return str(level_event_for(str(npc.get("id", "")), int(visit.get("story_level", 0))).get("body", str(npc.get("hint", ""))))
 		"task":
-			return "这次委托想收一条合胃口的鱼。完成后只结算金币；好感仍需在闲谈到访时送出合适的鱼来推进。终章方向：%s。" % str(npc.get("finale", ""))
+			return "我正缺一条合适的鱼。你要是愿意帮忙，就从鱼篓里挑一条让我看看。"
 		"buff":
-			return "这次到访会提供限时增益方向：%s。" % str(npc.get("buff", ""))
+			return "今天我正好有空，可以替你照看一阵鱼情。"
 		"finale":
-			return "这是一件来自其他地点的终章大单。完成后会留下长期关系记录，并获得一笔高额结算：%s。" % str(npc.get("finale", ""))
+			return "有件要紧事，我想当面托付给你。你带回来的渔获，能让我看看吗？"
 		_:
-			return "%s\n\n偏好线索：%s" % [str(npc.get("hint", "")), str(npc.get("likes", ""))]
+			return str(npc.get("hint", "河边风大，先坐下来聊几句吧。"))
 
 
 static func buff_for(npc_id: String) -> Dictionary:

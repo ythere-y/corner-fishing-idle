@@ -1257,6 +1257,14 @@ func _check_relationship_foundation() -> void:
 	var rejected := RelationshipDataScript.gift_feedback("lin_aunt", {"id": "sardine"}, false)
 	_assert(not rejected.contains(str(lin["likes"])),
 		"送错鱼的反馈不得泄露完整偏好")
+	var hint_body := RelationshipDataScript.visit_body(lin,
+		RelationshipDataScript.make_visit("lin_aunt", "hint", 0.0))
+	var task_body := RelationshipDataScript.visit_body(lin,
+		RelationshipDataScript.make_visit("lin_aunt", "task", 0.0))
+	_assert(not hint_body.contains(str(lin["likes"])),
+		"闲谈到访台词不得直接泄露完整偏好")
+	_assert(not task_body.contains(str(lin["finale"])),
+		"普通委托台词不得展示终章资料")
 	_assert(RelationshipDataScript.repeat_visit_kinds(0) == ["hint"] \
 		and "task" in RelationshipDataScript.repeat_visit_kinds(1) \
 		and not ("buff" in RelationshipDataScript.repeat_visit_kinds(3)) \
@@ -1283,6 +1291,9 @@ func _check_relationship_foundation() -> void:
 	await process_frame
 	_assert(g._panel.find_child("RelationshipPortraitHero", true, false) != null,
 		"到访面板应使用透明人物立绘")
+	_assert(g._panel.find_child("RelationshipDialogueLog", true, false) != null \
+		and g._panel.find_child("RelationshipDecisionArea", true, false) != null,
+		"到访页应使用对话记录和当前抉择区")
 	var now: float = g._relationship_now()
 	for npc_data in RelationshipDataScript.NPCS:
 		var id := str(npc_data["id"])
@@ -1343,6 +1354,12 @@ func _check_relationship_foundation() -> void:
 		"送礼结算后应保留 NPC 对话反馈")
 	_assert(restored.selected_relationship_visit_id == "lin_aunt",
 		"反馈结束前应保留当前 NPC 供页面显示")
+	_assert(restored._panel.find_child("RelationshipFeedback", true, false) != null,
+		"结算后应追加 NPC 回复")
+	_assert(restored._panel.find_child("RelationshipDecisionArea", true, false) == null,
+		"反馈态不应继续显示原抉择")
+	_assert(restored._panel.find_child("RelationshipFeedbackEnd", true, false) != null,
+		"反馈态只保留结束按钮")
 	var favor_after_gift := int(restored.relationship_state["npc"]["lin_aunt"].get("favor", 0))
 	restored._relationship_gift(0)
 	_assert(int(restored.relationship_state["npc"]["lin_aunt"].get("favor", 0)) == favor_after_gift,

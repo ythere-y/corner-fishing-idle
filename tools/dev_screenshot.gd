@@ -3,6 +3,7 @@ extends SceneTree
 ## 运行: godot_console --path . -s tools/dev_screenshot.gd   （注意：不能 --headless，无视口）
 
 const OUT_DIR := "res://docs/img"
+const RelationshipDataScript := preload("res://relationship_data.gd")
 
 var _main: Node
 
@@ -83,7 +84,48 @@ func _run() -> void:
 	await _settle(2)
 	_snap("panel_tasks.png")
 
-	# 2f) 比赛目标鱼详情卡（展示🏆 banner）：让目标鱼已发现、本周最佳到位，滚到底
+	# 2f) 河湾人情簿：五位 NPC 的独立好感与终章方向（首阶段总览）。
+	_main.relationship_state = RelationshipDataScript.default_state()
+	_main.relationship_state["npc"]["zhou_uncle"]["favor"] = 4
+	_main.relationship_state["npc"]["zhou_uncle"]["story_seen"] = 3
+	_main.relationship_state["visits"]["lin_aunt"] = RelationshipDataScript.make_visit("lin_aunt", "story", Time.get_unix_time_from_system(), 0)
+	_main.relationship_state["visits"]["zhou_uncle"] = RelationshipDataScript.make_visit("zhou_uncle", "task", Time.get_unix_time_from_system())
+	_main.relationship_state["visits"]["tang"] = RelationshipDataScript.make_visit("tang", "buff", Time.get_unix_time_from_system())
+	_main.feature_unlocks["relations"] = true
+	_main._update_relationship_visit_bar()
+	_main._catch_tab = 9
+	_main._open_panel("catch")
+	await _settle(2)
+	_snap("panel_relations.png")
+
+	# 2g) 一次性人物近况面板：确认后记录已读等级，不重复投放。
+	_main.inventory = [
+		{"id": "crucian", "w": 0.36, "v": 8, "q": 0},
+		{"id": "carp", "w": 5.80, "v": 33, "q": 1},
+		{"id": "sardine", "w": 0.06, "v": 4, "q": 0},
+		{"id": "oarfish", "w": 18.0, "v": 900, "q": 2, "lock": true},
+	]
+	_main.selected_relationship_visit_id = "lin_aunt"
+	_main._open_panel("relationship_visit")
+	await _settle(2)
+	_snap("panel_relationship_visit.png")
+	_main.selected_relationship_visit_id = "tang"
+	_main._open_panel("relationship_visit")
+	await _settle(2)
+	_snap("panel_relationship_buff.png")
+	_main.relationship_state["npc"]["ma"]["favor"] = RelationshipDataScript.FAVOR_LEVELS.size() - 1
+	_main.relationship_state["visits"]["ma"] = RelationshipDataScript.make_visit("ma", "finale", Time.get_unix_time_from_system())
+	_main.inventory.append({"id": "catfish", "w": 7.2, "v": 88, "q": 1})
+	_main.selected_relationship_visit_id = "ma"
+	_main._open_panel("relationship_visit")
+	await _settle(2)
+	_snap("panel_relationship_finale.png")
+	_main.relationship_state["visits"] = {}
+	_main.relationship_state["buff"] = {}
+	_main.selected_relationship_visit_id = ""
+	_main._update_relationship_visit_bar()
+
+	# 2h) 比赛目标鱼详情卡（展示🏆 banner）：让目标鱼已发现、本周最佳到位，滚到底
 	var _cfish := str(_main.competition.get("fish", ""))
 	if _cfish != "" and FishData.FISH.has(_cfish):
 		# 不直接引用 Competition 类：-s 工具脚本顶层类引用会在 autoload 前早编译整条依赖图 → Audio not found。
@@ -122,6 +164,15 @@ func _run() -> void:
 	_main._set_dev_attrs_open(true)
 	await _settle(2)
 	_snap("panel_stats_debug.png")
+	_main._set_dev_attrs_open(false)
+	_main._set_relationship_debug_open(true)
+	_main.relationship_state["visits"]["lin_aunt"] = RelationshipDataScript.make_visit("lin_aunt", "hint", Time.get_unix_time_from_system())
+	_main.relationship_state["visits"]["zhou_uncle"] = RelationshipDataScript.make_visit("zhou_uncle", "task", Time.get_unix_time_from_system())
+	_main.relationship_state["npc"]["zhou_uncle"]["favor"] = 5
+	_main._refresh_relationship_debug_panel()
+	await _settle(2)
+	_snap("panel_relationship_debug.png")
+	_main._set_relationship_debug_open(false)
 	_main.test_mode = false
 
 	# 3b) 多钓点：解锁全部 → 钓点页签 + 切到静水湖泊看 HUD 钓点角标

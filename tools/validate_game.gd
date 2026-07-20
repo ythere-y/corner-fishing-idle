@@ -1339,6 +1339,17 @@ func _check_relationship_foundation() -> void:
 		"偏好鱼送礼成功后应提升好感")
 	_assert(not (restored.relationship_state.get("visits", {}) as Dictionary).has("lin_aunt"),
 		"送礼成功后应结束该 NPC 的到访")
+	_assert(not restored.relationship_visit_feedback.is_empty(),
+		"送礼结算后应保留 NPC 对话反馈")
+	_assert(restored.selected_relationship_visit_id == "lin_aunt",
+		"反馈结束前应保留当前 NPC 供页面显示")
+	var favor_after_gift := int(restored.relationship_state["npc"]["lin_aunt"].get("favor", 0))
+	restored._relationship_gift(0)
+	_assert(int(restored.relationship_state["npc"]["lin_aunt"].get("favor", 0)) == favor_after_gift,
+		"反馈态重复触发不得再次提升好感")
+	restored._finish_relationship_visit_feedback()
+	_assert(restored.selected_relationship_visit_id == "",
+		"确认反馈后才应清空当前到访人物")
 	var story_now: float = restored._relationship_now()
 	for npc_data in RelationshipDataScript.NPCS:
 		var id := str(npc_data["id"])
@@ -1352,6 +1363,7 @@ func _check_relationship_foundation() -> void:
 	restored._complete_relationship_story()
 	_assert(int(restored.relationship_state["npc"]["lin_aunt"].get("story_seen", -1)) == 0,
 		"确认人物事件后应记录已读等级并移除到访")
+	restored._finish_relationship_visit_feedback()
 	restored.relationship_state["npc"]["lin_aunt"]["favor"] = 3
 	restored.relationship_state["npc"]["lin_aunt"]["next_visit_at"] = story_now - 1.0
 	restored._sync_relationship_visits(false)
@@ -1359,6 +1371,7 @@ func _check_relationship_foundation() -> void:
 		"跨级后应按顺序补读点头之交事件，不得跳到当前等级")
 	restored.selected_relationship_visit_id = "lin_aunt"
 	restored._complete_relationship_story()
+	restored._finish_relationship_visit_feedback()
 	restored.relationship_state["npc"]["lin_aunt"]["next_visit_at"] = story_now - 1.0
 	restored._sync_relationship_visits(false)
 	_assert(int(restored.relationship_state["visits"]["lin_aunt"].get("story_level", -1)) == 2,
@@ -1374,6 +1387,15 @@ func _check_relationship_foundation() -> void:
 	_assert(restored.inventory.size() == 1, "不合口味被拒后不应消耗鱼")
 	_assert(not (restored.relationship_state.get("visits", {}) as Dictionary).has("lin_aunt"),
 		"不合口味被拒后也应错失本次到访送礼机会")
+	restored._finish_relationship_visit_feedback()
+	restored.selected_relationship_visit_id = "tang"
+	restored.relationship_state["visits"] = {"tang": RelationshipDataScript.make_visit("tang", "buff", 0.0)}
+	restored._decline_relationship_buff()
+	_assert((restored.relationship_state.get("buff", {}) as Dictionary).is_empty(),
+		"婉拒帮忙不得写入 Buff")
+	_assert(not restored.relationship_visit_feedback.is_empty(),
+		"婉拒后应显示 NPC 告别反馈")
+	restored._finish_relationship_visit_feedback()
 	restored.selected_relationship_visit_id = "tang"
 	restored.relationship_state["visits"] = {"tang": RelationshipDataScript.make_visit("tang", "buff", 0.0)}
 	restored._accept_relationship_buff()
@@ -1382,6 +1404,7 @@ func _check_relationship_foundation() -> void:
 	_assert(str((restored.relationship_state.get("buff", {}) as Dictionary).get("npc", "")) == "tang",
 		"接受 Buff 后应记录当前人情 Buff 来源")
 	_assert(restored._catch_value_mult() > 1.0, "阿棠 Buff 应提高渔获结算倍率")
+	restored._finish_relationship_visit_feedback()
 	var buff_saved: Dictionary = SaveSystem.collect(restored)
 	var buff_restored: Node = load("res://main.tscn").instantiate()
 	buff_restored.save_enabled = false
@@ -1408,6 +1431,7 @@ func _check_relationship_foundation() -> void:
 	_assert(float(restored.coins) > coins_before, "委托交付合格后应发金币奖励")
 	_assert(int(restored.relationship_state["npc"]["zhou_uncle"].get("favor", 0)) == 0,
 		"普通委托只发金币，不应提升好感")
+	restored._finish_relationship_visit_feedback()
 	restored.relationship_state["visits"] = {}
 	restored.relationship_state["npc"]["ma"]["favor"] = RelationshipDataScript.FAVOR_LEVELS.size() - 1
 	restored.relationship_state["npc"]["ma"]["finale_done"] = false
@@ -1435,6 +1459,7 @@ func _check_relationship_foundation() -> void:
 	_assert(bool(restored.relationship_state["unlocks"].get("travel_contacts", false)),
 		"纪录类终章完成后应写入永久联系人标记")
 	_assert(float(restored.coins) > finale_before, "终章交付合格后应发高额奖励")
+	restored._finish_relationship_visit_feedback()
 	restored.relationship_state["npc"]["tang"]["favor"] = RelationshipDataScript.FAVOR_LEVELS.size() - 1
 	restored.relationship_state["npc"]["tang"]["finale_done"] = false
 	restored.relationship_state["visits"] = {
@@ -1446,6 +1471,7 @@ func _check_relationship_foundation() -> void:
 	_assert(restored.inventory.is_empty(), "阿棠的收购类终章完成后应消耗交付渔获")
 	_assert(bool(restored.relationship_state["unlocks"].get("trade_contact", false)),
 		"收购类终章完成后应写入永久联系人标记")
+	restored._finish_relationship_visit_feedback()
 	var repeat_coins := float(restored.coins)
 	restored.relationship_state["visits"] = {
 		"tang": RelationshipDataScript.make_visit("tang", "finale", finale_now),

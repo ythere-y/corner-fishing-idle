@@ -5,6 +5,7 @@ extends SceneTree
 var failures := 0
 const AnglerEquipmentScript := preload("res://systems/angler/angler_equipment.gd")
 const RelationshipDataScript := preload("res://relationship_data.gd")
+const RelationshipPortraitScript := preload("res://relationship_portrait.gd")
 
 
 func _init() -> void:
@@ -1226,10 +1227,20 @@ func _check_relationship_foundation() -> void:
 		"新存档应有空的永久解锁表，且五位 NPC 各有一个终章奖励")
 	for npc_data in RelationshipDataScript.NPCS:
 		var id := str(npc_data["id"])
+		var portrait_path := str(npc_data.get("portrait", ""))
+		_assert(portrait_path.begins_with("res://assets/art/character/npc/") \
+			and ResourceLoader.exists(portrait_path),
+			"每位河湾 NPC 应配置可加载的运行时头像")
+		_assert(RelationshipPortraitScript.texture_for(npc_data) != null,
+			"每位河湾 NPC 的头像应加载为纹理")
 		_assert(int(g.relationship_state["npc"][id].get("story_seen", 0)) == -1 \
 			and not RelationshipDataScript.level_event_for(id, 0).is_empty() \
 			and not RelationshipDataScript.level_event_for(id, RelationshipDataScript.STORY_LEVEL_MAX).is_empty(),
 			"每位 NPC 应从未读状态开始并配置初识到旧交的六条人物事件")
+	var fallback := RelationshipPortraitScript.make({"color": Color("C98472")}, "circle")
+	_assert(fallback != null and fallback.custom_minimum_size == Vector2(40, 40),
+		"头像缺失时应返回可见的主题色回退控件")
+	fallback.free()
 	_assert(RelationshipDataScript.repeat_visit_kinds(0) == ["hint"] \
 		and "task" in RelationshipDataScript.repeat_visit_kinds(1) \
 		and not ("buff" in RelationshipDataScript.repeat_visit_kinds(3)) \

@@ -8,6 +8,7 @@ const CARD_SIZE := Vector2(520, 476)
 
 static var font_bold: Font = null   # 由 main._setup_theme 注入：系统字体假粗体（CD 按钮/页签 weight 600-700）
 const RelationshipDataScript := preload("res://relationship_data.gd")
+const RelationshipPortraitScript := preload("res://relationship_portrait.gd")
 
 
 # ============================ 面板开关 ============================
@@ -530,10 +531,8 @@ static func fill_relationship_tab(g: CornerFishing, v: VBoxContainer) -> void:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
 		mg.add_child(row)
-		var avatar := ColorRect.new()
-		avatar.color = npc["color"]
-		avatar.custom_minimum_size = Vector2(30, 30)
-		avatar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var avatar := RelationshipPortraitScript.make(npc, "card")
+		avatar.name = "RelationshipPortraitCard"
 		row.add_child(avatar)
 		var text := VBoxContainer.new()
 		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -596,10 +595,8 @@ static func fill_relationship_visit(g: CornerFishing, v: VBoxContainer) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	mg.add_child(row)
-	var avatar := ColorRect.new()
-	avatar.color = npc["color"]
-	avatar.custom_minimum_size = Vector2(38, 38)
-	avatar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var avatar := RelationshipPortraitScript.make(npc, "hero")
+	avatar.name = "RelationshipPortraitHero"
 	row.add_child(avatar)
 	var text := VBoxContainer.new()
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL

@@ -1254,6 +1254,19 @@ func _check_relationship_foundation() -> void:
 	_assert(visits.size() == 1 and str(visits["lin_aunt"].get("kind", "")) == "story" \
 		and int(visits["lin_aunt"].get("story_level", -1)) == 0,
 		"人情入口开放后应优先生成初识人物事件")
+	g._update_relationship_visit_bar()
+	_assert(g._relationship_visit_bar.find_child("RelationshipPortraitCircle", true, false) != null,
+		"右侧到访入口应使用圆形人物头像")
+	g._catch_tab = 9
+	g._open_panel("catch")
+	await process_frame
+	_assert(g._panel.find_child("RelationshipPortraitCard", true, false) != null,
+		"人情簿应使用人物卡片头像")
+	g.selected_relationship_visit_id = "lin_aunt"
+	g._open_panel("relationship_visit")
+	await process_frame
+	_assert(g._panel.find_child("RelationshipPortraitHero", true, false) != null,
+		"到访面板应使用透明人物立绘")
 	var now: float = g._relationship_now()
 	for npc_data in RelationshipDataScript.NPCS:
 		var id := str(npc_data["id"])

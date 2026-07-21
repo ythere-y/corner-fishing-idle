@@ -464,8 +464,10 @@ func _tick_relationship_buff(delta: float) -> void:
 	relationship_state["buff"] = buff
 
 
-func _accept_relationship_buff() -> void:
+func _accept_relationship_buff(expected_npc_id := "", expected_visit_key := "") -> void:
 	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
 		return
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
@@ -486,8 +488,10 @@ func _accept_relationship_buff() -> void:
 		RelationshipDataScript.buff_name(npc_id), "good")
 
 
-func _decline_relationship_buff() -> void:
+func _decline_relationship_buff(expected_npc_id := "", expected_visit_key := "") -> void:
 	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
 		return
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
@@ -1410,6 +1414,22 @@ func _relationship_visit_session_matches(npc_id: String, visit: Dictionary) -> b
 		and str(relationship_visit_session.get("visit_key", "")) == _relationship_visit_key(npc_id, visit)
 
 
+func _relationship_visit_action_is_current(expected_npc_id: String,
+		expected_visit_key: String) -> bool:
+	_ensure_relationship_state()
+	if expected_npc_id == "":
+		expected_npc_id = str(relationship_visit_session.get("npc_id", ""))
+	if expected_visit_key == "":
+		expected_visit_key = str(relationship_visit_session.get("visit_key", ""))
+	var visits: Dictionary = relationship_state.get("visits", {})
+	var visit: Dictionary = visits.get(expected_npc_id, {})
+	return selected_relationship_visit_id == expected_npc_id \
+		and str(relationship_visit_session.get("npc_id", "")) == expected_npc_id \
+		and str(relationship_visit_session.get("visit_key", "")) == expected_visit_key \
+		and not visit.is_empty() \
+		and _relationship_visit_key(expected_npc_id, visit) == expected_visit_key
+
+
 func _begin_relationship_visit_session(npc_id: String) -> void:
 	_ensure_relationship_state()
 	var visits: Dictionary = relationship_state.get("visits", {})
@@ -1432,7 +1452,10 @@ func _end_relationship_visit_session() -> void:
 	selected_relationship_visit_id = ""
 
 
-func _set_relationship_visit_reply(text: String, phase: String) -> void:
+func _set_relationship_visit_reply(text: String, phase: String, expected_npc_id := "",
+		expected_visit_key := "") -> void:
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
+		return
 	relationship_visit_session["player_reply"] = text
 	relationship_visit_session["phase"] = phase
 	relationship_visit_session["notice"] = ""
@@ -1459,8 +1482,10 @@ func _finish_relationship_visit_feedback() -> void:
 	_close_panel()
 
 
-func _complete_relationship_story() -> void:
+func _complete_relationship_story(expected_npc_id := "", expected_visit_key := "") -> void:
 	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
 		return
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
@@ -1495,8 +1520,10 @@ func _complete_relationship_story() -> void:
 		str(event.get("title", "河湾近况")), "good")
 
 
-func _relationship_gift(idx: int) -> void:
+func _relationship_gift(idx: int, expected_npc_id := "", expected_visit_key := "") -> void:
 	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
 		return
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
@@ -1539,8 +1566,11 @@ func _relationship_task_reward(c: Dictionary) -> int:
 	return int(ceil(float(base) * 2.2 * _relationship_buff_value_mult()))
 
 
-func _complete_relationship_task(idx: int) -> void:
+func _complete_relationship_task(idx: int, expected_npc_id := "",
+		expected_visit_key := "") -> void:
 	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
 		return
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
@@ -1578,8 +1608,11 @@ func _relationship_finale_reward(c: Dictionary) -> int:
 	return int(ceil(float(maxi(1, int(c.get("v", 1)))) * 8.0 * _relationship_buff_value_mult()))
 
 
-func _complete_relationship_finale(idx: int) -> void:
+func _complete_relationship_finale(idx: int, expected_npc_id := "",
+		expected_visit_key := "") -> void:
 	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
 		return
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
@@ -3254,6 +3287,8 @@ func _ui_tier_color(tier: int, on_paper := false) -> Color:
 
 ## —— 面板：薄壳委托 UIPanels（实现见 ui_panels.gd，行为不变）——
 func _open_panel(kind: String) -> void:
+	if _panel_kind == "relationship_visit" and kind != "relationship_visit":
+		_end_relationship_visit_session()
 	if kind == "catch" and not _tab_unlocked(_catch_tab):
 		_catch_tab = _fallback_feature_tab()
 	UIPanels.open_panel(self, kind)

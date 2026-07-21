@@ -1357,6 +1357,46 @@ func _check_relationship_foundation() -> void:
 		decision_texts.append(str(button.text))
 	_assert("好，我记住了。" in decision_texts and "我再想想。" in decision_texts,
 		"人物事件抉择应使用简短、真实的玩家回复")
+	var old_story_accept: Callable
+	for button in g._panel.find_child("RelationshipDecisionArea", true, false).find_children(
+			"*", "Button", true, false):
+		if str(button.text) == "好，我记住了。":
+			old_story_accept = Callable(button, "emit_signal").bind("pressed")
+			break
+	var old_story_seen := int(g.relationship_state["npc"]["lin_aunt"].get("story_seen", -1))
+	var original_lin_visit: Dictionary = (g.relationship_state["visits"]["lin_aunt"] as Dictionary).duplicate(true)
+	g.relationship_state["visits"]["lin_aunt"] = RelationshipDataScript.make_visit(
+		"lin_aunt", "buff", g._relationship_now() + 1.0)
+	g._begin_relationship_visit_session("lin_aunt")
+	old_story_accept.call()
+	_assert(str(g.relationship_state["visits"]["lin_aunt"].get("kind", "")) == "buff" \
+		and int(g.relationship_state["npc"]["lin_aunt"].get("story_seen", -1)) == old_story_seen \
+		and (g.relationship_visit_session.get("feedback", {}) as Dictionary).is_empty() \
+		and str(g.relationship_visit_session.get("player_reply", "")) == "",
+		"同 NPC 旧按钮回调不得修改或结算后来替换的新到访")
+	g.relationship_state["visits"]["lin_aunt"] = original_lin_visit.duplicate(true)
+	g._begin_relationship_visit_session("lin_aunt")
+	g.relationship_visit_session["phase"] = "picker"
+	g._open_panel("catch")
+	g._open_relationship_visit("lin_aunt")
+	_assert(str(g.relationship_visit_session.get("phase", "")) == "decision",
+		"到访切换到其他面板后重开同一到访必须建立新的决策会话")
+	g._show_relationship_feedback("旧到访反馈", "good")
+	var feedback_snapshot_body := RelationshipDataScript.visit_body(lin,
+		g.relationship_visit_session.get("visit_snapshot", {}) as Dictionary)
+	g.relationship_state["visits"]["lin_aunt"] = RelationshipDataScript.make_visit(
+		"lin_aunt", "buff", g._relationship_now() + 2.0)
+	g._open_panel("relationship_visit")
+	var snapshot_feedback_text := ""
+	for label in g._panel.find_child("RelationshipDialogueLog", true, false).find_children(
+			"*", "Label", true, false):
+		snapshot_feedback_text += str(label.text)
+	_assert(snapshot_feedback_text.contains(feedback_snapshot_body) \
+		and snapshot_feedback_text.contains("旧到访反馈") \
+		and not snapshot_feedback_text.contains(str(RelationshipDataScript.buff_dialogue("lin_aunt")[0])),
+		"反馈阶段即使同 NPC 生成新到访也必须继续显示会话快照 prompt")
+	g.relationship_state["visits"]["lin_aunt"] = original_lin_visit.duplicate(true)
+	g._end_relationship_visit_session()
 	g.relationship_state["visits"]["zhou_uncle"] = RelationshipDataScript.make_visit(
 		"zhou_uncle", "buff", g._relationship_now())
 	g.relationship_visit_session = {

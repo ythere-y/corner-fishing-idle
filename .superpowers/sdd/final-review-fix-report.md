@@ -1,6 +1,6 @@
 # Final Review Fix Report
 
-日期：2026-07-21  
+日期：2026-07-21
 分支：`fix/relationship-visit-session-bubbles`（推送目标：`feat/relationship-visit-dialogue`）
 
 ## Finding → 代码 / 测试映射

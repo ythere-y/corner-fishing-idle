@@ -1295,8 +1295,7 @@ func _check_relationship_foundation() -> void:
 	await process_frame
 	_assert(g._panel.find_child("RelationshipPortraitCard", true, false) != null,
 		"人情簿应使用人物卡片头像")
-	g.selected_relationship_visit_id = "lin_aunt"
-	g._open_panel("relationship_visit")
+	g._open_relationship_visit("lin_aunt")
 	await process_frame
 	_assert(g._panel.find_child("RelationshipPortraitHero", true, false) != null,
 		"到访面板应使用透明人物立绘")
@@ -1313,6 +1312,37 @@ func _check_relationship_foundation() -> void:
 		decision_texts.append(str(button.text))
 	_assert("好，我记住了。" in decision_texts and "我再想想。" in decision_texts,
 		"人物事件抉择应使用简短、真实的玩家回复")
+	g.relationship_state["visits"]["zhou_uncle"] = RelationshipDataScript.make_visit(
+		"zhou_uncle", "buff", g._relationship_now())
+	g.relationship_visit_session = {
+		"npc_id": "lin_aunt", "visit_key": "stale", "phase": "feedback",
+		"player_reply": "好，我记住了。", "notice": "旧提示",
+		"feedback": {"text": "旧反馈", "tone": "good"},
+	}
+	g._open_relationship_visit("zhou_uncle")
+	_assert(str(g.relationship_visit_session.get("npc_id", "")) == "zhou_uncle" \
+		and str(g.relationship_visit_session.get("phase", "")) == "decision" \
+		and str(g.relationship_visit_session.get("player_reply", "")) == "" \
+		and str(g.relationship_visit_session.get("notice", "")) == "" \
+		and (g.relationship_visit_session.get("feedback", {}) as Dictionary).is_empty(),
+		"切换 NPC 时必须建立干净的到访会话")
+	g.relationship_visit_session["phase"] = "picker"
+	g._close_panel()
+	g._open_relationship_visit("zhou_uncle")
+	_assert(str(g.relationship_visit_session.get("phase", "")) == "decision",
+		"关闭后重开同一到访必须建立新的决策会话")
+	g.relationship_visit_session = {
+		"npc_id": "zhou_uncle", "visit_key": "stale", "phase": "feedback",
+		"player_reply": "旧回复", "notice": "旧提示",
+		"feedback": {"text": "旧反馈", "tone": "good"},
+	}
+	TestMode.open_relationship_visit(g, "lin_aunt")
+	_assert(str(g.relationship_visit_session.get("npc_id", "")) == "lin_aunt" \
+		and str(g.relationship_visit_session.get("phase", "")) == "decision" \
+		and str(g.relationship_visit_session.get("player_reply", "")) == "" \
+		and str(g.relationship_visit_session.get("notice", "")) == "" \
+		and (g.relationship_visit_session.get("feedback", {}) as Dictionary).is_empty(),
+		"调试入口必须建立干净的到访会话")
 	for system_label in ["记下了", "接受帮忙", "婉拒", "挑一条鱼", "交付一条鱼", "登记一条鱼", "稍后"]:
 		_assert(not system_label in decision_texts,
 			"到访抉择不得继续使用系统操作文案：%s" % system_label)
@@ -1362,9 +1392,9 @@ func _check_relationship_foundation() -> void:
 		"v21/v22 已完成终章的存档应补发对应永久解锁标记")
 	_assert(int(migrated_relationships["npc"]["lin_aunt"].get("story_seen", 0)) == -1,
 		"v23 及更早存档应从初识人物事件开始补读")
-	restored.selected_relationship_visit_id = "lin_aunt"
 	restored.inventory = [{"id": "crucian", "w": 0.3, "v": 6, "q": 0}]
 	restored.relationship_state["visits"] = {"lin_aunt": RelationshipDataScript.make_visit("lin_aunt", "hint", 0.0)}
+	restored._begin_relationship_visit_session("lin_aunt")
 	restored.relationship_state["npc"]["lin_aunt"]["favor"] = 0
 	restored._relationship_gift(0)
 	_assert(restored.inventory.is_empty(), "偏好鱼送礼成功后应从鱼篓扣除")
@@ -1398,7 +1428,7 @@ func _check_relationship_foundation() -> void:
 	_assert(str(restored.relationship_state["visits"]["lin_aunt"].get("kind", "")) == "story" \
 		and int(restored.relationship_state["visits"]["lin_aunt"].get("story_level", -1)) == 0,
 		"升到点头之交后仍应先补读初识人物事件")
-	restored.selected_relationship_visit_id = "lin_aunt"
+	restored._begin_relationship_visit_session("lin_aunt")
 	restored._complete_relationship_story()
 	_assert(int(restored.relationship_state["npc"]["lin_aunt"].get("story_seen", -1)) == 0,
 		"确认人物事件后应记录已读等级并移除到访")
@@ -1408,7 +1438,7 @@ func _check_relationship_foundation() -> void:
 	restored._sync_relationship_visits(false)
 	_assert(int(restored.relationship_state["visits"]["lin_aunt"].get("story_level", -1)) == 1,
 		"跨级后应按顺序补读点头之交事件，不得跳到当前等级")
-	restored.selected_relationship_visit_id = "lin_aunt"
+	restored._begin_relationship_visit_session("lin_aunt")
 	restored._complete_relationship_story()
 	restored._finish_relationship_visit_feedback()
 	restored.relationship_state["npc"]["lin_aunt"]["next_visit_at"] = story_now - 1.0
@@ -1419,24 +1449,24 @@ func _check_relationship_foundation() -> void:
 		(SaveSystem.collect(restored).get("relationships", {}) as Dictionary))
 	_assert(int(story_saved["npc"]["lin_aunt"].get("story_seen", -1)) == 1,
 		"v24 应保存并恢复每位 NPC 的人物事件已读进度")
-	restored.selected_relationship_visit_id = "lin_aunt"
 	restored.inventory = [{"id": "sardine", "w": 0.05, "v": 3, "q": 0}]
 	restored.relationship_state["visits"] = {"lin_aunt": RelationshipDataScript.make_visit("lin_aunt", "hint", 0.0)}
+	restored._begin_relationship_visit_session("lin_aunt")
 	restored._relationship_gift(0)
 	_assert(restored.inventory.size() == 1, "不合口味被拒后不应消耗鱼")
 	_assert(not (restored.relationship_state.get("visits", {}) as Dictionary).has("lin_aunt"),
 		"不合口味被拒后也应错失本次到访送礼机会")
 	restored._finish_relationship_visit_feedback()
-	restored.selected_relationship_visit_id = "tang"
 	restored.relationship_state["visits"] = {"tang": RelationshipDataScript.make_visit("tang", "buff", 0.0)}
+	restored._begin_relationship_visit_session("tang")
 	restored._decline_relationship_buff()
 	_assert((restored.relationship_state.get("buff", {}) as Dictionary).is_empty(),
 		"婉拒帮忙不得写入 Buff")
 	_assert(not restored.relationship_visit_feedback.is_empty(),
 		"婉拒后应显示 NPC 告别反馈")
 	restored._finish_relationship_visit_feedback()
-	restored.selected_relationship_visit_id = "tang"
 	restored.relationship_state["visits"] = {"tang": RelationshipDataScript.make_visit("tang", "buff", 0.0)}
+	restored._begin_relationship_visit_session("tang")
 	restored._accept_relationship_buff()
 	_assert(not (restored.relationship_state.get("visits", {}) as Dictionary).has("tang"),
 		"接受 Buff 后应结束该 NPC 的到访")
@@ -1452,8 +1482,8 @@ func _check_relationship_foundation() -> void:
 	SaveSystem.apply(buff_restored, buff_saved)
 	_assert(str((buff_restored.relationship_state.get("buff", {}) as Dictionary).get("npc", "")) == "tang",
 		"人情 Buff 应能存档往返")
-	restored.selected_relationship_visit_id = "zhou_uncle"
 	restored.relationship_state["visits"] = {"zhou_uncle": RelationshipDataScript.make_visit("zhou_uncle", "task", 0.0)}
+	restored._begin_relationship_visit_session("zhou_uncle")
 	restored.inventory = [{"id": "sardine", "w": 0.05, "v": 3, "q": 0}]
 	var coins_before := float(restored.coins)
 	restored._complete_relationship_task(0)
@@ -1482,7 +1512,7 @@ func _check_relationship_foundation() -> void:
 	restored._sync_relationship_visits(false)
 	_assert(str((restored.relationship_state.get("visits", {}) as Dictionary).get("ma", {}).get("kind", "")) == "finale",
 		"至交且终章未完成的 NPC 应优先生成终章到访")
-	restored.selected_relationship_visit_id = "ma"
+	restored._begin_relationship_visit_session("ma")
 	restored.inventory = [{"id": "crucian", "w": 0.3, "v": 6, "q": 0}]
 	var finale_before := float(restored.coins)
 	restored._complete_relationship_finale(0)
@@ -1504,8 +1534,8 @@ func _check_relationship_foundation() -> void:
 	restored.relationship_state["visits"] = {
 		"tang": RelationshipDataScript.make_visit("tang", "finale", finale_now),
 	}
-	restored.selected_relationship_visit_id = "tang"
 	restored.inventory = [{"id": "oarfish", "w": 80.0, "v": 6000, "q": 2, "lock": false}]
+	restored._begin_relationship_visit_session("tang")
 	restored._complete_relationship_finale(0)
 	_assert(restored.inventory.is_empty(), "阿棠的收购类终章完成后应消耗交付渔获")
 	_assert(bool(restored.relationship_state["unlocks"].get("trade_contact", false)),
@@ -1515,8 +1545,8 @@ func _check_relationship_foundation() -> void:
 	restored.relationship_state["visits"] = {
 		"tang": RelationshipDataScript.make_visit("tang", "finale", finale_now),
 	}
-	restored.selected_relationship_visit_id = "tang"
 	restored.inventory = [{"id": "oarfish", "w": 80.0, "v": 6000, "q": 2, "lock": false}]
+	restored._begin_relationship_visit_session("tang")
 	restored._complete_relationship_finale(0)
 	_assert(restored.inventory.size() == 1 and float(restored.coins) == repeat_coins,
 		"已完成终章即使残留到访也不得重复扣鱼或发奖")

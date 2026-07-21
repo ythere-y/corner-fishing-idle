@@ -582,6 +582,9 @@ static func fill_relationship_visit(g: CornerFishing, v: VBoxContainer) -> void:
 	var npc_id := str(g.selected_relationship_visit_id)
 	var npc := RelationshipDataScript.get_npc(npc_id)
 	var visit: Dictionary = visits.get(npc_id, {})
+	var display_visit: Dictionary = visit
+	if display_visit.is_empty():
+		display_visit = (g.relationship_visit_session.get("visit_snapshot", {}) as Dictionary)
 	if npc.is_empty():
 		var empty := Label.new()
 		empty.text = "这位熟人已经离开了。"
@@ -634,13 +637,14 @@ static func fill_relationship_visit(g: CornerFishing, v: VBoxContainer) -> void:
 	log.name = "RelationshipDialogueLog"
 	log.add_theme_constant_override("separation", 8)
 	stream_parent.add_child(log)
-	if not visit.is_empty():
-		var kind := str(visit.get("kind", "hint"))
+	if not display_visit.is_empty():
+		var kind := str(display_visit.get("kind", "hint"))
 		if kind == "buff":
 			for line in RelationshipDataScript.buff_dialogue(npc_id):
 				_relationship_npc_message_row(log, npc, str(line))
 		else:
-			_relationship_npc_message_row(log, npc, RelationshipDataScript.visit_body(npc, visit))
+			_relationship_npc_message_row(log, npc,
+				RelationshipDataScript.visit_body(npc, display_visit))
 	var player_reply := str(g.relationship_visit_session.get("player_reply", ""))
 	if player_reply != "":
 		_relationship_player_message_row(log, player_reply, false, true)

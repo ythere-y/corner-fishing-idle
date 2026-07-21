@@ -1422,6 +1422,21 @@ func _check_relationship_foundation() -> void:
 	restored.inventory = [{"id": "crucian", "w": 0.3, "v": 6, "q": 0}]
 	restored.relationship_state["visits"] = {"lin_aunt": RelationshipDataScript.make_visit("lin_aunt", "hint", 0.0)}
 	restored._begin_relationship_visit_session("lin_aunt")
+	var gift_visit: Dictionary = restored.relationship_state["visits"]["lin_aunt"]
+	var gift_prompt := RelationshipDataScript.visit_body(lin, gift_visit)
+	restored._set_relationship_visit_reply("我挑一条。", "picker")
+	restored._open_panel("relationship_visit")
+	_assert(str(restored.relationship_visit_session.get("phase", "")) == "picker" \
+		and str(restored.relationship_visit_session.get("player_reply", "")) == "我挑一条。" \
+		and restored._panel.find_child("RelationshipFishPicker", true, false) != null,
+		"挑鱼回复应进入 picker 阶段并保留已发送回复")
+	restored._set_relationship_visit_reply("", "decision")
+	restored._open_panel("relationship_visit")
+	_assert(str(restored.relationship_visit_session.get("phase", "")) == "decision" \
+		and str(restored.relationship_visit_session.get("player_reply", "")) == "" \
+		and restored._panel.find_child("RelationshipFishPicker", true, false) == null,
+		"收起 picker 应回到 decision 并清理玩家回复")
+	restored._set_relationship_visit_reply("我挑一条。", "picker")
 	restored.relationship_state["npc"]["lin_aunt"]["favor"] = 0
 	restored._relationship_gift(0)
 	_assert(restored.inventory.is_empty(), "偏好鱼送礼成功后应从鱼篓扣除")
@@ -1439,6 +1454,35 @@ func _check_relationship_foundation() -> void:
 		"反馈态不应继续显示原抉择")
 	_assert(restored._panel.find_child("RelationshipFeedbackEnd", true, false) != null,
 		"反馈态只保留结束按钮")
+	var feedback_log: VBoxContainer = restored._panel.find_child(
+		"RelationshipDialogueLog", true, false) as VBoxContainer
+	var feedback_rows: Array[Control] = []
+	if feedback_log != null:
+		for child in feedback_log.get_children():
+			if child is HBoxContainer:
+				feedback_rows.append(child as Control)
+	var sent_bubble: Node = restored._panel.find_child("RelationshipPlayerBubble", true, false)
+	var feedback_text := ""
+	if feedback_log != null:
+		for label in feedback_log.find_children("*", "Label", true, false):
+			feedback_text += str(label.text)
+	await process_frame
+	await process_frame
+	var feedback_rows_do_not_overlap := feedback_rows.size() == 3
+	for i in range(1, feedback_rows.size()):
+		feedback_rows_do_not_overlap = feedback_rows_do_not_overlap \
+			and feedback_rows[i - 1].position.y + feedback_rows[i - 1].size.y \
+			<= feedback_rows[i].position.y
+	_assert(feedback_rows.size() == 3 \
+		and feedback_rows[0].name == "RelationshipNpcMessageRow" \
+		and feedback_rows[1].name == "RelationshipPlayerMessageRow" \
+		and feedback_rows[2].name == "RelationshipFeedback" \
+		and feedback_text.contains(gift_prompt),
+		"反馈消息流应保留原 NPC prompt，再显示玩家已发送与独立 NPC feedback")
+	_assert(sent_bubble is PanelContainer and not (sent_bubble is Button),
+		"反馈态玩家已发送气泡必须是不可交互 PanelContainer")
+	_assert(feedback_rows_do_not_overlap,
+		"反馈态原 prompt、玩家回复与 NPC feedback 应逐行排版且不重叠")
 	var favor_after_gift := int(restored.relationship_state["npc"]["lin_aunt"].get("favor", 0))
 	restored._relationship_gift(0)
 	_assert(int(restored.relationship_state["npc"]["lin_aunt"].get("favor", 0)) == favor_after_gift,

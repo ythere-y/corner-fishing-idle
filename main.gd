@@ -1418,6 +1418,7 @@ func _begin_relationship_visit_session(npc_id: String) -> void:
 		relationship_visit_session = {
 			"npc_id": npc_id,
 			"visit_key": _relationship_visit_key(npc_id, visit),
+			"visit_snapshot": visit.duplicate(true),
 			"phase": "decision",
 			"player_reply": "",
 			"notice": "",

@@ -1299,6 +1299,33 @@ func _check_relationship_foundation() -> void:
 	await process_frame
 	_assert(g._panel.find_child("RelationshipPortraitHero", true, false) != null,
 		"到访面板应使用透明人物立绘")
+	var npc_row: Node = g._panel.find_child("RelationshipNpcMessageRow", true, false)
+	var npc_avatar: Node = g._panel.find_child("RelationshipNpcAvatar", true, false)
+	var npc_bubble: Node = g._panel.find_child("RelationshipNpcBubble", true, false)
+	var reply_rows: Array[Node] = g._panel.find_children("RelationshipReplyOption*", "HBoxContainer", true, false)
+	_assert(npc_row is HBoxContainer and npc_avatar != null and npc_bubble != null,
+		"NPC 消息应使用独立整行的圆形头像与左侧气泡")
+	_assert(reply_rows.size() == 2 and reply_rows[0].get_parent() == reply_rows[1].get_parent() \
+		and reply_rows[0] != reply_rows[1],
+		"每个玩家回复选项应独占一条消息行")
+	_assert(npc_row != null and reply_rows.size() == 2 \
+		and npc_row.get_parent() == reply_rows[0].get_parent(),
+		"NPC 与玩家消息行应由同一纵向消息流自然排版")
+	await process_frame
+	var message_rows: Array[Control] = []
+	for child in g._panel.find_child("RelationshipDialogueLog", true, false).find_children("*", "HBoxContainer", true, false):
+		if child.visible and (child.name == "RelationshipNpcMessageRow" \
+			or child.name.begins_with("RelationshipReplyOption") \
+			or child.name == "RelationshipPlayerMessageRow"):
+			message_rows.append(child as Control)
+	message_rows.sort_custom(func(a: Control, b: Control) -> bool:
+		return a.get_index() < b.get_index())
+	var message_rows_do_not_overlap := message_rows.size() == 3
+	for i in range(1, message_rows.size()):
+		message_rows_do_not_overlap = message_rows_do_not_overlap \
+			and message_rows[i - 1].position.y + message_rows[i - 1].size.y <= message_rows[i].position.y
+	_assert(message_rows_do_not_overlap,
+		"NPC 与玩家消息行应按纵向顺序排版且 Y 轴不重叠")
 	_assert(g._panel.find_child("RelationshipDialogueLog", true, false) != null \
 		and g._panel.find_child("RelationshipDecisionArea", true, false) != null,
 		"到访页应使用对话记录和当前抉择区")

@@ -622,21 +622,32 @@ static func fill_relationship_visit(g: CornerFishing, v: VBoxContainer) -> void:
 	current.add_theme_color_override("font_color", DT.BRONZE)
 	text.add_child(current)
 
+	var has_feedback := not g.relationship_visit_feedback.is_empty()
+	var stream_parent: VBoxContainer = v
+	if not has_feedback and not visit.is_empty():
+		var decisions := VBoxContainer.new()
+		decisions.name = "RelationshipDecisionArea"
+		decisions.add_theme_constant_override("separation", 8)
+		v.add_child(decisions)
+		stream_parent = decisions
 	var log := VBoxContainer.new()
 	log.name = "RelationshipDialogueLog"
 	log.add_theme_constant_override("separation", 8)
-	v.add_child(log)
+	stream_parent.add_child(log)
 	if not visit.is_empty():
 		var kind := str(visit.get("kind", "hint"))
 		if kind == "buff":
 			for line in RelationshipDataScript.buff_dialogue(npc_id):
-				_relationship_dialogue_line(log, str(npc["name"]), str(line))
+				_relationship_npc_message_row(log, npc, str(line))
 		else:
-			_relationship_dialogue_line(log, str(npc["name"]), RelationshipDataScript.visit_body(npc, visit))
+			_relationship_npc_message_row(log, npc, RelationshipDataScript.visit_body(npc, visit))
+	var player_reply := str(g.relationship_visit_session.get("player_reply", ""))
+	if player_reply != "":
+		_relationship_player_message_row(log, player_reply, false, true)
 	if g.relationship_visit_notice != "":
-		_relationship_dialogue_line(log, str(npc["name"]), g.relationship_visit_notice, "RelationshipVisitNotice")
-	if not g.relationship_visit_feedback.is_empty():
-		_relationship_dialogue_line(log, str(npc["name"]),
+		_relationship_npc_message_row(log, npc, g.relationship_visit_notice, "RelationshipVisitNotice")
+	if has_feedback:
+		_relationship_npc_message_row(log, npc,
 			str(g.relationship_visit_feedback.get("text", "")), "RelationshipFeedback")
 		var finish := Button.new()
 		finish.name = "RelationshipFeedbackEnd"
@@ -647,7 +658,7 @@ static func fill_relationship_visit(g: CornerFishing, v: VBoxContainer) -> void:
 		v.add_child(finish)
 		return
 	if visit.is_empty():
-		_relationship_dialogue_line(log, str(npc["name"]), "这次到访已经结束了。")
+		_relationship_npc_message_row(log, npc, "这次到访已经结束了。")
 		var finish := Button.new()
 		finish.name = "RelationshipFeedbackEnd"
 		finish.text = "关闭"
@@ -656,61 +667,120 @@ static func fill_relationship_visit(g: CornerFishing, v: VBoxContainer) -> void:
 		finish.pressed.connect(func() -> void: g._finish_relationship_visit_feedback())
 		v.add_child(finish)
 		return
-	_relationship_visit_decisions(g, v, npc_id, visit)
+	_relationship_visit_decisions(g, log, npc_id, visit)
 
 
-static func _relationship_dialogue_line(parent: VBoxContainer, speaker: String, message: String,
-		node_name := "") -> void:
+static func _relationship_npc_message_row(parent: VBoxContainer, npc: Dictionary,
+		message: String, node_name := "") -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.name = "RelationshipNpcMessageRow" if node_name == "" else node_name
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 8)
+	parent.add_child(row)
+	var avatar := RelationshipPortraitScript.make(npc, "circle")
+	avatar.name = "RelationshipNpcAvatar"
+	avatar.custom_minimum_size = Vector2(36, 36)
+	row.add_child(avatar)
 	var bubble := PanelContainer.new()
-	if node_name != "":
-		bubble.name = node_name
-	bubble.add_theme_stylebox_override("panel", dark_row_style(0.42))
-	parent.add_child(bubble)
-	var mg := MarginContainer.new()
-	mg.add_theme_constant_override("margin_left", 12)
-	mg.add_theme_constant_override("margin_right", 12)
-	mg.add_theme_constant_override("margin_top", 9)
-	mg.add_theme_constant_override("margin_bottom", 9)
-	bubble.add_child(mg)
-	var line := Label.new()
-	line.text = ("%s：" % speaker if speaker != "" else "") + message
-	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	line.add_theme_font_size_override("font_size", 13)
-	line.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
-	mg.add_child(line)
+	bubble.name = "RelationshipNpcBubble"
+	bubble.custom_minimum_size.x = 120
+	bubble.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	bubble.add_theme_stylebox_override("panel", paper_style())
+	row.add_child(bubble)
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_top", 9)
+	margin.add_theme_constant_override("margin_bottom", 9)
+	bubble.add_child(margin)
+	var label := Label.new()
+	label.custom_minimum_size.x = 280
+	label.text = message
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_font_size_override("font_size", 13)
+	label.add_theme_color_override("font_color", DT.INK)
+	margin.add_child(label)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+	return row
+
+
+static func _relationship_player_message_row(parent: VBoxContainer, message: String,
+		clickable: bool, primary: bool, on_pressed := Callable()) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+	if clickable:
+		var bubble := Button.new()
+		bubble.name = "RelationshipPlayerBubble"
+		bubble.text = message
+		bubble.focus_mode = Control.FOCUS_NONE
+		apply_button_skin(bubble, primary)
+		bubble.pressed.connect(func() -> void:
+			Audio.play_ui("ui_click")
+			on_pressed.call())
+		row.add_child(bubble)
+	else:
+		var bubble := PanelContainer.new()
+		bubble.name = "RelationshipPlayerBubble"
+		bubble.add_theme_stylebox_override("panel", _relationship_sent_bubble_style())
+		row.add_child(bubble)
+		var margin := MarginContainer.new()
+		margin.add_theme_constant_override("margin_left", 12)
+		margin.add_theme_constant_override("margin_right", 12)
+		margin.add_theme_constant_override("margin_top", 9)
+		margin.add_theme_constant_override("margin_bottom", 9)
+		bubble.add_child(margin)
+		var label := Label.new()
+		label.text = message
+		label.add_theme_font_size_override("font_size", 13)
+		label.add_theme_color_override("font_color", Color("26301D"))
+		margin.add_child(label)
+	parent.add_child(row)
+	row.name = "RelationshipReplyOption" if clickable else "RelationshipPlayerMessageRow"
+	return row
+
+
+static func _relationship_sent_bubble_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("A8C879")
+	style.set_corner_radius_all(14)
+	style.corner_radius_top_right = 4
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.border_color = Color("C7D99B")
+	return style
 
 
 static func _relationship_visit_decisions(g: CornerFishing, v: VBoxContainer, npc_id: String,
 		visit: Dictionary) -> void:
-	var decisions := VBoxContainer.new()
-	decisions.name = "RelationshipDecisionArea"
-	decisions.add_theme_constant_override("separation", 8)
-	v.add_child(decisions)
-	var prompt := Label.new()
-	prompt.text = "你怎么回应？"
-	prompt.add_theme_font_override("font", font_bold)
-	prompt.add_theme_font_size_override("font_size", 14)
-	prompt.add_theme_color_override("font_color", DT.BRONZE)
-	decisions.add_child(prompt)
 	var kind := str(visit.get("kind", "hint"))
-	if kind in ["hint", "task", "finale"] and g.relationship_picker_open:
-		_relationship_visit_fish_picker(g, decisions, npc_id, kind)
+	if kind in ["hint", "task", "finale"] and str(g.relationship_visit_session.get("phase", "decision")) == "picker":
+		_relationship_visit_fish_picker(g, v, npc_id, kind)
 	else:
-		var actions := HBoxContainer.new()
-		actions.add_theme_constant_override("separation", 8)
-		decisions.add_child(actions)
 		if kind == "story":
-			_relationship_action(actions, "好，我记住了。", true, func() -> void: g._complete_relationship_story())
+			_relationship_player_message_row(v, "好，我记住了。", true, true, func() -> void:
+				g._set_relationship_visit_reply("好，我记住了。", "feedback")
+				g._complete_relationship_story())
 		elif kind == "buff":
-			_relationship_action(actions, "好，麻烦你了。", true, func() -> void: g._accept_relationship_buff())
-			_relationship_action(actions, "今天先不了。", false, func() -> void: g._decline_relationship_buff())
+			_relationship_player_message_row(v, "好，麻烦你了。", true, true, func() -> void:
+				g._set_relationship_visit_reply("好，麻烦你了。", "feedback")
+				g._accept_relationship_buff())
+			_relationship_player_message_row(v, "今天先不了。", true, false, func() -> void:
+				g._set_relationship_visit_reply("今天先不了。", "feedback")
+				g._decline_relationship_buff())
 		else:
 			var action_text := "我挑一条。"
 			if kind in ["task", "finale"]: action_text = "给你看看。"
-			_relationship_action(actions, action_text, true, func() -> void:
-				g.relationship_picker_open = true
+			_relationship_player_message_row(v, action_text, true, true, func() -> void:
+				g._set_relationship_visit_reply(action_text, "picker")
 				g._open_panel("relationship_visit"))
-		_relationship_action(actions, "我再想想。", false, func() -> void: g._close_panel())
+		_relationship_player_message_row(v, "我再想想。", true, false, func() -> void: g._close_panel())
 
 
 static func _relationship_action(parent: HBoxContainer, label: String, primary: bool,
@@ -759,13 +829,10 @@ static func _relationship_visit_fish_picker(g: CornerFishing, parent: VBoxContai
 				grid.add_child(relationship_fish_cell(g, g.inventory[i], i, ok, action if ok else "会拒收",
 					"符合终章" if ok else "不符合终章",
 					func(real_idx: int) -> void: g._complete_relationship_finale(real_idx)))
-	var back := HBoxContainer.new()
-	back.add_theme_constant_override("separation", 8)
-	picker.add_child(back)
-	_relationship_action(back, "先收起来。", false, func() -> void:
-		g.relationship_picker_open = false
+	_relationship_player_message_row(picker, "先收起来。", true, false, func() -> void:
+		g._set_relationship_visit_reply("", "decision")
 		g._open_panel("relationship_visit"))
-	_relationship_action(back, "我再想想。", false, func() -> void: g._close_panel())
+	_relationship_player_message_row(picker, "我再想想。", true, false, func() -> void: g._close_panel())
 
 
 static func fill_relationship_story_ack(g: CornerFishing, v: VBoxContainer) -> void:

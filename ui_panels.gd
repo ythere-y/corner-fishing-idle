@@ -684,6 +684,7 @@ static func _relationship_npc_message_row(parent: VBoxContainer, npc: Dictionary
 	var avatar := RelationshipPortraitScript.make(npc, "circle")
 	avatar.name = "RelationshipNpcAvatar"
 	avatar.custom_minimum_size = Vector2(36, 36)
+	avatar.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	row.add_child(avatar)
 	var bubble := PanelContainer.new()
 	bubble.name = "RelationshipNpcBubble"

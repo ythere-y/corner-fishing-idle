@@ -1326,6 +1326,24 @@ func _check_relationship_foundation() -> void:
 			and message_rows[i - 1].position.y + message_rows[i - 1].size.y <= message_rows[i].position.y
 	_assert(message_rows_do_not_overlap,
 		"NPC 与玩家消息行应按纵向顺序排版且 Y 轴不重叠")
+	var dialogue_log: Control = g._panel.find_child("RelationshipDialogueLog", true, false) as Control
+	var npc_avatar_control: Control = npc_avatar as Control
+	var reply_rows_are_full_width_and_right_aligned := dialogue_log != null \
+		and reply_rows.size() == 2
+	for reply_row in reply_rows:
+		var reply_control := reply_row as Control
+		var reply_bubble: Control = reply_row.find_child("RelationshipPlayerBubble", true, false) as Control
+		reply_rows_are_full_width_and_right_aligned = reply_rows_are_full_width_and_right_aligned \
+			and is_equal_approx(reply_control.size.x, dialogue_log.size.x) \
+			and reply_bubble != null \
+			and is_equal_approx(reply_bubble.global_position.x + reply_bubble.size.x,
+				dialogue_log.global_position.x + dialogue_log.size.x)
+	_assert(reply_rows_are_full_width_and_right_aligned,
+		"每个玩家回复应独占对话区全宽行并贴右对齐")
+	_assert(npc_avatar_control != null \
+		and is_equal_approx(npc_avatar_control.size.x, 36.0) \
+		and is_equal_approx(npc_avatar_control.size.y, 36.0),
+		"NPC 消息头像应保持 36×36 圆形，不随长气泡纵向拉伸")
 	_assert(g._panel.find_child("RelationshipDialogueLog", true, false) != null \
 		and g._panel.find_child("RelationshipDecisionArea", true, false) != null,
 		"到访页应使用对话记录和当前抉择区")

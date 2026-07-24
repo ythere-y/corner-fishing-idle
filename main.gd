@@ -1622,6 +1622,17 @@ func _build_bottom_nav() -> void:
 				badge.position = Vector2(35, -3)
 				ic.add_child(badge)
 				_nav_badges[tab] = badge
+		else:
+			var placeholder := Label.new()
+			placeholder.name = "NavIconPlaceholder_%s" % str(n["id"])
+			placeholder.text = str(n["label"]).substr(0, 1)
+			placeholder.custom_minimum_size = Vector2(44, 44)
+			placeholder.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			placeholder.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			placeholder.add_theme_font_size_override("font_size", 25)
+			placeholder.add_theme_color_override("font_color", Color(0.94, 0.84, 0.62, 0.96))
+			placeholder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			icon_box.add_child(placeholder)
 		item.add_child(icon_box)
 		item.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:

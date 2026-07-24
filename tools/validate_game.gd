@@ -1240,7 +1240,13 @@ func _check_relationship_foundation() -> void:
 	var fallback := RelationshipPortraitScript.make({"color": Color("C98472")}, "circle")
 	_assert(fallback != null and fallback.custom_minimum_size == Vector2(40, 40),
 		"头像缺失时应返回可见的主题色回退控件")
+	_assert(fallback.find_child("RelationshipPortraitPlaceholder", true, false) != null,
+		"头像缺失时应显示可识别的文字占位，而不是空色块")
 	fallback.free()
+	g.feature_unlocks["relations"] = true
+	g._rebuild_bottom_nav()
+	_assert(g._nav_bar.find_child("NavIconPlaceholder_relations", true, false) != null,
+		"人情菜单缺少专属图标时应显示文字占位")
 	_assert(RelationshipDataScript.repeat_visit_kinds(0) == ["hint"] \
 		and "task" in RelationshipDataScript.repeat_visit_kinds(1) \
 		and not ("buff" in RelationshipDataScript.repeat_visit_kinds(3)) \

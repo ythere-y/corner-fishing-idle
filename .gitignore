@@ -21,3 +21,4 @@ tools/__pycache__/
 .reference/
 node_modules/
 output/
+.codebuddy/

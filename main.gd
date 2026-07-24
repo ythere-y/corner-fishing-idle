@@ -38,6 +38,8 @@ const FRAMED_BG := Color(0.105, 0.115, 0.105)   # 带框窗口实底背景（场
 # json 格式：{"buttons": {"catch": [x,y]}, "bite_point": [x,y]}
 # 升级（鱼竿/鱼饵/鱼钩）与设置都已并入鱼篓面板页签，主界面只留一个「鱼篓」按钮。
 const AnglerEquipmentScript := preload("res://systems/angler/angler_equipment.gd")
+const RelationshipDataScript := preload("res://relationship_data.gd")
+const RelationshipPortraitScript := preload("res://relationship_portrait.gd")
 const UI_LAYOUT_PATHS := ["res://ui_layout.json", "res://assets/art/ui/ui_layout.json"]
 var btn_centers := {
 	"catch": Vector2(452, 371),
@@ -90,6 +92,7 @@ var caught_giant := false  # 是否钓到过「巨物」（成就用）
 var achievements_done := {}  # id -> true，已达成的成就（toast 只触发一次）
 var feature_unlocks := {"settings": true}  # 渐进开放的系统入口；开局只显示设置
 var feature_spend_equipment := 0.0          # 装备消费累计，达到 10K 后开放任务
+var relationship_state := {}                 # v24 河湾人情簿：逐级事件、独立排程、Buff 与终章解锁
 
 # 背包容量与扩容费用（bag_level 1 起步；费用 = 升到下一级）。
 # 调研定标：起始 20 格（Melvor 同款），整档 +5 格，费用走 1-2-5 阶梯（首扩几分钟产出可买）。
@@ -149,6 +152,10 @@ const SHORT_NUMBER_UNITS := ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc
 var _save_t := 10.0
 var _pending_offline := ""               # 仅"满篓没钓到"等无渔获情况用 toast
 var _offline_report := {}                # 离线小结：{dur,count,full,value,top,notable[]}
+
+const RELATION_VISIT_INTERVAL := 3.0 * 60.0 * 60.0
+var selected_relationship_visit_id := ""
+var _relationship_tick_t := 0.0
 
 # —— 窗口拖动（默认右下角，可拖到任意位置）——
 var _dragging := false
@@ -244,6 +251,7 @@ const FEATURE_NAV := [
 	{"id": "tasks", "label": "任务", "tab": 2, "icon": "res://assets/art/ui/nav_orders.png"},
 	{"id": "spots", "label": "钓点", "tab": 5, "icon": "res://assets/art/ui/nav_spots.png"},
 	{"id": "tank", "label": "鱼缸", "tab": 6, "icon": "res://assets/art/ui/nav_fishtank.png"},
+	{"id": "relations", "label": "人情", "tab": 9, "icon": ""},
 	{"id": "settings", "label": "设置", "tab": 8, "icon": "res://assets/art/ui/nav_settings.png"},
 ]
 const FEATURE_TOASTS := {
@@ -253,6 +261,7 @@ const FEATURE_TOASTS := {
 	"dex": "图鉴开放：第一个钓点已记录一半鱼种。",
 	"spots": "钓点开放：新的地图条件已满足，可以换地方钓鱼了。",
 	"tank": "鱼缸开放：钓到极品鱼，可以挑珍品展示了。",
+	"relations": "人情簿开放：河湾的熟人开始留话给你了。",
 }
 
 
@@ -352,6 +361,181 @@ func _ensure_feature_unlocks(silent := false) -> void:
 		_unlock_feature("spots", silent)
 	if _has_quality_fish(2):
 		_unlock_feature("tank", silent)
+	if lifetime_catches >= 3:
+		_unlock_feature("relations", silent)
+
+
+func _ensure_relationship_state() -> void:
+	if not (relationship_state is Dictionary) or relationship_state.is_empty():
+		relationship_state = RelationshipDataScript.default_state()
+	if not (relationship_state.get("visits", {}) is Dictionary):
+		relationship_state["visits"] = {}
+	var legacy_next := maxf(0.0, float(relationship_state.get("next_visit_at", 0.0)))
+	var legacy_seq := maxi(0, int(relationship_state.get("visit_seq", 0)))
+	var npc_state: Dictionary = relationship_state.get("npc", {})
+	for i in range(RelationshipDataScript.NPCS.size()):
+		var id := str(RelationshipDataScript.NPCS[i]["id"])
+		var state: Dictionary = npc_state.get(id, {})
+		state["favor"] = clampi(int(state.get("favor", 0)), 0, RelationshipDataScript.FAVOR_LEVELS.size() - 1)
+		state["finale_done"] = bool(state.get("finale_done", false))
+		state["story_seen"] = clampi(int(state.get("story_seen", -1)), -1, RelationshipDataScript.STORY_LEVEL_MAX)
+		state["next_visit_at"] = maxf(0.0, float(state.get("next_visit_at", legacy_next)))
+		state["visit_seq"] = maxi(0, int(state.get("visit_seq", legacy_seq + i)))
+		npc_state[id] = state
+	relationship_state["npc"] = npc_state
+	relationship_state.erase("next_visit_at")
+	relationship_state.erase("visit_seq")
+	var unlocks: Dictionary = relationship_state.get("unlocks", {})
+	for npc in RelationshipDataScript.NPCS:
+		var id := str(npc["id"])
+		var reward_id := RelationshipDataScript.finale_reward_id(id)
+		if reward_id != "" and bool((npc_state.get(id, {}) as Dictionary).get("finale_done", false)):
+			unlocks[reward_id] = true
+	relationship_state["unlocks"] = unlocks
+	if not (relationship_state.get("buff", {}) is Dictionary):
+		relationship_state["buff"] = {}
+
+
+func _relationship_buff_npc() -> String:
+	_ensure_relationship_state()
+	var buff: Dictionary = relationship_state.get("buff", {})
+	if float(buff.get("t", 0.0)) <= 0.0:
+		return ""
+	var npc_id := str(buff.get("npc", ""))
+	return npc_id if not RelationshipDataScript.buff_for(npc_id).is_empty() else ""
+
+
+func _relationship_buff_wait_mult() -> float:
+	var npc_id := _relationship_buff_npc()
+	return RelationshipDataScript.buff_wait_mult(npc_id) if npc_id != "" else 1.0
+
+
+func _relationship_buff_value_mult() -> float:
+	var npc_id := _relationship_buff_npc()
+	return RelationshipDataScript.buff_value_mult(npc_id) if npc_id != "" else 1.0
+
+
+func _relationship_buff_luck() -> int:
+	var npc_id := _relationship_buff_npc()
+	return RelationshipDataScript.buff_luck(npc_id) if npc_id != "" else 0
+
+
+func _relationship_buff_variant_bias() -> float:
+	var npc_id := _relationship_buff_npc()
+	return RelationshipDataScript.buff_variant_bias(npc_id) if npc_id != "" else 0.0
+
+
+func _relationship_buff_label() -> String:
+	var npc_id := _relationship_buff_npc()
+	return RelationshipDataScript.buff_name(npc_id) if npc_id != "" else ""
+
+
+func _tick_relationship_buff(delta: float) -> void:
+	_ensure_relationship_state()
+	var buff: Dictionary = relationship_state.get("buff", {})
+	if buff.is_empty():
+		return
+	var t := float(buff.get("t", 0.0)) - delta
+	if t <= 0.0:
+		relationship_state["buff"] = {}
+		_toast("人情帮忙结束了", 2.0, Color(0.62, 0.70, 0.74))
+		_update_hud()
+		return
+	buff["t"] = t
+	relationship_state["buff"] = buff
+
+
+func _accept_relationship_buff() -> void:
+	_ensure_relationship_state()
+	var npc_id := selected_relationship_visit_id
+	var visits: Dictionary = relationship_state.get("visits", {})
+	var visit: Dictionary = visits.get(npc_id, {})
+	if visit.is_empty() or str(visit.get("kind", "")) != "buff":
+		_toast("这次到访没有可领取的帮忙", 2.0, Color(0.95, 0.55, 0.45))
+		return
+	var npc := RelationshipDataScript.get_npc(npc_id)
+	visits.erase(npc_id)
+	relationship_state["visits"] = visits
+	relationship_state["buff"] = {"npc": npc_id, "t": RelationshipDataScript.BUFF_DURATION}
+	selected_relationship_visit_id = ""
+	Audio.play_sfx("upgrade")
+	_toast("%s帮忙：%s" % [str(npc.get("name", "熟人")), RelationshipDataScript.buff_name(npc_id)],
+		2.8, Color(0.86, 0.76, 0.45))
+	_update_relationship_visit_bar()
+	_update_hud()
+	_begin_wait()
+	_close_panel()
+	_save()
+
+
+func _relationship_now() -> float:
+	return Time.get_unix_time_from_system()
+
+
+func _relationship_visit_for(npc_id: String, seq: int, created_at: float) -> Dictionary:
+	var npc_state: Dictionary = relationship_state.get("npc", {})
+	var state: Dictionary = npc_state.get(npc_id, {})
+	var favor := int(state.get("favor", 0))
+	if favor >= RelationshipDataScript.FAVOR_LEVELS.size() - 1 \
+			and not bool(state.get("finale_done", false)):
+		return RelationshipDataScript.make_visit(npc_id, "finale", created_at)
+	var story_level := RelationshipDataScript.next_story_level(state)
+	if story_level >= 0:
+		return RelationshipDataScript.make_visit(npc_id, "story", created_at, story_level)
+	var kinds := RelationshipDataScript.repeat_visit_kinds(favor)
+	return RelationshipDataScript.make_visit(npc_id, str(kinds[seq % kinds.size()]), created_at)
+
+
+func _sync_relationship_visits(show_toast := true) -> bool:
+	_ensure_relationship_state()
+	if not _feature_unlocked("relations"):
+		return false
+	var visits: Dictionary = relationship_state.get("visits", {})
+	var npc_state: Dictionary = relationship_state.get("npc", {})
+	var now := _relationship_now()
+	var schedule_initialized := false
+	for npc in RelationshipDataScript.NPCS:
+		if float((npc_state.get(str(npc["id"]), {}) as Dictionary).get("next_visit_at", 0.0)) > 0.0:
+			schedule_initialized = true
+			break
+	if not schedule_initialized:
+		for i in range(RelationshipDataScript.NPCS.size()):
+			var id := str(RelationshipDataScript.NPCS[i]["id"])
+			var state: Dictionary = npc_state[id]
+			state["next_visit_at"] = now if i == 0 else now + RELATION_VISIT_INTERVAL
+			npc_state[id] = state
+	var changed := false
+	for npc in RelationshipDataScript.NPCS:
+		var npc_id := str(npc["id"])
+		var state: Dictionary = npc_state[npc_id]
+		var next_at := float(state.get("next_visit_at", 0.0))
+		if next_at <= 0.0 or now < next_at:
+			continue
+		var elapsed_cycles := maxi(1, int(floor((now - next_at) / RELATION_VISIT_INTERVAL)) + 1)
+		var seq := maxi(0, int(state.get("visit_seq", 0)))
+		var latest_seq := seq + elapsed_cycles - 1
+		var created_at := next_at + float(elapsed_cycles - 1) * RELATION_VISIT_INTERVAL
+		visits[npc_id] = _relationship_visit_for(npc_id, latest_seq, created_at)
+		state["visit_seq"] = seq + elapsed_cycles
+		state["next_visit_at"] = next_at + float(elapsed_cycles) * RELATION_VISIT_INTERVAL
+		npc_state[npc_id] = state
+		changed = true
+	relationship_state["visits"] = visits
+	relationship_state["npc"] = npc_state
+	if changed and show_toast:
+		_toast("有人到访：人情簿里多了新消息", 2.6, Color(0.86, 0.76, 0.45))
+	return changed
+
+
+func _tick_relationship_visits(delta: float) -> void:
+	if not _feature_unlocked("relations"):
+		return
+	_relationship_tick_t -= delta
+	if _relationship_tick_t > 0.0:
+		return
+	_relationship_tick_t = 1.0
+	if _sync_relationship_visits():
+		_update_relationship_visit_bar()
 
 
 func _record_equipment_spend(cost) -> void:
@@ -378,6 +562,7 @@ func _ready() -> void:
 	# 也保证结算前 Spots/Weather 读到真实时段而非默认白昼。
 	day_phase = Weather.current_phase()
 	_load_save()
+	_ensure_relationship_state()
 	_initial_load_complete = true
 	# immersive 的系统窗口位置来自存档；窗口初始化先于载档以消除启动竞态，载入后补一次定位。
 	if DisplayServer.get_name() != "headless" and display_mode == "immersive" \
@@ -391,6 +576,8 @@ func _ready() -> void:
 	_layout_widget()
 	_refresh_unlocks()  # 载入期静默补登已满足解锁的钓点
 	_ensure_feature_unlocks(true)
+	_sync_relationship_visits(false)
+	_update_relationship_visit_bar()
 	# 底栏在载档前已创建；老档中的既有解锁不会再次触发 _unlock_feature，需按载入真值重建一次。
 	if display_mode == "framed":
 		_rebuild_bottom_nav()
@@ -472,6 +659,7 @@ var _chip_coin: Label = null
 var _chip_bag: Label = null
 var _chip_dex: Label = null
 var _flag_box: VBoxContainer = null
+var _relationship_visit_bar: VBoxContainer = null
 var _nav_badges := {}   # 导航徽章 {tab: PanelContainer}（鱼篓满/任务可交付）
 var _nav_bar: PanelContainer = null   # 底栏容器（背景随面板开关切透明/暗，避免与 sheet 断裂）
 var _dev_tools_bar: PanelContainer = null
@@ -479,6 +667,8 @@ var _dev_attrs_panel: PanelContainer = null
 var _dev_attrs_open := true
 var _feature_mgmt_panel: PanelContainer = null
 var _feature_mgmt_open := false
+var _relationship_debug_panel: PanelContainer = null
+var _relationship_debug_open := false
 var _dev_pet_state := "无"
 
 func _apply_display_mode() -> void:
@@ -540,13 +730,16 @@ func _layout_widget() -> void:
 		_flag_box.position = _widget_point(Vector2(0, 12))
 		_flag_box.size = Vector2(ART.x - 16.0, 0)
 		_flag_box.scale = s
+	if is_instance_valid(_relationship_visit_bar):
+		_relationship_visit_bar.position = _widget_point(Vector2(ART.x - 48.0, 132.0))
+		_relationship_visit_bar.scale = s
 	if is_instance_valid(_nav_bar):
 		_nav_bar.position = _widget_point(Vector2(0, ART.y - FRAMED_CONSOLE_H))
 		_nav_bar.size = Vector2(ART.x, FRAMED_CONSOLE_H)
 		_nav_bar.scale = s
 	if is_instance_valid(_dev_tools_bar):
 		_dev_tools_bar.position = Vector2.ZERO
-		_dev_tools_bar.size = Vector2(96, 78)
+		_dev_tools_bar.size = Vector2(96, 114)
 		_dev_tools_bar.scale = Vector2.ONE
 	if is_instance_valid(_dev_attrs_panel):
 		var attrs_pos := Vector2(104, 0)
@@ -557,6 +750,10 @@ func _layout_widget() -> void:
 		var feature_pos := Vector2(104, 0)
 		_feature_mgmt_panel.position = feature_pos
 		_feature_mgmt_panel.size = Vector2(360, maxf(240.0, _stage_size().y - feature_pos.y))
+	if is_instance_valid(_relationship_debug_panel):
+		var rel_pos := Vector2(104, 0)
+		_relationship_debug_panel.position = rel_pos
+		_relationship_debug_panel.size = Vector2(380, maxf(240.0, _stage_size().y - rel_pos.y))
 	_update_action_button()
 	_layout_resize_grips()
 	if _panel_kind == "":
@@ -585,6 +782,7 @@ func _build_framed_chrome() -> void:
 	coins_label.visible = false   # 带框用图标胶囊替代纯文字 HUD
 	_build_hud_chips()
 	_build_status_flags()
+	_build_relationship_visit_bar()
 	_build_bottom_nav()
 	if test_mode:
 		_build_dev_tools_bar()
@@ -596,8 +794,8 @@ func _build_dev_tools_bar() -> void:
 	var bar := PanelContainer.new()
 	bar.name = "DevToolsBar"
 	bar.z_index = 40
-	bar.custom_minimum_size = Vector2(96, 78)
-	bar.size = Vector2(96, 78)
+	bar.custom_minimum_size = Vector2(96, 114)
+	bar.size = Vector2(96, 114)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.10, 0.11, 0.10, 0.72)
 	sb.corner_radius_bottom_right = 10
@@ -627,10 +825,18 @@ func _build_dev_tools_bar() -> void:
 	UIPanels.apply_button_skin(features, false)
 	features.pressed.connect(func() -> void: _set_feature_mgmt_open(not _feature_mgmt_open))
 	stack.add_child(features)
+	var relations := Button.new()
+	relations.text = "人情模块"
+	relations.focus_mode = Control.FOCUS_NONE
+	relations.custom_minimum_size = Vector2(84, 30)
+	UIPanels.apply_button_skin(relations, false)
+	relations.pressed.connect(func() -> void: _set_relationship_debug_open(not _relationship_debug_open))
+	stack.add_child(relations)
 	ui_root.add_child(bar)
 	_dev_tools_bar = bar
 	_build_dev_attrs_panel()
 	_build_feature_mgmt_panel()
+	_build_relationship_debug_panel()
 
 
 func _build_dev_attrs_panel() -> void:
@@ -661,6 +867,7 @@ func _set_dev_attrs_open(open: bool) -> void:
 		return
 	if open:
 		_set_feature_mgmt_open(false)
+		_set_relationship_debug_open(false)
 	if not is_instance_valid(_dev_attrs_panel):
 		_build_dev_attrs_panel()
 		return
@@ -699,6 +906,7 @@ func _set_feature_mgmt_open(open: bool) -> void:
 		return
 	if open:
 		_set_dev_attrs_open(false)
+		_set_relationship_debug_open(false)
 	if not is_instance_valid(_feature_mgmt_panel):
 		_build_feature_mgmt_panel()
 		return
@@ -770,6 +978,68 @@ func _add_feature_mgmt_row(v: VBoxContainer, fid: String, label: String) -> void
 	sw.add_theme_color_override("font_pressed_color", DT.GOLD_BRIGHT)
 	sw.toggled.connect(func(on: bool) -> void: TestMode.set_feature_unlock(self, fid, on))
 	row.add_child(sw)
+
+
+func _build_relationship_debug_panel() -> void:
+	var panel := PanelContainer.new()
+	panel.name = "RelationshipDebugPanel"
+	panel.z_index = 41
+	panel.custom_minimum_size = Vector2(380, 240)
+	panel.size = Vector2(380, 640)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.09, 0.08, 0.84)
+	sb.corner_radius_top_right = 10
+	sb.corner_radius_bottom_right = 10
+	sb.set_border_width_all(1)
+	sb.border_color = DT.GLASS_BORDER
+	sb.shadow_color = Color(0, 0, 0, 0.28)
+	sb.shadow_size = 12
+	sb.shadow_offset = Vector2(0, 4)
+	panel.add_theme_stylebox_override("panel", sb)
+	ui_root.add_child(panel)
+	_relationship_debug_panel = panel
+	_refresh_relationship_debug_panel()
+	panel.visible = _relationship_debug_open
+
+
+func _set_relationship_debug_open(open: bool) -> void:
+	_relationship_debug_open = open
+	if display_mode == "immersive":
+		return
+	if open:
+		_set_dev_attrs_open(false)
+		_set_feature_mgmt_open(false)
+	if not is_instance_valid(_relationship_debug_panel):
+		_build_relationship_debug_panel()
+		return
+	_relationship_debug_panel.visible = open
+	if open:
+		_refresh_relationship_debug_panel()
+	_layout_widget()
+
+
+func _refresh_relationship_debug_panel() -> void:
+	if not is_instance_valid(_relationship_debug_panel):
+		return
+	for c in _relationship_debug_panel.get_children():
+		c.free()
+	var mg := MarginContainer.new()
+	mg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	mg.add_theme_constant_override("margin_left", 8)
+	mg.add_theme_constant_override("margin_right", 8)
+	mg.add_theme_constant_override("margin_top", 8)
+	mg.add_theme_constant_override("margin_bottom", 8)
+	_relationship_debug_panel.add_child(mg)
+	var sc := ScrollContainer.new()
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	mg.add_child(sc)
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 8)
+	sc.add_child(v)
+	UIPanels.fill_relationship_debug_panel(self, v)
 
 
 func _refresh_dev_attrs_panel() -> void:
@@ -993,6 +1263,10 @@ func _update_status_flags() -> void:
 	if active_event != "" and EventData.hud_text(active_event) != "":
 		_flag_box.add_child(_make_flag_pill(EventData.display_name(active_event),
 			DT.VARIANT[1], Color(0.055, 0.094, 0.133), 12, 9))
+	var rel_buff := _relationship_buff_label()
+	if rel_buff != "":
+		_flag_box.add_child(_make_flag_pill(rel_buff,
+			Color(0.56, 0.44, 0.26), DT.INK_ON_GOLD, 12, 9))
 	# 鱼贩：.flag.merchant bg merchant color ink-on-gold
 	if _merchant_active:
 		_flag_box.add_child(_make_flag_pill("🐟 鱼贩 ×1.5",
@@ -1025,6 +1299,260 @@ func _next_goal_text() -> String:
 	return ""
 
 
+func _visit_circle_style(color: Color, alpha := 0.92) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(color.r, color.g, color.b, alpha)
+	sb.set_corner_radius_all(999)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(0.96, 0.91, 0.78, 0.70)
+	sb.shadow_color = Color(0, 0, 0, 0.28)
+	sb.shadow_size = 8
+	sb.shadow_offset = Vector2(0, 2)
+	return sb
+
+
+func _build_relationship_visit_bar() -> void:
+	var bar := VBoxContainer.new()
+	bar.name = "RelationshipVisits"
+	bar.z_index = 42
+	bar.add_theme_constant_override("separation", 7)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_root.add_child(bar)
+	_relationship_visit_bar = bar
+	_update_relationship_visit_bar()
+
+
+func _update_relationship_visit_bar() -> void:
+	if not is_instance_valid(_relationship_visit_bar):
+		return
+	for c in _relationship_visit_bar.get_children():
+		c.free()
+	if not _feature_unlocked("relations"):
+		_relationship_visit_bar.visible = false
+		return
+	_ensure_relationship_state()
+	var visits: Dictionary = relationship_state.get("visits", {})
+	_relationship_visit_bar.visible = not visits.is_empty()
+	for npc in RelationshipDataScript.NPCS:
+		var id := str(npc["id"])
+		if not visits.has(id):
+			continue
+		var visit: Dictionary = visits[id]
+		var b := Button.new()
+		b.text = ""
+		b.custom_minimum_size = Vector2(42, 42)
+		b.focus_mode = Control.FOCUS_NONE
+		b.mouse_filter = Control.MOUSE_FILTER_STOP
+		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		b.tooltip_text = "%s · %s" % [str(npc["name"]), RelationshipDataScript.visit_kind_label(str(visit.get("kind", "hint")))]
+		b.add_theme_stylebox_override("normal", _visit_circle_style(npc["color"], 0.88))
+		b.add_theme_stylebox_override("hover", _visit_circle_style(npc["color"], 1.0))
+		b.add_theme_stylebox_override("pressed", _visit_circle_style(npc["color"], 0.78))
+		var portrait := RelationshipPortraitScript.make(npc, "circle")
+		portrait.name = "RelationshipPortraitCircle"
+		portrait.position = Vector2(1, 1)
+		b.add_child(portrait)
+		var captured_id := id
+		b.gui_input.connect(func(e: InputEvent) -> void:
+			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+				Audio.play_ui("ui_click")
+				_open_relationship_visit(captured_id))
+		_relationship_visit_bar.add_child(b)
+
+
+func _open_relationship_visit(npc_id: String) -> void:
+	selected_relationship_visit_id = npc_id
+	_open_panel("relationship_visit")
+
+
+func _complete_relationship_story() -> void:
+	_ensure_relationship_state()
+	var npc_id := selected_relationship_visit_id
+	var visits: Dictionary = relationship_state.get("visits", {})
+	var visit: Dictionary = visits.get(npc_id, {})
+	if visit.is_empty() or str(visit.get("kind", "")) != "story":
+		_toast("这次到访没有未读近况", 2.0, Color(0.95, 0.55, 0.45))
+		return
+	var npc_state: Dictionary = relationship_state.get("npc", {})
+	var state: Dictionary = npc_state.get(npc_id, {})
+	var story_level := clampi(int(visit.get("story_level", 0)), 0, RelationshipDataScript.STORY_LEVEL_MAX)
+	if story_level != RelationshipDataScript.next_story_level(state):
+		visits.erase(npc_id)
+		relationship_state["visits"] = visits
+		selected_relationship_visit_id = ""
+		_toast("这段近况已经读过或尚未解锁", 2.2, Color(0.86, 0.76, 0.45))
+		_update_relationship_visit_bar()
+		_close_panel()
+		_save()
+		return
+	state["story_seen"] = maxi(int(state.get("story_seen", -1)), story_level)
+	npc_state[npc_id] = state
+	relationship_state["npc"] = npc_state
+	visits.erase(npc_id)
+	relationship_state["visits"] = visits
+	selected_relationship_visit_id = ""
+	var npc := RelationshipDataScript.get_npc(npc_id)
+	var event := RelationshipDataScript.level_event_for(npc_id, story_level)
+	Audio.play_ui("ui_click")
+	_toast("记下了%s的近况：%s" % [
+		str(npc.get("name", "熟人")), str(event.get("title", "河湾近况"))],
+		2.6, Color(0.86, 0.76, 0.45))
+	_update_relationship_visit_bar()
+	_update_hud()
+	_close_panel()
+	_save()
+
+
+func _relationship_gift(idx: int) -> void:
+	_ensure_relationship_state()
+	var npc_id := selected_relationship_visit_id
+	var visits: Dictionary = relationship_state.get("visits", {})
+	if not visits.has(npc_id):
+		_toast("这次到访已经结束了", 1.8, Color(0.86, 0.76, 0.45))
+		_close_panel()
+		return
+	if idx < 0 or idx >= inventory.size():
+		_toast("这条鱼已经不在鱼篓里了", 1.8, Color(0.95, 0.55, 0.45))
+		return
+	var c: Dictionary = inventory[idx]
+	var npc := RelationshipDataScript.get_npc(npc_id)
+	var accepted := RelationshipDataScript.gift_match(npc_id, c)
+	visits.erase(npc_id)
+	relationship_state["visits"] = visits
+	if accepted:
+		inventory.remove_at(idx)
+		var npc_state: Dictionary = relationship_state.get("npc", {})
+		var state: Dictionary = npc_state.get(npc_id, {"favor": 0, "finale_done": false})
+		var old_favor := int(state.get("favor", 0))
+		state["favor"] = clampi(old_favor + 1, 0, RelationshipDataScript.FAVOR_LEVELS.size() - 1)
+		npc_state[npc_id] = state
+		relationship_state["npc"] = npc_state
+		Audio.play_sfx("coin")
+		_toast("%s收下了%s，好感：%s" % [
+			str(npc.get("name", "对方")),
+			FishData.display_name(str(c.get("id", ""))),
+			RelationshipDataScript.favor_name(int(state.get("favor", 0))),
+		], 2.4, Color(0.86, 0.76, 0.45))
+	else:
+		Audio.play_ui("ui_click")
+		_toast("%s拒收：%s" % [
+			str(npc.get("name", "对方")),
+			RelationshipDataScript.gift_reject_reason(npc_id, c),
+		], 3.0, Color(0.95, 0.55, 0.45))
+	selected_relationship_visit_id = ""
+	_update_relationship_visit_bar()
+	_update_hud()
+	_close_panel()
+	_save()
+
+
+func _relationship_task_reward(c: Dictionary) -> int:
+	var base := maxi(1, int(c.get("v", 1)))
+	return int(ceil(float(base) * 2.2 * _relationship_buff_value_mult()))
+
+
+func _complete_relationship_task(idx: int) -> void:
+	_ensure_relationship_state()
+	var npc_id := selected_relationship_visit_id
+	var visits: Dictionary = relationship_state.get("visits", {})
+	var visit: Dictionary = visits.get(npc_id, {})
+	if visit.is_empty() or str(visit.get("kind", "")) != "task":
+		_toast("这次到访没有可交付的委托", 2.0, Color(0.95, 0.55, 0.45))
+		return
+	if idx < 0 or idx >= inventory.size():
+		_toast("这条鱼已经不在鱼篓里了", 1.8, Color(0.95, 0.55, 0.45))
+		return
+	var c: Dictionary = inventory[idx]
+	var npc := RelationshipDataScript.get_npc(npc_id)
+	if not RelationshipDataScript.task_match(npc_id, c):
+		Audio.play_ui("ui_click")
+		_toast("%s没有收：%s" % [
+			str(npc.get("name", "对方")),
+			RelationshipDataScript.task_reject_reason(npc_id, c),
+		], 2.8, Color(0.95, 0.55, 0.45))
+		return
+	var reward := _relationship_task_reward(c)
+	inventory.remove_at(idx)
+	_add_coins_safe(reward)
+	_add_lifetime_coins_safe(reward)
+	visits.erase(npc_id)
+	relationship_state["visits"] = visits
+	selected_relationship_visit_id = ""
+	Audio.play_sfx("coin")
+	_toast("%s委托完成：+%s 金币" % [
+		str(npc.get("name", "对方")), _coin_str(reward)],
+		2.8, Color(0.98, 0.82, 0.40))
+	_check_achievements()
+	_update_relationship_visit_bar()
+	_update_hud()
+	_close_panel()
+	_save()
+
+
+func _relationship_finale_reward(c: Dictionary) -> int:
+	return int(ceil(float(maxi(1, int(c.get("v", 1)))) * 8.0 * _relationship_buff_value_mult()))
+
+
+func _complete_relationship_finale(idx: int) -> void:
+	_ensure_relationship_state()
+	var npc_id := selected_relationship_visit_id
+	var visits: Dictionary = relationship_state.get("visits", {})
+	var visit: Dictionary = visits.get(npc_id, {})
+	if visit.is_empty() or str(visit.get("kind", "")) != "finale":
+		_toast("这次到访没有可交付的终章大单", 2.0, Color(0.95, 0.55, 0.45))
+		return
+	var npc_state: Dictionary = relationship_state.get("npc", {})
+	var state: Dictionary = npc_state.get(npc_id, {
+		"favor": RelationshipDataScript.FAVOR_LEVELS.size() - 1, "finale_done": false})
+	if bool(state.get("finale_done", false)):
+		visits.erase(npc_id)
+		relationship_state["visits"] = visits
+		selected_relationship_visit_id = ""
+		_toast("这段终章已经完成，永久奖励不会重复领取", 2.4, Color(0.86, 0.76, 0.45))
+		_update_relationship_visit_bar()
+		_close_panel()
+		_save()
+		return
+	if idx < 0 or idx >= inventory.size():
+		_toast("这条鱼已经不在鱼篓里了", 1.8, Color(0.95, 0.55, 0.45))
+		return
+	var c: Dictionary = inventory[idx]
+	var npc := RelationshipDataScript.get_npc(npc_id)
+	if not RelationshipDataScript.finale_match(npc_id, c):
+		Audio.play_ui("ui_click")
+		_toast("%s没有收：%s" % [
+			str(npc.get("name", "对方")),
+			RelationshipDataScript.finale_reject_reason(npc_id, c),
+		], 3.0, Color(0.95, 0.55, 0.45))
+		return
+	var reward := _relationship_finale_reward(c)
+	if RelationshipDataScript.finale_consumes_catch(npc_id):
+		inventory.remove_at(idx)
+	_add_coins_safe(reward)
+	_add_lifetime_coins_safe(reward)
+	visits.erase(npc_id)
+	relationship_state["visits"] = visits
+	state["favor"] = RelationshipDataScript.FAVOR_LEVELS.size() - 1
+	state["finale_done"] = true
+	npc_state[npc_id] = state
+	relationship_state["npc"] = npc_state
+	var unlocks: Dictionary = relationship_state.get("unlocks", {})
+	var reward_id := RelationshipDataScript.finale_reward_id(npc_id)
+	if reward_id != "":
+		unlocks[reward_id] = true
+	relationship_state["unlocks"] = unlocks
+	selected_relationship_visit_id = ""
+	Audio.play_sfx("coin")
+	_toast("%s终章完成：%s · +%s 金币" % [
+		str(npc.get("name", "对方")), RelationshipDataScript.finale_reward_name(npc_id), _coin_str(reward)],
+		3.2, Color(1.0, 0.86, 0.32))
+	_check_achievements()
+	_update_relationship_visit_bar()
+	_update_hud()
+	_close_panel()
+	_save()
+
+
 func _update_framed_hud() -> void:
 	if is_instance_valid(_chip_coin):
 		_chip_coin.text = _coin_str(coins)
@@ -1045,6 +1573,7 @@ func _update_framed_hud() -> void:
 		b2.visible = not bool(daily_order.get("done", false)) and _daily_order_indices().size() >= need
 		b2.get_node("L").text = "!"
 	_update_status_flags()
+	_update_relationship_visit_bar()
 	_update_action_button()
 
 
@@ -1566,6 +2095,8 @@ func _process(delta: float) -> void:
 			_save()
 	_tick_merchant(delta)
 	_tick_events(delta)
+	_tick_relationship_visits(delta)
+	_tick_relationship_buff(delta)
 	_tick_phase()
 	_tick_focus(delta)
 	_flash_cd = maxf(0.0, _flash_cd - delta)
@@ -1596,6 +2127,7 @@ func _begin_wait() -> void:
 	w *= Weather.wait_mult(day_phase)              # 昼夜时段（金色时段咬钩更勤）
 	if active_event != "":
 		w *= EventData.wait_mult(active_event)      # 事件期间咬钩节奏变化
+	w *= _relationship_buff_wait_mult()
 	_state_t = maxf(0.05, w / test_speed)           # 测试提速：test_speed=1 时不变
 	Audio.play_sfx("cast")
 	get_tree().create_timer(0.45).timeout.connect(func() -> void: Audio.play_sfx("bobber_splash"))
@@ -1758,11 +2290,11 @@ func _spot_pool() -> Array:
 
 
 func _catch_luck() -> int:
-	return Spots.catch_luck(self)
+	return Spots.catch_luck(self) + _relationship_buff_luck()
 
 
 func _catch_value_mult() -> float:
-	return Spots.catch_value_mult(self)
+	return Spots.catch_value_mult(self) * _relationship_buff_value_mult()
 
 
 ## 属性映射采用软上限曲线：早期每级有感，后期不让二级属性盖过鱼竿/鱼饵/鱼钩/窝料主轴。
@@ -1833,7 +2365,7 @@ func _roll_mods() -> Dictionary:
 ## 以后加来源（钓点亲和/悬赏等）只在此 += 一行即可。
 ## 0 级窝料 → 0，与基线逐位一致；上不封顶交由 roll_variant 内部 clamp(0,10)。
 func _variant_bias() -> float:
-	return FishData.lure_vbias(lure_level) + _variant_attr_bias()
+	return FishData.lure_vbias(lure_level) + _variant_attr_bias() + _relationship_buff_variant_bias()
 
 
 ## 钓一条鱼：限定当前钓点鱼池，应用钓点/事件增值系数。
@@ -2211,10 +2743,15 @@ func _update_hud() -> void:
 	var evt := ""
 	if active_event != "" and EventData.hud_text(active_event) != "":
 		evt = "　" + EventData.hud_text(active_event)
+	var rel := ""
+	if _relationship_buff_label() != "":
+		rel = "　人情：" + _relationship_buff_label()
 	var tm := "　🧪测试" if test_mode else ""   # 测试模式常驻角标（提醒当前改动不写档）
-	coins_label.text = "金币 %s　%s%s%s%s" % [_coin_str(coins), bag, mer, evt, tm]
+	coins_label.text = "金币 %s　%s%s%s%s%s" % [_coin_str(coins), bag, mer, evt, rel, tm]
 	var col := Color(0.92, 0.92, 0.9)
-	if active_event != "":
+	if _relationship_buff_label() != "":
+		col = Color(0.86, 0.76, 0.45)
+	elif active_event != "":
 		col = EventData.color(active_event)
 	elif _merchant_active:
 		col = Color(0.98, 0.82, 0.40)
@@ -3650,6 +4187,10 @@ func _load_save() -> void:
 		if _event_buff_t <= 0.0:
 			active_event = ""
 			_event_buff_t = 0.0
+	var rel_buff: Dictionary = relationship_state.get("buff", {})
+	if not rel_buff.is_empty():
+		rel_buff["t"] = float(rel_buff.get("t", 0.0)) - maxf(elapsed, 0.0)
+		relationship_state["buff"] = rel_buff if float(rel_buff.get("t", 0.0)) > 0.0 else {}
 	var raw_elapsed := maxf(elapsed, 0.0)
 	elapsed = clampf(elapsed, 0.0, _offline_cap())
 	if elapsed > 30.0:

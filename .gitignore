@@ -22,3 +22,6 @@ tools/__pycache__/
 node_modules/
 output/
 .codebuddy/
+
+# Superpowers 可视化伴侣的本地会话与交互记录
+.superpowers/

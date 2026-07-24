@@ -286,9 +286,8 @@ static func summon_relationship_visit(g, npc_id: String, kind: String) -> void:
 	visits[npc_id] = RelationshipDataScript.make_visit(
 		npc_id, kind, Time.get_unix_time_from_system(), story_level)
 	g.relationship_state["visits"] = visits
-	g.selected_relationship_visit_id = npc_id
 	g._update_relationship_visit_bar()
-	g._open_panel("relationship_visit")
+	g._open_relationship_visit(npc_id)
 	if g.has_method("_refresh_relationship_debug_panel"):
 		g._refresh_relationship_debug_panel()
 
@@ -306,8 +305,7 @@ static func open_relationship_visit(g, npc_id: String) -> void:
 	if not visits.has(npc_id):
 		visits[npc_id] = RelationshipDataScript.make_visit(npc_id, "hint", Time.get_unix_time_from_system())
 		g.relationship_state["visits"] = visits
-	g.selected_relationship_visit_id = npc_id
-	g._open_panel("relationship_visit")
+	g._open_relationship_visit(npc_id)
 	g._update_relationship_visit_bar()
 
 
@@ -396,7 +394,7 @@ static func give_relationship_finale_fish(g, npc_id: String) -> void:
 static func clear_relationship_visits(g) -> void:
 	g._ensure_relationship_state()
 	g.relationship_state["visits"] = {}
-	g.selected_relationship_visit_id = ""
+	g._end_relationship_visit_session()
 	g._update_relationship_visit_bar()
 	g._refresh_panel()
 	if g.has_method("_refresh_relationship_debug_panel"):

@@ -122,12 +122,26 @@ artifact="$repo_root/dist/$stem.zip"
 ditto -c -k --keepParent "$package_dir" "$artifact"
 
 if command -v shasum >/dev/null 2>&1; then
+	checksum_tool=shasum
 	(cd "$repo_root/dist" && shasum -a 256 "$stem.zip") > "$artifact.sha256"
 elif command -v sha256sum >/dev/null 2>&1; then
+	checksum_tool=sha256sum
 	(cd "$repo_root/dist" && sha256sum "$stem.zip") > "$artifact.sha256"
 else
 	echo "缺少 shasum 或 sha256sum，无法生成校验文件。" >&2
 	exit 1
+fi
+
+if [ "$checksum_tool" = shasum ]; then
+	if ! (cd "$repo_root/dist" && shasum -a 256 -c "$stem.zip.sha256"); then
+		echo "最终 ZIP 的 SHA-256 校验失败：$artifact" >&2
+		exit 1
+	fi
+else
+	if ! (cd "$repo_root/dist" && sha256sum -c "$stem.zip.sha256"); then
+		echo "最终 ZIP 的 SHA-256 校验失败：$artifact" >&2
+		exit 1
+	fi
 fi
 
 unpack_dir=$(mktemp -d "$repo_root/dist/.verify-$stem.XXXXXX")

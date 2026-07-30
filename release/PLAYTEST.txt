@@ -1,9 +1,17 @@
 《背包钓鱼手记》0.1.0 内测版
 
 一、开始游玩
+【Windows】
 1. 请先完整解压 ZIP，不要直接在压缩包里运行。
 2. 双击 BackpackAndBait.exe。
 3. 第一次启动会播放开场故事并让你选择旅行角色。
+
+【macOS】
+1. 本包同时支持 Apple Silicon 与 Intel Mac。
+2. 请先完整解压 ZIP，再在 Finder 中打开 BackpackAndBait.app。
+3. 本内测包没有 Developer ID 签名和 Apple 公证。首次启动若被阻止，请右键应用选择“打开”。
+4. 若仍被阻止，请前往“系统设置 → 隐私与安全性”，确认应用来源后选择“仍要打开”。
+5. 不需要关闭 Gatekeeper，也不需要管理员权限。
 
 二、常用操作
 - 游戏默认显示在桌面右下角。
@@ -17,21 +25,18 @@
 请只从项目 Owner 或你信任的试玩邀请者处获取压缩包，并用同目录的 .sha256 文件核对完整性。
 不需要关闭 Windows Defender，也不要为本游戏授予管理员权限。
 
-四、macOS
-1. 本包同时支持 Apple Silicon 与 Intel Mac。
-2. 请先完整解压 ZIP，再在 Finder 中打开 BackpackAndBait.app。
-3. 本内测包没有 Developer ID 签名和 Apple 公证。首次启动若被阻止，请右键应用选择“打开”。
-4. 若仍被阻止，请前往“系统设置 → 隐私与安全性”，确认应用来源后选择“仍要打开”。
-5. 不需要关闭 Gatekeeper，也不需要管理员权限。
-
-五、存档
-存档由 Godot 保存在当前 Windows 用户的应用数据目录中，文件名为：
+四、存档
+存档由 Godot 保存在当前系统用户的应用数据目录中，文件名为：
 corner_fishing_save.json
+Windows 使用 Godot 的 user:// 用户数据目录。
+macOS 上 user:// 通常对应：
+~/Library/Application Support/Godot/app_userdata/背包钓鱼手记/
 替换或重新解压游戏包不会自动删除旧存档。
 如果想重新开始，可在“垂钓手册 → 设置”中使用“开启新存档”。
 
-六、反馈问题时请附上
-- Windows 10 或 Windows 11 的具体版本
+五、反馈问题时请附上
+- Windows 10 / Windows 11 或 macOS 的具体版本
+- macOS 请注明 Apple Silicon 或 Intel
 - 显示缩放比例（100% / 125% / 150% 等）
 - 是否使用多显示器
 - 从启动到出现问题的操作步骤

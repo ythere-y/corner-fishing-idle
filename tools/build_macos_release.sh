@@ -90,23 +90,33 @@ cp release/PLAYTEST.txt release/PLAYTEST-LICENSE.txt "$package_dir/"
 
 verify_macos_package() {
 	verified_package_dir=$1
+	verified_version=$2
 	verified_app_path="$verified_package_dir/BackpackAndBait.app"
 	assert_macos_package_contents "$verified_package_dir"
 
 	plist="$verified_app_path/Contents/Info.plist"
 	test -s "$plist"
 	bundle_executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")
+	short_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
+	bundle_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")
+	test "$short_version" = "$verified_version"
+	test "$bundle_version" = "$verified_version"
+
 	binary="$verified_app_path/Contents/MacOS/$bundle_executable"
+	pck="$verified_app_path/Contents/Resources/$bundle_executable.pck"
 	test -x "$binary"
 	test -s "$binary"
+	test -f "$pck"
+	test -s "$pck"
 
 	architectures=$(lipo -archs "$binary")
 	printf '%s\n' "$architectures" | grep -Eq '(^| )x86_64( |$)'
 	printf '%s\n' "$architectures" | grep -Eq '(^| )arm64( |$)'
 	codesign --verify --deep --strict "$verified_app_path"
+	codesign -dv --verbose=4 "$verified_app_path" 2>&1 | grep -q '^Signature=adhoc$'
 }
 
-verify_macos_package "$package_dir"
+verify_macos_package "$package_dir" "$version"
 
 artifact="$repo_root/dist/$stem.zip"
 ditto -c -k --keepParent "$package_dir" "$artifact"
@@ -122,6 +132,6 @@ fi
 
 unpack_dir=$(mktemp -d "$repo_root/dist/.verify-$stem.XXXXXX")
 ditto -x -k "$artifact" "$unpack_dir"
-verify_macos_package "$unpack_dir/$stem"
+verify_macos_package "$unpack_dir/$stem" "$version"
 
 printf 'macOS Universal 试玩包已生成：\n%s\n%s\n' "$artifact" "$artifact.sha256"

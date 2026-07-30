@@ -1,9 +1,11 @@
-name: Windows Build
+name: Desktop Builds
 
 on:
   pull_request:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
@@ -15,7 +17,7 @@ env:
   GODOT_VERSION_DIR: 4.6.stable
 
 jobs:
-  build:
+  windows-x86_64:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -54,13 +56,55 @@ jobs:
         with:
           name: windows-x86_64
           path: |
-            dist/*.zip
-            dist/*.zip.sha256
+            dist/*-windows-x86_64.zip
+            dist/*-windows-x86_64.zip.sha256
+          if-no-files-found: error
+
+  macos-universal:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Godot 4.6 and official export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          engine_dir="$RUNNER_TEMP/godot-engine"
+          template_unpack="$RUNNER_TEMP/godot-templates"
+          template_dir="$HOME/Library/Application Support/Godot/export_templates/$GODOT_VERSION_DIR"
+          mkdir -p "$engine_dir" "$template_unpack" "$template_dir"
+          curl -fsSL \
+            "https://github.com/godotengine/godot-builds/releases/download/$GODOT_RELEASE/Godot_v${GODOT_RELEASE}_macos.universal.zip" \
+            -o "$RUNNER_TEMP/godot.zip"
+          curl -fsSL \
+            "https://github.com/godotengine/godot-builds/releases/download/$GODOT_RELEASE/Godot_v${GODOT_RELEASE}_export_templates.tpz" \
+            -o "$RUNNER_TEMP/templates.tpz"
+          ditto -x -k "$RUNNER_TEMP/godot.zip" "$engine_dir"
+          unzip -q "$RUNNER_TEMP/templates.tpz" -d "$template_unpack"
+          cp -R "$template_unpack/templates/." "$template_dir/"
+          printf 'GODOT_BIN=%s\n' "$engine_dir/Godot.app/Contents/MacOS/Godot" >> "$GITHUB_ENV"
+
+      - name: Test release helpers
+        run: sh tools/test_release_lib.sh
+
+      - name: Build macOS package
+        run: sh tools/build_macos_release.sh
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: |
+            dist/*-macos-universal.zip
+            dist/*-macos-universal.zip.sha256
           if-no-files-found: error
 
   draft-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs:
+      - windows-x86_64
+      - macos-universal
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -68,11 +112,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download package
+      - name: Download Windows package
         uses: actions/download-artifact@v4
         with:
           name: windows-x86_64
-          path: release-artifacts
+          path: release-artifacts/windows
+
+      - name: Download macOS package
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-universal
+          path: release-artifacts/macos
 
       - name: Verify tag matches project version
         shell: bash
@@ -88,8 +138,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            release-artifacts/*.zip \
-            release-artifacts/*.zip.sha256 \
+            release-artifacts/windows/*.zip \
+            release-artifacts/windows/*.zip.sha256 \
+            release-artifacts/macos/*.zip \
+            release-artifacts/macos/*.zip.sha256 \
             --draft \
-            --title "背包钓鱼手记 $GITHUB_REF_NAME Windows 内测版" \
-            --notes "未签名 Windows x86_64 免安装内测包。公开前必须完成仓库发布设计中的 Windows 实机放行清单。"
+            --title "背包钓鱼手记 $GITHUB_REF_NAME Windows + macOS 内测版" \
+            --notes "未签名 Windows x86_64 免安装包与未公证 macOS Universal 内测包。公开前必须完成仓库发布设计中的双平台实机放行清单。"

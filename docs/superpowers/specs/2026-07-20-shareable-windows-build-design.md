@@ -1,7 +1,7 @@
 # Windows 可分享内测版设计
 
 日期：2026-07-20  
-状态：待 Owner 审阅  
+状态：Owner 已于 2026-07-30 批准（Windows 免安装 ZIP；接受未签名内测包的 SmartScreen 提示）
 目标分支：`feat/shareable-windows-build`
 
 ## 1. 目标与成功标准

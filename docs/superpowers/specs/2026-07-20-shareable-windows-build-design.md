@@ -2,6 +2,7 @@
 
 日期：2026-07-20  
 状态：Owner 已于 2026-07-30 批准（Windows 免安装 ZIP；接受未签名内测包的 SmartScreen 提示）
+实施：本地可复现构建、ZIP 白名单与 SHA-256 已通过；Windows 10/11 实机放行仍待完成。
 目标分支：`feat/shareable-windows-build`
 
 ## 1. 目标与成功标准

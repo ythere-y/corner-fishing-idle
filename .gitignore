@@ -31,3 +31,7 @@ docs/img/relationship_visit_heads.png.import
 
 # Superpowers 可视化伴侣的本地会话与交互记录
 .superpowers/
+
+# iWiki plugin files
+.iwiki
+.vscode/iwiki-*.json

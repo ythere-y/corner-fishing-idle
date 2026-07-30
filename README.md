@@ -58,6 +58,22 @@
 - UI 规范对齐内部设计系统（颜色/字体/间距/圆角/两表面/品阶色/慢而无弹跳的动效，详见设计稿，未随游戏仓库发布）。
 - **旅行手账风格方向**（新）：整体视觉走「手记装订」框架 + 每站独立地域色，详见 `docs/art_direction.md`。
 
+## Windows 试玩包
+
+试玩者只需要收到 `Backpack-and-Bait-v0.1.0-windows-x86_64.zip`，完整解压后双击
+`BackpackAndBait.exe`，不需要安装 Godot。内测包尚未代码签名，Windows SmartScreen
+可能显示“未知发布者”；请通过同目录的 `.sha256` 文件核对来源，不要关闭 Defender，
+也不要授予管理员权限。详细操作见 ZIP 内的 `开始游玩.txt`。
+
+维护者安装 Godot 4.6 官方 Windows 导出模板后，可在干净工作树中一键重建：
+
+```sh
+GODOT_BIN="/path/to/Godot-4.6" sh tools/build_release.sh
+```
+
+产物写入已忽略的 `dist/`。推送 `v<project.godot 版本>` 标签时，GitHub Actions 会复用
+同一脚本创建 draft Release；只有完成 Windows 10/11 实机清单后才能公开。
+
 ## 运行
 
 ```sh

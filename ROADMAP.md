@@ -21,7 +21,7 @@
 - [x] `project.godot` 版本真值 + Godot 4.6 Windows x86_64 与 macOS Universal 2 导出预设
 - [x] Windows / macOS 本地一键验证、白名单打包、架构检查、ad-hoc 签名检查、玩家说明与 SHA-256
 - [x] PR / 手动 / `main` 更新生成 `windows-x86_64` 与 `macos-universal` Actions artifacts；版本标签才创建双平台 Draft Release
-- [x] 本机生成并独立校验 Windows ZIP（115 MB；SHA-256 `6695e758…924e5`）与 macOS Universal ZIP（含 `x86_64` + `arm64`、ad-hoc 签名）✅ 2026-07-30
+- [x] 本机生成 Windows ZIP 与 macOS Universal ZIP（含 `x86_64` + `arm64`、ad-hoc 签名），双平台最终 ZIP 均以随包 `.sha256` 文件独立校验通过 ✅ 2026-07-30
 - [ ] Windows 10/11 在 100% / 125% / 150% DPI 下完成实机放行清单
 - [ ] macOS Apple Silicon 与 Intel 完成实机启动、Gatekeeper 提示与试玩放行清单
 

@@ -155,6 +155,25 @@ var _offline_report := {}                # 离线小结：{dur,count,full,value,
 
 const RELATION_VISIT_INTERVAL := 3.0 * 60.0 * 60.0
 var selected_relationship_visit_id := ""
+var relationship_visit_session: Dictionary = {}
+var relationship_visit_feedback: Dictionary:
+	get:
+		return relationship_visit_session.get("feedback", {}) as Dictionary
+	set(value):
+		relationship_visit_session["feedback"] = value
+var relationship_visit_notice: String:
+	get:
+		return str(relationship_visit_session.get("notice", ""))
+	set(value):
+		relationship_visit_session["notice"] = value
+var relationship_picker_open: bool:
+	get:
+		return str(relationship_visit_session.get("phase", "")) == "picker"
+	set(value):
+		if value:
+			relationship_visit_session["phase"] = "picker"
+		elif str(relationship_visit_session.get("phase", "")) == "picker":
+			relationship_visit_session["phase"] = "decision"
 var _relationship_tick_t := 0.0
 
 # —— 窗口拖动（默认右下角，可拖到任意位置）——
@@ -445,27 +464,47 @@ func _tick_relationship_buff(delta: float) -> void:
 	relationship_state["buff"] = buff
 
 
-func _accept_relationship_buff() -> void:
+func _accept_relationship_buff(expected_npc_id := "", expected_visit_key := "") -> void:
+	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
+		return
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
 	var visits: Dictionary = relationship_state.get("visits", {})
 	var visit: Dictionary = visits.get(npc_id, {})
+	if not _relationship_visit_session_matches(npc_id, visit):
+		return
 	if visit.is_empty() or str(visit.get("kind", "")) != "buff":
 		_toast("这次到访没有可领取的帮忙", 2.0, Color(0.95, 0.55, 0.45))
 		return
-	var npc := RelationshipDataScript.get_npc(npc_id)
 	visits.erase(npc_id)
 	relationship_state["visits"] = visits
 	relationship_state["buff"] = {"npc": npc_id, "t": RelationshipDataScript.BUFF_DURATION}
-	selected_relationship_visit_id = ""
 	Audio.play_sfx("upgrade")
-	_toast("%s帮忙：%s" % [str(npc.get("name", "熟人")), RelationshipDataScript.buff_name(npc_id)],
-		2.8, Color(0.86, 0.76, 0.45))
-	_update_relationship_visit_bar()
-	_update_hud()
 	_begin_wait()
-	_close_panel()
 	_save()
+	_show_relationship_feedback("好，这阵子我替你盯着。\n获得「%s」。" %
+		RelationshipDataScript.buff_name(npc_id), "good")
+
+
+func _decline_relationship_buff(expected_npc_id := "", expected_visit_key := "") -> void:
+	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
+		return
+	_ensure_relationship_state()
+	var npc_id := selected_relationship_visit_id
+	var visits: Dictionary = relationship_state.get("visits", {})
+	var visit: Dictionary = visits.get(npc_id, {})
+	if not _relationship_visit_session_matches(npc_id, visit):
+		return
+	if visit.is_empty() or str(visit.get("kind", "")) != "buff":
+		return
+	visits.erase(npc_id)
+	relationship_state["visits"] = visits
+	_save()
+	_show_relationship_feedback("没事，需要时再喊我。", "neutral")
 
 
 func _relationship_now() -> float:
@@ -1360,16 +1399,100 @@ func _update_relationship_visit_bar() -> void:
 		_relationship_visit_bar.add_child(b)
 
 
-func _open_relationship_visit(npc_id: String) -> void:
+func _relationship_visit_key(npc_id: String, visit: Dictionary) -> String:
+	return "%s|%s|%.3f|%d" % [
+		npc_id,
+		str(visit.get("kind", "hint")),
+		float(visit.get("created_at", 0.0)),
+		int(visit.get("story_level", -1)),
+	]
+
+
+func _relationship_visit_session_matches(npc_id: String, visit: Dictionary) -> bool:
+	return not relationship_visit_session.is_empty() \
+		and str(relationship_visit_session.get("npc_id", "")) == npc_id \
+		and str(relationship_visit_session.get("visit_key", "")) == _relationship_visit_key(npc_id, visit)
+
+
+func _relationship_visit_action_is_current(expected_npc_id: String,
+		expected_visit_key: String) -> bool:
+	_ensure_relationship_state()
+	if expected_npc_id == "":
+		expected_npc_id = str(relationship_visit_session.get("npc_id", ""))
+	if expected_visit_key == "":
+		expected_visit_key = str(relationship_visit_session.get("visit_key", ""))
+	var visits: Dictionary = relationship_state.get("visits", {})
+	var visit: Dictionary = visits.get(expected_npc_id, {})
+	return selected_relationship_visit_id == expected_npc_id \
+		and str(relationship_visit_session.get("npc_id", "")) == expected_npc_id \
+		and str(relationship_visit_session.get("visit_key", "")) == expected_visit_key \
+		and not visit.is_empty() \
+		and _relationship_visit_key(expected_npc_id, visit) == expected_visit_key
+
+
+func _begin_relationship_visit_session(npc_id: String) -> void:
+	_ensure_relationship_state()
+	var visits: Dictionary = relationship_state.get("visits", {})
+	var visit: Dictionary = visits.get(npc_id, {})
+	if not _relationship_visit_session_matches(npc_id, visit):
+		relationship_visit_session = {
+			"npc_id": npc_id,
+			"visit_key": _relationship_visit_key(npc_id, visit),
+			"visit_snapshot": visit.duplicate(true),
+			"phase": "decision",
+			"player_reply": "",
+			"notice": "",
+			"feedback": {},
+		}
 	selected_relationship_visit_id = npc_id
+
+
+func _end_relationship_visit_session() -> void:
+	relationship_visit_session = {}
+	selected_relationship_visit_id = ""
+
+
+func _set_relationship_visit_reply(text: String, phase: String, expected_npc_id := "",
+		expected_visit_key := "") -> void:
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
+		return
+	relationship_visit_session["player_reply"] = text
+	relationship_visit_session["phase"] = phase
+	relationship_visit_session["notice"] = ""
+
+
+func _open_relationship_visit(npc_id: String) -> void:
+	_begin_relationship_visit_session(npc_id)
 	_open_panel("relationship_visit")
 
 
-func _complete_relationship_story() -> void:
+func _show_relationship_feedback(text: String, tone := "neutral") -> void:
+	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	relationship_visit_session["feedback"] = {"text": text, "tone": tone}
+	relationship_visit_session["phase"] = "feedback"
+	relationship_visit_session["notice"] = ""
+	_update_relationship_visit_bar()
+	_update_hud()
+	_open_panel("relationship_visit")
+
+
+func _finish_relationship_visit_feedback() -> void:
+	_end_relationship_visit_session()
+	_close_panel()
+
+
+func _complete_relationship_story(expected_npc_id := "", expected_visit_key := "") -> void:
+	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
+		return
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
 	var visits: Dictionary = relationship_state.get("visits", {})
 	var visit: Dictionary = visits.get(npc_id, {})
+	if not _relationship_visit_session_matches(npc_id, visit):
+		return
 	if visit.is_empty() or str(visit.get("kind", "")) != "story":
 		_toast("这次到访没有未读近况", 2.0, Color(0.95, 0.55, 0.45))
 		return
@@ -1390,30 +1513,33 @@ func _complete_relationship_story() -> void:
 	relationship_state["npc"] = npc_state
 	visits.erase(npc_id)
 	relationship_state["visits"] = visits
-	selected_relationship_visit_id = ""
-	var npc := RelationshipDataScript.get_npc(npc_id)
 	var event := RelationshipDataScript.level_event_for(npc_id, story_level)
 	Audio.play_ui("ui_click")
-	_toast("记下了%s的近况：%s" % [
-		str(npc.get("name", "熟人")), str(event.get("title", "河湾近况"))],
-		2.6, Color(0.86, 0.76, 0.45))
-	_update_relationship_visit_bar()
-	_update_hud()
-	_close_panel()
 	_save()
+	_show_relationship_feedback("好，那我就放心了。\n已记录：%s" %
+		str(event.get("title", "河湾近况")), "good")
 
 
-func _relationship_gift(idx: int) -> void:
+func _relationship_gift(idx: int, expected_npc_id := "", expected_visit_key := "") -> void:
+	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
+		return
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
 	var visits: Dictionary = relationship_state.get("visits", {})
+	var visit: Dictionary = visits.get(npc_id, {})
+	if not _relationship_visit_session_matches(npc_id, visit):
+		return
 	if not visits.has(npc_id):
 		_toast("这次到访已经结束了", 1.8, Color(0.86, 0.76, 0.45))
 		_close_panel()
 		return
 	if idx < 0 or idx >= inventory.size():
-		_toast("这条鱼已经不在鱼篓里了", 1.8, Color(0.95, 0.55, 0.45))
+		relationship_visit_session["notice"] = "这条鱼已经不在鱼篓里了。"
+		_open_panel("relationship_visit")
 		return
+	relationship_visit_session["notice"] = ""
 	var c: Dictionary = inventory[idx]
 	var npc := RelationshipDataScript.get_npc(npc_id)
 	var accepted := RelationshipDataScript.gift_match(npc_id, c)
@@ -1428,22 +1554,11 @@ func _relationship_gift(idx: int) -> void:
 		npc_state[npc_id] = state
 		relationship_state["npc"] = npc_state
 		Audio.play_sfx("coin")
-		_toast("%s收下了%s，好感：%s" % [
-			str(npc.get("name", "对方")),
-			FishData.display_name(str(c.get("id", ""))),
-			RelationshipDataScript.favor_name(int(state.get("favor", 0))),
-		], 2.4, Color(0.86, 0.76, 0.45))
 	else:
 		Audio.play_ui("ui_click")
-		_toast("%s拒收：%s" % [
-			str(npc.get("name", "对方")),
-			RelationshipDataScript.gift_reject_reason(npc_id, c),
-		], 3.0, Color(0.95, 0.55, 0.45))
-	selected_relationship_visit_id = ""
-	_update_relationship_visit_bar()
-	_update_hud()
-	_close_panel()
 	_save()
+	_show_relationship_feedback(RelationshipDataScript.gift_feedback(npc_id, c, accepted),
+		"good" if accepted else "reject")
 
 
 func _relationship_task_reward(c: Dictionary) -> int:
@@ -1451,25 +1566,31 @@ func _relationship_task_reward(c: Dictionary) -> int:
 	return int(ceil(float(base) * 2.2 * _relationship_buff_value_mult()))
 
 
-func _complete_relationship_task(idx: int) -> void:
+func _complete_relationship_task(idx: int, expected_npc_id := "",
+		expected_visit_key := "") -> void:
+	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
+		return
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
 	var visits: Dictionary = relationship_state.get("visits", {})
 	var visit: Dictionary = visits.get(npc_id, {})
+	if not _relationship_visit_session_matches(npc_id, visit):
+		return
 	if visit.is_empty() or str(visit.get("kind", "")) != "task":
 		_toast("这次到访没有可交付的委托", 2.0, Color(0.95, 0.55, 0.45))
 		return
 	if idx < 0 or idx >= inventory.size():
-		_toast("这条鱼已经不在鱼篓里了", 1.8, Color(0.95, 0.55, 0.45))
+		relationship_visit_session["notice"] = "这条鱼已经不在鱼篓里了。"
+		_open_panel("relationship_visit")
 		return
+	relationship_visit_session["notice"] = ""
 	var c: Dictionary = inventory[idx]
-	var npc := RelationshipDataScript.get_npc(npc_id)
 	if not RelationshipDataScript.task_match(npc_id, c):
 		Audio.play_ui("ui_click")
-		_toast("%s没有收：%s" % [
-			str(npc.get("name", "对方")),
-			RelationshipDataScript.task_reject_reason(npc_id, c),
-		], 2.8, Color(0.95, 0.55, 0.45))
+		relationship_visit_session["notice"] = RelationshipDataScript.task_reject_reason(npc_id, c)
+		_open_panel("relationship_visit")
 		return
 	var reward := _relationship_task_reward(c)
 	inventory.remove_at(idx)
@@ -1477,27 +1598,28 @@ func _complete_relationship_task(idx: int) -> void:
 	_add_lifetime_coins_safe(reward)
 	visits.erase(npc_id)
 	relationship_state["visits"] = visits
-	selected_relationship_visit_id = ""
 	Audio.play_sfx("coin")
-	_toast("%s委托完成：+%s 金币" % [
-		str(npc.get("name", "对方")), _coin_str(reward)],
-		2.8, Color(0.98, 0.82, 0.40))
 	_check_achievements()
-	_update_relationship_visit_bar()
-	_update_hud()
-	_close_panel()
 	_save()
+	_show_relationship_feedback("正是我要的，多谢。\n委托完成：+%s 金币" % _coin_str(reward), "good")
 
 
 func _relationship_finale_reward(c: Dictionary) -> int:
 	return int(ceil(float(maxi(1, int(c.get("v", 1)))) * 8.0 * _relationship_buff_value_mult()))
 
 
-func _complete_relationship_finale(idx: int) -> void:
+func _complete_relationship_finale(idx: int, expected_npc_id := "",
+		expected_visit_key := "") -> void:
+	if not (relationship_visit_session.get("feedback", {}) as Dictionary).is_empty():
+		return
+	if not _relationship_visit_action_is_current(expected_npc_id, expected_visit_key):
+		return
 	_ensure_relationship_state()
 	var npc_id := selected_relationship_visit_id
 	var visits: Dictionary = relationship_state.get("visits", {})
 	var visit: Dictionary = visits.get(npc_id, {})
+	if not _relationship_visit_session_matches(npc_id, visit):
+		return
 	if visit.is_empty() or str(visit.get("kind", "")) != "finale":
 		_toast("这次到访没有可交付的终章大单", 2.0, Color(0.95, 0.55, 0.45))
 		return
@@ -1514,16 +1636,15 @@ func _complete_relationship_finale(idx: int) -> void:
 		_save()
 		return
 	if idx < 0 or idx >= inventory.size():
-		_toast("这条鱼已经不在鱼篓里了", 1.8, Color(0.95, 0.55, 0.45))
+		relationship_visit_session["notice"] = "这条鱼已经不在鱼篓里了。"
+		_open_panel("relationship_visit")
 		return
+	relationship_visit_session["notice"] = ""
 	var c: Dictionary = inventory[idx]
-	var npc := RelationshipDataScript.get_npc(npc_id)
 	if not RelationshipDataScript.finale_match(npc_id, c):
 		Audio.play_ui("ui_click")
-		_toast("%s没有收：%s" % [
-			str(npc.get("name", "对方")),
-			RelationshipDataScript.finale_reject_reason(npc_id, c),
-		], 3.0, Color(0.95, 0.55, 0.45))
+		relationship_visit_session["notice"] = RelationshipDataScript.finale_reject_reason(npc_id, c)
+		_open_panel("relationship_visit")
 		return
 	var reward := _relationship_finale_reward(c)
 	if RelationshipDataScript.finale_consumes_catch(npc_id):
@@ -1541,16 +1662,11 @@ func _complete_relationship_finale(idx: int) -> void:
 	if reward_id != "":
 		unlocks[reward_id] = true
 	relationship_state["unlocks"] = unlocks
-	selected_relationship_visit_id = ""
 	Audio.play_sfx("coin")
-	_toast("%s终章完成：%s · +%s 金币" % [
-		str(npc.get("name", "对方")), RelationshipDataScript.finale_reward_name(npc_id), _coin_str(reward)],
-		3.2, Color(1.0, 0.86, 0.32))
 	_check_achievements()
-	_update_relationship_visit_bar()
-	_update_hud()
-	_close_panel()
 	_save()
+	_show_relationship_feedback("就是这份记录，多谢你带回来。\n终章完成：%s · +%s 金币" % [
+		RelationshipDataScript.finale_reward_name(npc_id), _coin_str(reward)], "good")
 
 
 func _update_framed_hud() -> void:
@@ -3171,13 +3287,18 @@ func _ui_tier_color(tier: int, on_paper := false) -> Color:
 
 ## —— 面板：薄壳委托 UIPanels（实现见 ui_panels.gd，行为不变）——
 func _open_panel(kind: String) -> void:
+	if _panel_kind == "relationship_visit" and kind != "relationship_visit":
+		_end_relationship_visit_session()
 	if kind == "catch" and not _tab_unlocked(_catch_tab):
 		_catch_tab = _fallback_feature_tab()
 	UIPanels.open_panel(self, kind)
 
 
 func _close_panel() -> void:
+	var closing_relationship_visit := _panel_kind == "relationship_visit"
 	UIPanels.close_panel(self)
+	if closing_relationship_visit:
+		_end_relationship_visit_session()
 
 
 func _open_fish_detail(id: String) -> void:

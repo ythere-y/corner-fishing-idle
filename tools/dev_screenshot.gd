@@ -91,8 +91,13 @@ func _run() -> void:
 	_main.relationship_state["visits"]["lin_aunt"] = RelationshipDataScript.make_visit("lin_aunt", "story", Time.get_unix_time_from_system(), 0)
 	_main.relationship_state["visits"]["zhou_uncle"] = RelationshipDataScript.make_visit("zhou_uncle", "task", Time.get_unix_time_from_system())
 	_main.relationship_state["visits"]["tang"] = RelationshipDataScript.make_visit("tang", "buff", Time.get_unix_time_from_system())
+	_main.relationship_state["visits"]["xiaoman"] = RelationshipDataScript.make_visit("xiaoman", "hint", Time.get_unix_time_from_system())
+	_main.relationship_state["visits"]["ma"] = RelationshipDataScript.make_visit("ma", "hint", Time.get_unix_time_from_system())
 	_main.feature_unlocks["relations"] = true
 	_main._update_relationship_visit_bar()
+	_main._close_panel()
+	await _settle(2)
+	_snap("relationship_visit_heads.png")
 	_main._catch_tab = 9
 	_main._open_panel("catch")
 	await _settle(2)
@@ -105,24 +110,42 @@ func _run() -> void:
 		{"id": "sardine", "w": 0.06, "v": 4, "q": 0},
 		{"id": "oarfish", "w": 18.0, "v": 900, "q": 2, "lock": true},
 	]
-	_main.selected_relationship_visit_id = "lin_aunt"
-	_main._open_panel("relationship_visit")
+	_main._open_relationship_visit("lin_aunt")
 	await _settle(2)
 	_snap("panel_relationship_visit.png")
-	_main.selected_relationship_visit_id = "tang"
+	_main._close_panel()
+	_main.relationship_state["visits"]["lin_aunt"] = RelationshipDataScript.make_visit("lin_aunt", "hint", Time.get_unix_time_from_system())
+	_main._open_relationship_visit("lin_aunt")
+	_main._set_relationship_visit_reply("我挑一条。", "picker")
 	_main._open_panel("relationship_visit")
 	await _settle(2)
+	_snap("panel_relationship_gift.png")
+	_main._close_panel()
+	_main._open_relationship_visit("zhou_uncle")
+	_main._set_relationship_visit_reply("给你看看。", "picker")
+	_main._open_panel("relationship_visit")
+	await _settle(2)
+	_snap("panel_relationship_task.png")
+	_main._close_panel()
+	_main._open_relationship_visit("tang")
+	await _settle(2)
 	_snap("panel_relationship_buff.png")
+	_main._close_panel()
 	_main.relationship_state["npc"]["ma"]["favor"] = RelationshipDataScript.FAVOR_LEVELS.size() - 1
 	_main.relationship_state["visits"]["ma"] = RelationshipDataScript.make_visit("ma", "finale", Time.get_unix_time_from_system())
 	_main.inventory.append({"id": "catfish", "w": 7.2, "v": 88, "q": 1})
-	_main.selected_relationship_visit_id = "ma"
-	_main._open_panel("relationship_visit")
+	_main._open_relationship_visit("ma")
 	await _settle(2)
 	_snap("panel_relationship_finale.png")
+	_main._close_panel()
+	_main._open_relationship_visit("lin_aunt")
+	_main._set_relationship_visit_reply("好，我记住了。", "feedback")
+	_main._show_relationship_feedback("好，那我就放心了。\n已记录：河边第一壶茶", "good")
+	await _settle(2)
+	_snap("panel_relationship_feedback.png")
+	_main._finish_relationship_visit_feedback()
 	_main.relationship_state["visits"] = {}
 	_main.relationship_state["buff"] = {}
-	_main.selected_relationship_visit_id = ""
 	_main._update_relationship_visit_bar()
 
 	# 2h) 比赛目标鱼详情卡（展示🏆 banner）：让目标鱼已发现、本周最佳到位，滚到底

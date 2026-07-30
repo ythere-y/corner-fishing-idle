@@ -15,7 +15,7 @@
 - 导出目标固定为 Windows x86_64，文件名固定为 `BackpackAndBait.exe`。
 - 初始试玩版本固定为 `0.1.0`，标签格式固定为 `v0.1.0`。
 - 试玩包为未签名免安装 ZIP，允许 SmartScreen 显示“未知发布者”。
-- 包内只允许 EXE、PCK、`开始游玩.txt` 与 `内测许可.txt`。
+- 包内只允许 EXE、PCK、`PLAYTEST.txt` 与 `PLAYTEST-LICENSE.txt`。
 - 不创建安装器、不写注册表、不请求管理员权限、不新增遥测。
 
 ---
@@ -136,7 +136,7 @@ release_stem() {
 assert_package_contents() {
   package_dir=$1
   actual=$(find "$package_dir" -maxdepth 1 -type f -exec basename {} \\; | LC_ALL=C sort)
-  expected=$(printf '%s\n' BackpackAndBait.exe BackpackAndBait.pck 内测许可.txt 开始游玩.txt | LC_ALL=C sort)
+  expected=$(printf '%s\n' BackpackAndBait.exe BackpackAndBait.pck PLAYTEST-LICENSE.txt PLAYTEST.txt | LC_ALL=C sort)
   test "$actual" = "$expected"
 }
 ```
@@ -166,8 +166,8 @@ git commit -m "建立 Windows 导出版本与预设"
 - Modify: `.gitignore`
 - Modify: `tools/test_release_lib.sh`
 - Create: `tools/build_release.sh`
-- Create: `release/开始游玩.txt`
-- Create: `release/内测许可.txt`
+- Create: `release/PLAYTEST.txt`
+- Create: `release/PLAYTEST-LICENSE.txt`
 
 **Interfaces:**
 - Consumes: Godot 4.6 可执行文件、`Windows Desktop` 导出模板、Task 2 helper
@@ -226,7 +226,7 @@ mkdir -p dist
 rm -rf -- "$package_dir"
 mkdir -p "$package_dir"
 "$godot_bin" --headless --path . --export-release "Windows Desktop" "$package_dir/BackpackAndBait.exe"
-cp release/开始游玩.txt release/内测许可.txt "$package_dir/"
+cp release/PLAYTEST.txt release/PLAYTEST-LICENSE.txt "$package_dir/"
 assert_package_contents "$package_dir"
 (cd dist && zip -X -q -r "$stem.zip" "$stem")
 shasum -a 256 "dist/$stem.zip" > "dist/$stem.zip.sha256"
@@ -236,9 +236,9 @@ shasum -a 256 "dist/$stem.zip" > "dist/$stem.zip.sha256"
 
 - [ ] **Step 4: 编写玩家说明和保守内测许可**
 
-`开始游玩.txt` 说明解压、双击 EXE、拖动/缩放/退出、SmartScreen、存档位置和反馈信息。
+`PLAYTEST.txt` 说明解压、双击 EXE、拖动/缩放/退出、SmartScreen、存档位置和反馈信息。
 
-`内测许可.txt` 明确本包仅供获准试玩，不授予源码、美术、音频再分发许可；第三方素材继续遵循仓库已有声明。
+`PLAYTEST-LICENSE.txt` 明确本包仅供获准试玩，不授予源码、美术、音频再分发许可；第三方素材继续遵循仓库已有声明。
 
 - [ ] **Step 5: 测试 helper 并提交**
 
@@ -253,7 +253,7 @@ Expected: `release helpers: PASS`。
 Commit:
 
 ```bash
-git add .gitignore tools/release_lib.sh tools/test_release_lib.sh tools/build_release.sh release/开始游玩.txt release/内测许可.txt
+git add .gitignore tools/release_lib.sh tools/test_release_lib.sh tools/build_release.sh release/PLAYTEST.txt release/PLAYTEST-LICENSE.txt
 git commit -m "加入 Windows 试玩包构建与白名单"
 ```
 

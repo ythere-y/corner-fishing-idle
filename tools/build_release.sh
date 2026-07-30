@@ -72,7 +72,7 @@ if ! "$godot_bin" --headless --path . --log-file "$export_log" \
 	exit 1
 fi
 
-cp release/开始游玩.txt release/内测许可.txt "$package_dir/"
+cp release/PLAYTEST.txt release/PLAYTEST-LICENSE.txt "$package_dir/"
 assert_package_contents "$package_dir"
 
 archive_tmp="$staging_dir/$stem.zip"

@@ -25,8 +25,8 @@ fi
 
 touch \
 	"$fixture/BackpackAndBait.pck" \
-	"$fixture/内测许可.txt" \
-	"$fixture/开始游玩.txt"
+	"$fixture/PLAYTEST-LICENSE.txt" \
+	"$fixture/PLAYTEST.txt"
 if assert_package_contents "$fixture"; then
 	echo "空文件包被接受" >&2
 	exit 1
@@ -34,8 +34,8 @@ fi
 
 printf 'exe\n' > "$fixture/BackpackAndBait.exe"
 printf 'pck\n' > "$fixture/BackpackAndBait.pck"
-printf 'license\n' > "$fixture/内测许可.txt"
-printf 'readme\n' > "$fixture/开始游玩.txt"
+printf 'license\n' > "$fixture/PLAYTEST-LICENSE.txt"
+printf 'readme\n' > "$fixture/PLAYTEST.txt"
 assert_package_contents "$fixture"
 
 printf 'unexpected\n' > "$fixture/debug.log"

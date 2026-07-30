@@ -63,7 +63,7 @@
 试玩者只需要收到 `Backpack-and-Bait-v0.1.0-windows-x86_64.zip`，完整解压后双击
 `BackpackAndBait.exe`，不需要安装 Godot。内测包尚未代码签名，Windows SmartScreen
 可能显示“未知发布者”；请通过同目录的 `.sha256` 文件核对来源，不要关闭 Defender，
-也不要授予管理员权限。详细操作见 ZIP 内的 `开始游玩.txt`。
+也不要授予管理员权限。详细操作见 ZIP 内的 `PLAYTEST.txt`（内容为简体中文）。
 
 维护者安装 Godot 4.6 官方 Windows 导出模板后，可在干净工作树中一键重建：
 

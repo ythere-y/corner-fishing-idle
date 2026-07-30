@@ -67,10 +67,10 @@ ZIP 顶层目录固定为 `Backpack-and-Bait-v<版本号>-windows-x86_64/`，其
 
 - `BackpackAndBait.exe`
 - Godot 导出的配套 `.pck`（若采用嵌入 PCK，则不单列）
-- `开始游玩.txt`
-- `LICENSE` 或阶段 1 所需的许可声明
+- `PLAYTEST.txt`
+- `PLAYTEST-LICENSE.txt`
 
-`开始游玩.txt` 使用简体中文并包含：
+两个说明文件使用 ASCII 文件名，避免 macOS 与 Linux 压缩工具对中文 ZIP 文件名写入不同编码元数据；文件内容仍使用简体中文。`PLAYTEST.txt` 包含：
 
 - 解压完整 ZIP 后双击 `BackpackAndBait.exe`，不要直接在压缩包内运行。
 - 游戏是透明桌面挂件，默认位于右下角；如何拖动、缩放、打开设置和退出。

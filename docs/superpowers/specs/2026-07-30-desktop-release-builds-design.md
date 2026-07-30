@@ -70,7 +70,7 @@ Windows 继续保持未签名内测包和 SmartScreen 说明。
 macOS 构建只允许在 macOS 主机执行，因为最终包需要通过 `ditto` 保留 `.app` bundle 的可执行权限和 macOS 元数据。构建流程为：
 
 1. 导出到暂存目录的 `BackpackAndBait.app`。
-2. 验证 `Contents/Info.plist`、`Contents/MacOS/BackpackAndBait` 和游戏数据文件存在且非空。
+2. 从 `Contents/Info.plist` 读取 `CFBundleExecutable`，验证对应主程序和游戏数据文件存在且非空。
 3. 把 `.app`、`PLAYTEST.txt`、`PLAYTEST-LICENSE.txt` 放入单一顶层目录。
 4. 使用 macOS `ditto` 生成外层 ZIP。
 5. 解压到临时目录复查白名单、可执行位和 Mach-O 架构。

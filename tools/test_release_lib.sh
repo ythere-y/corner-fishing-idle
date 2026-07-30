@@ -14,4 +14,34 @@ if assert_semver "v0.1"; then
 	exit 1
 fi
 
+fixture=$(mktemp -d)
+trap 'rm -rf "$fixture"' EXIT
+
+touch "$fixture/BackpackAndBait.exe"
+if assert_package_contents "$fixture"; then
+	echo "不完整包被接受" >&2
+	exit 1
+fi
+
+touch \
+	"$fixture/BackpackAndBait.pck" \
+	"$fixture/内测许可.txt" \
+	"$fixture/开始游玩.txt"
+if assert_package_contents "$fixture"; then
+	echo "空文件包被接受" >&2
+	exit 1
+fi
+
+printf 'exe\n' > "$fixture/BackpackAndBait.exe"
+printf 'pck\n' > "$fixture/BackpackAndBait.pck"
+printf 'license\n' > "$fixture/内测许可.txt"
+printf 'readme\n' > "$fixture/开始游玩.txt"
+assert_package_contents "$fixture"
+
+printf 'unexpected\n' > "$fixture/debug.log"
+if assert_package_contents "$fixture"; then
+	echo "包含额外文件的包被接受" >&2
+	exit 1
+fi
+
 printf 'release helpers: PASS\n'

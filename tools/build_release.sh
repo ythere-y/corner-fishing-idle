@@ -41,7 +41,7 @@ if ! assert_semver "$version"; then
 	exit 1
 fi
 
-stem=$(release_stem "$version")
+stem=$(release_stem windows_x86_64 "$version")
 mkdir -p dist
 staging_dir=$(mktemp -d "$repo_root/dist/.staging-$stem.XXXXXX")
 trap 'rm -rf -- "$staging_dir"' EXIT
@@ -73,7 +73,7 @@ if ! "$godot_bin" --headless --path . --log-file "$export_log" \
 fi
 
 cp release/PLAYTEST.txt release/PLAYTEST-LICENSE.txt "$package_dir/"
-assert_package_contents "$package_dir"
+assert_windows_package_contents "$package_dir"
 
 archive_tmp="$staging_dir/$stem.zip"
 (cd "$staging_dir" && zip -X -q -r "$archive_tmp" "$stem")

@@ -8,21 +8,22 @@
 ---
 ## ▶ 当前焦点(一次只做一件)
 
-> **当前发布焦点：Windows 免安装试玩包。** WIP:
+> **当前发布焦点：Windows + macOS 免安装试玩包。** WIP:
 > 1. 将级联 PR #29 的最新到访聊天改动整合回 PR #27
-> 2. 生成 `BackpackAndBait.exe` + PCK + 玩家说明的版本化 ZIP 与 SHA-256
-> 3. Windows 10/11 实机放行；通过前 PR 与 Release 保持 Draft
+> 2. 生成 Windows `BackpackAndBait.exe` + PCK 与 macOS `BackpackAndBait.app` 的版本化 ZIP、玩家说明与 SHA-256
+> 3. Windows 与 macOS 实机放行；通过前 Release 保持 Draft
 
 *数据快照(2026-07-08):219 鱼(99 有专属图标)· 10 钓点(仅 3 个有背景图,十站经纬度已入 `spot_data.GEO`)· 存档 v24 · 42 成就 · 7 事件*
 
 ---
-## M-Release Windows 免安装内测包 ◐ 进行中
+## M-Release Windows + macOS 免安装内测包 ◐ 进行中
 
-- [x] `project.godot` 版本真值 + Godot 4.6 Windows x86_64 导出预设
-- [x] 一键验证、白名单打包、玩家说明与 SHA-256
-- [x] PR / 手动构建 artifact；版本标签创建 draft Release
-- [x] 本机生成最终 ZIP 并独立校验包内容（115 MB；SHA-256 `6695e758…924e5`）✅ 2026-07-30
+- [x] `project.godot` 版本真值 + Godot 4.6 Windows x86_64 与 macOS Universal 2 导出预设
+- [x] Windows / macOS 本地一键验证、白名单打包、架构检查、ad-hoc 签名检查、玩家说明与 SHA-256
+- [x] PR / 手动 / `main` 更新生成 `windows-x86_64` 与 `macos-universal` Actions artifacts；版本标签才创建双平台 Draft Release
+- [x] 本机生成并独立校验 Windows ZIP（115 MB；SHA-256 `6695e758…924e5`）与 macOS Universal ZIP（含 `x86_64` + `arm64`、ad-hoc 签名）✅ 2026-07-30
 - [ ] Windows 10/11 在 100% / 125% / 150% DPI 下完成实机放行清单
+- [ ] macOS Apple Silicon 与 Intel 完成实机启动、Gatekeeper 提示与试玩放行清单
 
 ---
 ## M0 核心循环垂直切片 ☑ 已完成

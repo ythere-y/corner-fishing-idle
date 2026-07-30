@@ -58,21 +58,32 @@
 - UI 规范对齐内部设计系统（颜色/字体/间距/圆角/两表面/品阶色/慢而无弹跳的动效，详见设计稿，未随游戏仓库发布）。
 - **旅行手账风格方向**（新）：整体视觉走「手记装订」框架 + 每站独立地域色，详见 `docs/art_direction.md`。
 
-## Windows 试玩包
+## Windows + macOS 试玩包
 
-试玩者只需要收到 `Backpack-and-Bait-v0.1.0-windows-x86_64.zip`，完整解压后双击
-`BackpackAndBait.exe`，不需要安装 Godot。内测包尚未代码签名，Windows SmartScreen
-可能显示“未知发布者”；请通过同目录的 `.sha256` 文件核对来源，不要关闭 Defender，
-也不要授予管理员权限。详细操作见 ZIP 内的 `PLAYTEST.txt`（内容为简体中文）。
+试玩者可按所用系统取得对应的版本化 ZIP，完整解压后再启动，不需要安装 Godot：
 
-维护者安装 Godot 4.6 官方 Windows 导出模板后，可在干净工作树中一键重建：
+- Windows：解压 `Backpack-and-Bait-v0.1.0-windows-x86_64.zip` 后双击
+  `BackpackAndBait.exe`。必须保留同目录的 PCK 文件；不要只移动 `.exe`。内测包尚未
+  代码签名，SmartScreen 可能显示“未知发布者”；请通过同目录 `.sha256` 核对来源，不要
+  关闭 Defender，也不要授予管理员权限。
+- macOS：解压 `Backpack-and-Bait-v0.1.0-macos-universal.zip` 后，在 Finder 中打开
+  `BackpackAndBait.app`。这是同时包含 Apple Silicon 与 Intel 架构的 Universal 2 包，使用
+  Godot built-in ad-hoc 签名，未使用 Developer ID 且未公证。若 Gatekeeper 阻止首次启动，
+  请在 Finder 对 App 右键选择“打开”，或到“隐私与安全性”点击“仍要打开”；不要关闭系统
+  安全功能。
+
+详细操作见 ZIP 内的 `PLAYTEST.txt`（内容为简体中文）。维护者安装 Godot 4.6 官方导出模板后，
+可在干净工作树中分别一键重建：
 
 ```sh
 GODOT_BIN="/path/to/Godot-4.6" sh tools/build_release.sh
+GODOT_BIN="/Applications/Godot.app/Contents/MacOS/Godot" sh tools/build_macos_release.sh
 ```
 
-产物写入已忽略的 `dist/`。推送 `v<project.godot 版本>` 标签时，GitHub Actions 会复用
-同一脚本创建 draft Release；只有完成 Windows 10/11 实机清单后才能公开。
+产物写入已忽略的 `dist/`。GitHub Actions 会在 PR、手动运行和每次 `main` 更新时生成
+`windows-x86_64` 与 `macos-universal` 两个 artifacts；普通 `main` 更新不会创建 GitHub
+Release。只有推送 `v<project.godot 版本>` 标签时才会创建双平台 Draft Release。Windows
+10/11 与 macOS Apple Silicon／Intel 的实机放行清单都尚未完成，因此当前并未公开发布。
 
 ## 运行
 

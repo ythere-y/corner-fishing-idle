@@ -27,6 +27,14 @@ const FEATHER_CORE := 0.20
 # framed = 带框普通窗口（默认，CD playable 式：场景填窗 + 底部导航 + 胶囊HUD）。
 # immersive = 透明羽化角落挂件（原版，降级为后续完善的「沉浸模式」，代码 gate 保留不删）。
 var display_mode := "framed"
+
+# —— Web 平台守卫 ——
+# 浏览器（WebAssembly 导出）没有桌面窗口概念：透明/无边框/置顶/鼠标穿透/多屏定位全都无意义，
+# 且 window_set_mouse_passthrough 会把 canvas 裁出输入死区。web 下一律走「铺满 canvas 的普通
+# framed 窗口」，跳过所有窗口语义调用；存档仍走 user://（Godot Web 由 IndexedDB 支撑，开箱可用）。
+# 桌面路径零改动：这些守卫只是在 web 分支上短路，不改任何桌面行为。
+static func _is_web() -> bool:
+	return OS.has_feature("web")
 const FRAMED_SCENE_SCALE := 2.0                 # 带框模式：场景放大填满窗口宽（参考值；实际 scale 见 _apply_display_mode 含 overscan）
 const FRAMED_OVERSCAN := 4.0                    # 带框场景向四周溢出像素：消除分数 DPI 下窗口边缘的浅"描边"接缝
 const FRAMED_CONSOLE_H := 80.0                  # 底部导航 console 高（完整容纳 44px 图标 + 文字，不被窗口底切）
@@ -105,7 +113,7 @@ const BAG_COSTS := [100, 250, 600, 1500, 8000, 30000, 90000,
 var save_enabled := true
 var _initial_load_complete := false   # async 窗口初始化期间禁止保存默认值覆盖真实存档
 var rng := RandomNumberGenerator.new()
-var _font: SystemFont
+var _font: Font                # 桌面=SystemFont(系统无衬线 CJK);web=打包的 Noto Serif SC(沙箱无系统字体)
 var _serif: Font               # Noto Serif SC —— 标题/钓点名/英雄数字的衬线展示声音
 var _serif_num: FontVariation  # 同字体 + 等宽数字
 var _font_bold: FontVariation  # 系统字体假粗体（embolden）：HUD 胶囊/导航等 weight 600 处用
@@ -657,6 +665,15 @@ func _ready() -> void:
 
 func _setup_window() -> void:
 	if DisplayServer.get_name() == "headless":
+		_window_setup_complete = true
+		return
+	if _is_web():
+		# 浏览器：canvas 就是整个窗口，没有透明/无边框/置顶/穿透/多屏定位可言。
+		# 用不透明底色的 framed 布局铺满 canvas，跳过一切窗口语义调用。
+		RenderingServer.set_default_clear_color(FRAMED_BG)
+		display_mode = "framed"
+		_widget_pos = null
+		_layout_widget()
 		_window_setup_complete = true
 		return
 	var w := get_window()
@@ -2043,6 +2060,9 @@ func _set_window_interaction(full: bool) -> void:
 func _apply_window_region() -> void:
 	if DisplayServer.get_name() == "headless" or not _window_setup_complete:
 		return
+	if _is_web():
+		# 浏览器：canvas 整块可交互，没有「区域外穿透到桌面」这回事；调 passthrough 只会裁出死区。
+		return
 	if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MINIMIZED:
 		return
 	if _window_interactive_full:
@@ -2080,13 +2100,15 @@ func _sync_window_region_deferred() -> void:
 		return
 	# framed 是当前屏幕可用区上的透明覆盖窗；系统几何改变后把覆盖层重新贴合当前屏。
 	if display_mode != "immersive":
-		var usable := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
-		if DisplayServer.window_get_position() != usable.position:
-			DisplayServer.window_set_position(usable.position)
-		if DisplayServer.window_get_size() != usable.size:
-			DisplayServer.window_set_size(usable.size)
-			await get_tree().process_frame
-			await get_tree().process_frame
+		# web 下没有 OS 窗口可重定位（canvas 尺寸由浏览器决定），只做响应式重排。
+		if not _is_web():
+			var usable := DisplayServer.screen_get_usable_rect(DisplayServer.window_get_current_screen())
+			if DisplayServer.window_get_position() != usable.position:
+				DisplayServer.window_set_position(usable.position)
+			if DisplayServer.window_get_size() != usable.size:
+				DisplayServer.window_set_size(usable.size)
+				await get_tree().process_frame
+				await get_tree().process_frame
 		_widget_pos = _clamp_widget_pos(_widget_pos as Vector2) if _widget_pos != null else null
 		_layout_widget()
 		if is_instance_valid(_panel):
@@ -2695,16 +2717,47 @@ func _save_capture_card() -> void:
 	r = r.intersection(Rect2i(Vector2i.ZERO, img.get_size()))
 	if r.size.x <= 0 or r.size.y <= 0:
 		return
+	var region := img.get_region(r)
+	if _is_web():
+		# 浏览器：写 user:// 用户拿不到、shell_open 打不开本地文件夹。
+		# 直接把 PNG 字节交给浏览器触发下载。
+		var buf := region.save_png_to_buffer()
+		if buf.size() > 0 and _browser_download_png(buf,
+				"%s_%d.png" % [str(_capture_card_data.get("id", "fish")),
+				int(Time.get_unix_time_from_system())]):
+			_toast("📸 捕获卡已下载", 2.2, Color(0.72, 0.86, 0.78))
+		else:
+			_toast("保存失败", 2.2, Color(1.0, 0.75, 0.4))
+		return
 	var dir := "user://capture_cards"
 	DirAccess.make_dir_recursive_absolute(dir)
 	var fn := "%s/%s_%d.png" % [dir, str(_capture_card_data.get("id", "fish")),
 		int(Time.get_unix_time_from_system())]
-	var err := img.get_region(r).save_png(fn)
+	var err := region.save_png(fn)
 	if err == OK:
 		_toast("📸 捕获卡已保存", 2.2, Color(0.72, 0.86, 0.78))
 		OS.shell_open(ProjectSettings.globalize_path(dir))
 	else:
 		_toast("保存失败（%d）" % err, 2.2, Color(1.0, 0.75, 0.4))
+
+
+## 浏览器下载：把 PNG 字节 → base64 → data URL → 触发 <a download> 点击。
+## 只在 web 导出可用（JavaScriptBridge 在桌面返回不同实现，此函数不会被桌面调用）。
+func _browser_download_png(buf: PackedByteArray, filename: String) -> bool:
+	if not _is_web():
+		return false
+	var b64 := Marshalls.raw_to_base64(buf)
+	var win := JavaScriptBridge.get_interface("window")
+	var doc := JavaScriptBridge.get_interface("document")
+	if win == null or doc == null:
+		return false
+	var a = doc.createElement("a")
+	a.href = "data:image/png;base64," + b64
+	a.download = filename
+	doc.body.appendChild(a)
+	a.click()
+	doc.body.removeChild(a)
+	return true
 
 
 ## 满篓兜底（调研 3.2「把痛点变成卖点」）：鱼篓满时把新鱼 c 与篓中最低价的
@@ -2840,13 +2893,19 @@ func _toggle_autosell() -> void:
 # ============================ 反馈 / HUD ============================
 
 func _setup_theme() -> void:
-	_font = SystemFont.new()
-	_font.font_names = PackedStringArray([
-		"Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC"])
 	# 衬线展示字体（设计令牌 --font-display）：标题与英雄数字用，呼应水彩卷轴气质。
 	_serif = load("res://assets/fonts/NotoSerifSC-Bold.woff2")
+	if _is_web():
+		# 浏览器 WASM 沙箱访问不到操作系统字体，SystemFont 查不到任何 CJK 字形 → 中文全变豆腐块/乱码。
+		# 复用已打包进 pck 的 Noto Serif SC 作默认字体（本作 UI 本就是衬线展示气质，全衬线不违和）。
+		_font = _serif
+	if _font == null:
+		var sysf := SystemFont.new()
+		sysf.font_names = PackedStringArray([
+			"Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC"])
+		_font = sysf
 	if _serif == null:
-		_serif = _font  # 字体缺失时优雅回退系统字体，绝不崩
+		_serif = _font  # 字体缺失时优雅回退,绝不崩
 	_serif_num = FontVariation.new()
 	_serif_num.base_font = _serif
 	_serif_num.opentype_features = {"tnum": 1, "lnum": 1}  # 等宽数字（字体支持时）

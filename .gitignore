@@ -35,3 +35,14 @@ docs/img/relationship_visit_heads.png.import
 # iWiki plugin files
 .iwiki
 .vscode/iwiki-*.json
+
+# 本机 AI 工具会话/缓存目录
+.agents/
+.claude/
+.firecrawl/
+
+# Tencent Cloud EdgeOne
+.env
+.edgeone/*
+.tef_dist/*
+

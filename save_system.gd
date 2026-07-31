@@ -91,12 +91,13 @@ static func collect(g) -> Dictionary:
 		"showcase": g.showcase_pending,  # 试竿保底挂起（升级后未钓即退出也不丢）
 		"ts": Time.get_unix_time_from_system(),
 	}
-	if DisplayServer.get_name() != "headless":
+	# 浏览器没有可定位的原生窗口，win_pos 无意义（widget_pos 是画布内坐标，仍要存）。
+	if DisplayServer.get_name() != "headless" and not OS.has_feature("web"):
 		var wp := DisplayServer.window_get_position()
 		data["win_pos"] = [wp.x, wp.y]
-		if g._widget_pos != null:
-			var gp: Vector2 = g._widget_pos
-			data["widget_pos"] = [gp.x, gp.y]
+	if g._widget_pos != null:
+		var gp: Vector2 = g._widget_pos
+		data["widget_pos"] = [gp.x, gp.y]
 	return data
 
 

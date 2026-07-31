@@ -57,6 +57,15 @@
 - [x] **README 文案同步真实数字**(鱼 106→219、存档 v11→v12;钓点守 3 不虚报)✅ 2026-06-23
 - [ ] 钓线美学定稿(用户仍觉"不太对":偏淡/走向/颜色)
 
+## M-Web 网页试玩 Demo ◐ 进行中(2026-07-31 起,并行分发车道,不抢好玩主线)
+
+- [x] Godot 4.6 **单线程** Web 导出预设 + web 平台守卫(`_is_web()`:跳过透明/穿透/多屏定位,强制 framed;存档走 IndexedDB;捕获卡走浏览器下载)—— 分支 `feat/web-makers-demo`
+- [x] **CJK 字体乱码修复**:web 默认字体从 `SystemFont` 改为打包的 Noto Serif SC(浏览器沙箱无系统字体)
+- [x] 本地静态服务器导出产物可加载、中文正常(`.wasm` 正确 MIME);`validate_game.gd` 0 失败
+- [x] **托管平台定案:改用 itch.io**(Makers 静态托管 25MiB 单文件上限,引擎 wasm 36MB 结构性超限,详见 BACKLOG 决策日志);产物 `dist/backpack-and-bait-web.zip`
+- [ ] 上传 itch.io(HTML 项目、勾浏览器运行、**不勾** SharedArrayBuffer、视口 1040×720),拿到可分享 URL 并实机跑通闭环
+- [ ] (可选)Makers 静态落地页:介绍 + 截图 + 桌面包/itch 下载链接
+
 ## M3 Steam 上架 ⏸ 暂缓(2026-07-07 起让位于腾讯 AI 比赛;材料在 `E:\godotgame1\steam-launch\` 不废弃)
 
 - [x] 税务表格提交完成

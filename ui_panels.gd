@@ -2160,7 +2160,10 @@ static func fill_fish_detail(g: CornerFishing, v: VBoxContainer) -> void:
 		var wurl := "https://zh.wikipedia.org/wiki/" + str(lore["wiki"])
 		wb.pressed.connect(func() -> void:
 			Audio.play_ui("ui_click")
-			OS.shell_open(wurl))
+			if OS.has_feature("web"):
+				JavaScriptBridge.eval("window.open('%s', '_blank')" % wurl)
+			else:
+				OS.shell_open(wurl))
 		btns.add_child(wb)
 	var bb := Button.new()
 	bb.text = "← 返回图鉴"

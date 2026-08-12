@@ -58,6 +58,33 @@
 - UI 规范对齐内部设计系统（颜色/字体/间距/圆角/两表面/品阶色/慢而无弹跳的动效，详见设计稿，未随游戏仓库发布）。
 - **旅行手账风格方向**（新）：整体视觉走「手记装订」框架 + 每站独立地域色，详见 `docs/art_direction.md`。
 
+## Windows + macOS 试玩包
+
+试玩者可按所用系统取得对应的版本化 ZIP，完整解压后再启动，不需要安装 Godot：
+
+- Windows：解压 `Backpack-and-Bait-v0.1.0-windows-x86_64.zip` 后双击
+  `BackpackAndBait.exe`。必须保留同目录的 PCK 文件；不要只移动 `.exe`。内测包尚未
+  代码签名，SmartScreen 可能显示“未知发布者”；请通过同目录 `.sha256` 核对来源，不要
+  关闭 Defender，也不要授予管理员权限。
+- macOS：解压 `Backpack-and-Bait-v0.1.0-macos-universal.zip` 后，在 Finder 中打开
+  `BackpackAndBait.app`。这是同时包含 Apple Silicon 与 Intel 架构的 Universal 2 包，使用
+  Godot built-in ad-hoc 签名，未使用 Developer ID 且未公证。若 Gatekeeper 阻止首次启动，
+  请在 Finder 对 App 右键选择“打开”，或到“隐私与安全性”点击“仍要打开”；不要关闭系统
+  安全功能。
+
+详细操作见 ZIP 内的 `PLAYTEST.txt`（内容为简体中文）。维护者安装 Godot 4.6 官方导出模板后，
+可在干净工作树中分别一键重建：
+
+```sh
+GODOT_BIN="/path/to/Godot-4.6" sh tools/build_release.sh
+GODOT_BIN="/Applications/Godot.app/Contents/MacOS/Godot" sh tools/build_macos_release.sh
+```
+
+产物写入已忽略的 `dist/`。GitHub Actions 会在 PR、手动运行和每次 `main` 更新时生成
+`windows-x86_64` 与 `macos-universal` 两个 artifacts；普通 `main` 更新不会创建 GitHub
+Release。只有推送 `v<project.godot 版本>` 标签时才会创建双平台 Draft Release。Windows
+10/11 与 macOS Apple Silicon／Intel 的实机放行清单都尚未完成，因此当前并未公开发布。
+
 ## 运行
 
 ```sh
@@ -89,7 +116,7 @@ godot --headless -s tools/balance_probe.gd
 左侧开发入口可直接打开属性面板、功能管理与人情模块；属性面板可编辑金币（翻倍/减半）、装备来源层与宠物状态；测试台可强制昼夜时段、钓鱼提速（×3/×10/即时）、改金币、+1/拉满装备与背包、绕线轮升降/设级、给指定鱼（鱼种×星级×变体）、
 样本包/清空鱼篓、解锁全部钓点/点亮全图鉴、召唤鱼贩/重置订单/充能专注、立即触发随机事件；人情模块可召唤指定 NPC 的闲谈/委托/Buff/终章事件、打开人情簿或到访面板、mock 偏好鱼与终章鱼、调整好感等级、重置或完成终章。
 
-河湾五位 NPC 已使用专属水彩人物图：右侧到访栏显示主题色圆形头像，人情簿显示动作缩略图，到访面板显示完整透明立绘；资源缺失时安全回退到人物主题色占位，不影响交互。
+河湾五位 NPC 已使用专属水彩人物图：右侧到访栏从原图单独裁切头部并显示为主题色圆形头像，人情簿显示动作缩略图，到访面板使用紧凑对话头像；资源缺失时安全回退到带姓名首字的主题色占位，底部人情菜单缺少专属 icon 时显示「人」字占位，不留空白入口。到访页采用聊天记录式剧情与当前抉择，NPC 剧情、闲谈和结算均以第一人称发言，玩家按钮使用简短的真实回复；NPC 与玩家消息分别占有独立的左／右整行气泡，长文自动撑高本行，选择后反馈从下一行开始。一次到访的抉择、选鱼、玩家回复和反馈由同一份到访期临时会话承接，关闭或切换到访即清理，避免跨人物、跨到访串线；好感、近况、终章和偏好资料集中在人情簿，偏好按好感 0–1／2–3／4–6 三阶段显示未知／模糊线索／完整规则。
 
 **仅本会话生效、不写档**：进入即冻结磁盘存档，退出（切回游玩模式）从磁盘重载正式档、丢弃全部测试改动；
 默认重启回到正式档；如需启动即进入测试，可在 `main.tscn` 的 `Main` 节点 Inspector 勾选 `test_mode`。正式存档永不被测试数据污染，HUD 右上常驻「🧪测试」角标提示当前在测试模式。

@@ -1066,11 +1066,23 @@ func _draw_sparks() -> void:
 		draw_circle(s["pos"], float(s["size"]) * (0.6 + 0.4 * k), col)
 
 
+## 号外纸条字体：桌面走全局回退（含系统 CJK 回退链）；web 沙箱无系统字体，
+## fallback_font 无 CJK 会画成豆腐块，改用已打包的 Noto Serif SC（懒加载缓存）。
+var _news_font_cache: Font = null
+func _news_font() -> Font:
+	if OS.has_feature("web"):
+		if _news_font_cache == null:
+			_news_font_cache = load("res://assets/fonts/NotoSerifSC-Bold.woff2")
+		if _news_font_cache != null:
+			return _news_font_cache
+	return ThemeDB.fallback_font
+
+
 ## 水面号外纸条：米纸底 + 暖墨字，从右缓缓漂到左、首尾淡入淡出（挂件内自足的「全服播报」平替）。
 func _draw_newsflash() -> void:
 	if _news_t <= 0.0 or _news_text == "":
 		return
-	var f: Font = ThemeDB.fallback_font   # Node2D 无主题字体，走全局回退（Windows 下含 CJK 回退链）
+	var f: Font = _news_font()
 	if f == null:
 		return
 	var fs := 11

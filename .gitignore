@@ -21,4 +21,28 @@ tools/__pycache__/
 .reference/
 node_modules/
 output/
+
+# 可复现发行脚本的本地产物
+dist/
+
+# Godot 对评审截图生成的本地导入元数据
+docs/img/relationship_visit_heads.png.import
 .codebuddy/
+
+# Superpowers 可视化伴侣的本地会话与交互记录
+.superpowers/
+
+# iWiki plugin files
+.iwiki
+.vscode/iwiki-*.json
+
+# 本机 AI 工具会话/缓存目录
+.agents/
+.claude/
+.firecrawl/
+
+# Tencent Cloud EdgeOne
+.env
+.edgeone/*
+.tef_dist/*
+

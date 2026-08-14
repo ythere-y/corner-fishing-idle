@@ -39,6 +39,7 @@ const FRAMED_SCENE_SCALE := 2.0                 # 带框模式：场景放大填
 const FRAMED_OVERSCAN := 4.0                    # 带框场景向四周溢出像素：消除分数 DPI 下窗口边缘的浅"描边"接缝
 const FRAMED_CONSOLE_H := 80.0                  # 底部导航 console 高（完整容纳 44px 图标 + 文字，不被窗口底切）
 const FRAMED_BG := Color(0.105, 0.115, 0.105)   # 带框窗口实底背景（场景外的边）
+const FRAMED_UI_BASE_SCALE := 0.8               # 100% 档的紧凑基准；高 DPI 桌面不再默认占掉半屏
 
 # —— UI 布局契约 ——
 # 主图烤入按钮/落水点的坐标随 Codex 美术版本漂移。优先从 ui_layout.json 读取
@@ -128,7 +129,7 @@ var paper_grain := true          # 水彩纸纹层开关（视觉偏好；真值
 const FPS_OPTIONS := [30, 60, 90, 120]   # 设置里可选的帧率上限
 var max_fps := 120               # 帧率上限：默认 120 流畅优先（用户拍板），可在设置降到 30/60 省电
 const UI_SCALE_OPTIONS := [1.0, 1.25, 1.5]   # 设置里「快捷跳档」按钮（自由拖拽不受这三个值限制）
-const UI_SCALE_MIN := 0.5                    # 自由缩放下限：0.5=520×360，桌面角落挂件可缩到很小；再小手柄/字就难用
+const UI_SCALE_MIN := 0.5                    # 相对紧凑基准的自由缩放下限；再小手柄/字就难用
 const UI_SCALE_MAX := 2.5                    # 自由缩放绝对上限（实际还会再夹到屏幕可用区）
 var ui_scale := 1.0              # 当前界面缩放倍率（连续值）；带框模式整窗等比缩放
 var _win_resize_guard := false   # 程序内主动改窗口尺寸时置位（仅 _set_ui_scale 用，保留以防误触发监听）
@@ -744,8 +745,13 @@ func _apply_display_mode() -> void:
 func _stage_size() -> Vector2:
 	return get_viewport_rect().size
 
+
+func _ui_render_scale() -> float:
+	return ui_scale * FRAMED_UI_BASE_SCALE
+
+
 func _widget_size() -> Vector2:
-	return ART * ui_scale
+	return ART * _ui_render_scale()
 
 
 func _default_widget_pos() -> Vector2:
@@ -767,14 +773,15 @@ func _ensure_widget_pos() -> void:
 
 func _widget_point(p: Vector2) -> Vector2:
 	_ensure_widget_pos()
-	return (_widget_pos as Vector2) + p * ui_scale
+	return (_widget_pos as Vector2) + p * _ui_render_scale()
 
 
 func _layout_widget() -> void:
 	if display_mode == "immersive":
 		return
 	_ensure_widget_pos()
-	var s := Vector2(ui_scale, ui_scale)
+	var render_scale := _ui_render_scale()
+	var s := Vector2(render_scale, render_scale)
 	painter.scale = s
 	painter.position = _widget_pos as Vector2
 	toast_label.position = _widget_point(Vector2((ART.x - 440.0) * 0.5, ART.y - FRAMED_CONSOLE_H - 120.0))
@@ -1935,7 +1942,8 @@ func _update_action_button() -> void:
 	_action_btn.size = Vector2(bw, bh)
 	_action_btn.position = _widget_point(Vector2((ART.x - bw) * 0.5,
 		ART.y - FRAMED_CONSOLE_H - 66.0 + (11.0 if quiet else 0.0)))
-	_action_btn.scale = Vector2(ui_scale, ui_scale)
+	var render_scale := _ui_render_scale()
+	_action_btn.scale = Vector2(render_scale, render_scale)
 	_action_btn.add_theme_font_size_override("font_size", 12 if quiet else 15)
 	_action_btn.text = txt
 	_action_btn.add_theme_color_override("font_color", fg)
@@ -4099,7 +4107,8 @@ func _max_scale_for_screen() -> float:
 	if DisplayServer.get_name() == "headless":
 		return UI_SCALE_MAX
 	var st := _stage_size()
-	var fit := minf(st.x / ART.x, st.y / ART.y) * 0.98
+	var fit := minf(st.x / (ART.x * FRAMED_UI_BASE_SCALE),
+		st.y / (ART.y * FRAMED_UI_BASE_SCALE)) * 0.98
 	return clampf(fit, UI_SCALE_MIN, UI_SCALE_MAX)
 
 
@@ -4158,7 +4167,7 @@ func _layout_resize_grips() -> void:
 		var bp: Vector2 = grip.get_meta("base_pos")
 		var bs: Vector2 = grip.get_meta("base_size")
 		grip.position = _widget_point(bp)
-		grip.size = bs * ui_scale
+		grip.size = bs * _ui_render_scale()
 
 
 ## 手柄被按下 → 记录锚点/轴向/起始几何，进入缩放拖拽（后续移动/松手在 _input 全局处理）。
@@ -4183,14 +4192,15 @@ func _apply_grip_resize(_mouse_global: Vector2i) -> void:
 	var raw_h := float(_rz_start_size.y) + _rz_dir.y * delta.y
 	var sc := ui_scale
 	if _rz_dir.x != 0.0 and _rz_dir.y != 0.0:
-		sc = maxf(raw_w / ART.x, raw_h / ART.y)   # 角：取较大轴，跟手
+		sc = maxf(raw_w / (ART.x * FRAMED_UI_BASE_SCALE),
+			raw_h / (ART.y * FRAMED_UI_BASE_SCALE))   # 角：取较大轴，跟手
 	elif _rz_dir.x != 0.0:
-		sc = raw_w / ART.x
+		sc = raw_w / (ART.x * FRAMED_UI_BASE_SCALE)
 	else:
-		sc = raw_h / ART.y
+		sc = raw_h / (ART.y * FRAMED_UI_BASE_SCALE)
 	sc = clampf(sc, UI_SCALE_MIN, _max_scale_for_screen())
 	ui_scale = sc
-	var new_size := Vector2(ART) * sc
+	var new_size := Vector2(ART) * _ui_render_scale()
 	var anchor_global := Vector2(_rz_start_pos) + Vector2(_rz_start_size) * _rz_anchor
 	_widget_pos = _clamp_widget_pos(anchor_global - new_size * _rz_anchor)
 	_layout_widget()

@@ -185,6 +185,11 @@ func _check_data() -> void:
 func _check_window_region_geometry() -> void:
 	# 运行期加载，避免 validate_game 作为自定义 MainLoop 编译时提前解析主场景与 Audio autoload。
 	var main_script: GDScript = load("res://main.gd")
+	var sizing: Node = load("res://main.tscn").instantiate()
+	_assert(sizing._widget_size().is_equal_approx(
+		Vector2(sizing.ART) * sizing.FRAMED_UI_BASE_SCALE),
+		"100% 档应使用紧凑 UI 基准")
+	sizing.free()
 	# 复刻 Windows 2560×1392 + canvas_items/expand 的实机比例：逻辑 widget 必须落到原生客户区。
 	var logical := PackedVector2Array([
 		Vector2(780, 296), Vector2(1300, 296), Vector2(1300, 696), Vector2(780, 696)])

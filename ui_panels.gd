@@ -5,6 +5,7 @@ class_name UIPanels
 ## 行为与原 main.gd 内嵌实现完全一致（仅做位置迁移 + g. 前缀）。
 
 const CARD_SIZE := Vector2(520, 476)
+const FRAMED_MODAL_SIZE := Vector2(560, 520)  # 高 DPI 下约 840×780px，不再接近铺满 1080p 屏高
 
 static var font_bold: Font = null   # 由 main._setup_theme 注入：系统字体假粗体（CD 按钮/页签 weight 600-700）
 const RelationshipDataScript := preload("res://relationship_data.gd")
@@ -393,7 +394,7 @@ static func make_card(g: CornerFishing, title: String) -> Control:
 
 
 static func _make_framed_modal(g: CornerFishing, title: String) -> Control:
-	var modal_size := Vector2(680, 640)
+	var modal_size := FRAMED_MODAL_SIZE
 	var stage_size := g._stage_size()
 	var p := PanelContainer.new()
 	p.z_index = 50
@@ -2602,6 +2603,7 @@ static func fill_fish_detail(g: CornerFishing, v: VBoxContainer) -> void:
 	pm.add_child(pbox)
 	var img := TextureRect.new()
 	img.custom_minimum_size = Vector2(0, 224 if has_photo else 132)
+	img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	img.texture = (load(photo_path) as Texture2D) if has_photo else g._fish_texture(id)
 	pbox.add_child(img)

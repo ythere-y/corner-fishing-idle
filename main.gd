@@ -4102,7 +4102,7 @@ func _set_max_fps(val: int) -> void:
 	Engine.max_fps = max_fps
 
 
-## 屏幕可用区能容纳的最大缩放（留 2% 边距，避免顶满屏幕）。
+## 屏幕可用区能容纳的最大挂机组件缩放（留 2% 边距，避免顶满屏幕）。
 func _max_scale_for_screen() -> float:
 	if DisplayServer.get_name() == "headless":
 		return UI_SCALE_MAX
@@ -4112,8 +4112,22 @@ func _max_scale_for_screen() -> float:
 	return clampf(fit, UI_SCALE_MIN, UI_SCALE_MAX)
 
 
+## 带框弹窗与挂机组件共享 ui_scale；弹窗再按自身内容尺寸夹到舞台内，防止放大档溢出屏幕。
+func _framed_panel_scale(panel_size: Vector2) -> float:
+	if display_mode == "immersive":
+		return 1.0
+	return _framed_panel_scale_for_stage(ui_scale, panel_size, _stage_size())
+
+
+static func _framed_panel_scale_for_stage(requested: float, panel_size: Vector2, stage_size: Vector2) -> float:
+	var safe_size := Vector2(maxf(panel_size.x, 1.0), maxf(panel_size.y, 1.0))
+	var fit := minf(stage_size.x / safe_size.x, stage_size.y / safe_size.y) * 0.96
+	var max_scale := clampf(fit, UI_SCALE_MIN, UI_SCALE_MAX)
+	return clampf(requested, UI_SCALE_MIN, max_scale)
+
+
 ## 界面缩放（设置页「快捷跳档」按钮 / 存档载入走这里）：设值 + 整窗等比改尺寸 +
-## 以原中心为锚夹到屏幕。canvas_items 拉伸 → 成品图整体缩放，含小字一起变大，布局不变、不溢出。
+## 以原中心为锚夹到屏幕。挂机组件与带框弹窗共享倍率，含小字一起缩放、布局不变。
 ## 沉浸模式的羽化/穿透按设计空间标定，不在此缩放（避免裁切错位）。自由拖拽缩放见 _build_resize_grips。
 func _set_ui_scale(val: float) -> void:
 	if DisplayServer.get_name() == "headless" or display_mode == "immersive":
@@ -4124,6 +4138,8 @@ func _set_ui_scale(val: float) -> void:
 	ui_scale = clampf(val, UI_SCALE_MIN, _max_scale_for_screen())
 	_widget_pos = _clamp_widget_pos(center - _widget_size() * 0.5)
 	_layout_widget()
+	if is_instance_valid(_panel):
+		UIPanels.apply_framed_modal_scale(self, _panel)
 
 
 ## 自绘缩放手柄：无边框窗口没有系统边框可拖，于是在画布四边四角放隐形热区 Control。

@@ -45,9 +45,10 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 	var card := make_card(g, title_str)
 	# 恢复拖拽位置；开场/离线这类引导面板保持居中。
 	# 【修改】story/character 同样是开场引导性质的固定面板，不恢复上次拖拽位置。
-	if kind != "offline" and kind != "intro" \
-			and kind != "story" and kind != "character" and g._panel_saved_pos != null:
-		card.position = clamp_panel_position(g, g._panel_saved_pos, card.custom_minimum_size)
+	var restore_position := kind != "offline" and kind != "intro" \
+		and kind != "story" and kind != "character" and g._panel_saved_pos != null
+	if restore_position:
+		card.position = clamp_panel_position(g, g._panel_saved_pos, card.size * card.scale)
 	var v: VBoxContainer = card.get_node("M/V")
 	match kind:
 		"catch": fill_bag_panel(g, v)
@@ -65,6 +66,11 @@ static func open_panel(g: CornerFishing, kind: String) -> void:
 	g._panel = card
 	g._panel_kind = kind
 	g._panel_view_sig = sig
+	if g.display_mode != "immersive":
+		# 内容填充后才知道真实最小尺寸；此时再同步一次缩放，避免某个页签把弹窗撑大后溢出。
+		apply_framed_modal_scale(g, card, not restore_position)
+		if restore_position:
+			card.position = clamp_panel_position(g, g._panel_saved_pos, card.size * card.scale)
 	if keep_scroll > 0:
 		_restore_scroll(g, card, keep_scroll)
 	set_interactive_full(g, true)
@@ -131,9 +137,9 @@ static func set_interactive_full(g: CornerFishing, full: bool) -> void:
 
 # ============================ 样式工厂 ============================
 
-static func panel_bg_style() -> StyleBoxFlat:
+static func panel_bg_style(opaque := false) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = DT.GLASS
+	sb.bg_color = DT.GLASS_SOLID if opaque else DT.GLASS
 	sb.set_corner_radius_all(DT.R_PANEL)
 	sb.set_border_width_all(1)
 	sb.border_color = DT.GLASS_BORDER
@@ -398,12 +404,16 @@ static func _make_framed_modal(g: CornerFishing, title: String) -> Control:
 	var stage_size := g._stage_size()
 	var p := PanelContainer.new()
 	p.z_index = 50
-	p.position = ((stage_size - modal_size) * 0.5).round()
+	var modal_scale := g._framed_panel_scale(modal_size)
+	p.position = ((stage_size - modal_size * modal_scale) * 0.5).round()
 	p.custom_minimum_size = modal_size
 	p.size = modal_size
+	p.scale = Vector2.ONE * modal_scale
+	p.set_meta("framed_modal", true)
 	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	p.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	p.add_theme_stylebox_override("panel", panel_bg_style())
+	# 带框模式浮在桌面之上；玻璃 alpha 会把底层场景透进内容区，形成一层脏灰遮罩。
+	p.add_theme_stylebox_override("panel", panel_bg_style(true))
 	var m := MarginContainer.new()
 	m.name = "M"
 	m.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -434,6 +444,32 @@ static func _make_framed_modal(g: CornerFishing, title: String) -> Control:
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(sp)
+	var zoom_out := Button.new()
+	zoom_out.text = "−"
+	zoom_out.flat = true
+	zoom_out.focus_mode = Control.FOCUS_NONE
+	zoom_out.tooltip_text = "缩小全部界面"
+	zoom_out.custom_minimum_size = Vector2(28, 30)
+	zoom_out.add_theme_font_size_override("font_size", 18)
+	zoom_out.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	zoom_out.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		g._set_ui_scale(g.ui_scale - 0.1)
+		g._save())
+	hb.add_child(zoom_out)
+	var zoom_in := Button.new()
+	zoom_in.text = "+"
+	zoom_in.flat = true
+	zoom_in.focus_mode = Control.FOCUS_NONE
+	zoom_in.tooltip_text = "放大全部界面"
+	zoom_in.custom_minimum_size = Vector2(28, 30)
+	zoom_in.add_theme_font_size_override("font_size", 16)
+	zoom_in.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
+	zoom_in.pressed.connect(func() -> void:
+		Audio.play_ui("ui_click")
+		g._set_ui_scale(g.ui_scale + 0.1)
+		g._save())
+	hb.add_child(zoom_in)
 	var cb := Button.new()
 	cb.text = "×"
 	cb.flat = true
@@ -447,6 +483,22 @@ static func _make_framed_modal(g: CornerFishing, title: String) -> Control:
 	hb.add_child(cb)
 	v.add_child(hb)
 	return p
+
+
+## 把全局 ui_scale 同步到带框弹窗；尺寸变化时保持视觉中心，并始终夹在舞台范围内。
+static func apply_framed_modal_scale(g: CornerFishing, panel: Control, recenter := false) -> void:
+	if not is_instance_valid(panel) or not bool(panel.get_meta("framed_modal", false)):
+		return
+	var old_visual_size := panel.size * panel.scale
+	var old_center := panel.position + old_visual_size * 0.5
+	var logical_size := panel.get_combined_minimum_size().max(FRAMED_MODAL_SIZE)
+	panel.size = logical_size
+	var modal_scale := g._framed_panel_scale(logical_size)
+	panel.scale = Vector2.ONE * modal_scale
+	var visual_size := logical_size * modal_scale
+	var desired := (g._stage_size() - visual_size) * 0.5 if recenter \
+		else old_center - visual_size * 0.5
+	panel.position = clamp_panel_position(g, desired.round(), visual_size)
 
 
 static func clamp_panel_position(g: CornerFishing, pos: Vector2, size: Vector2) -> Vector2:
@@ -467,7 +519,7 @@ static func panel_drag_input(g: CornerFishing, event: InputEvent, panel: Control
 			g._panel_saved_pos = panel.position
 	elif event is InputEventMouseMotion and g._panel_dragging:
 		panel.position = clamp_panel_position(g, panel.get_global_mouse_position() - g._panel_drag_offset,
-			panel.custom_minimum_size)
+			panel.size * panel.scale)
 
 
 # ============================ 鱼篓主面板 + 页签 ============================
@@ -3604,7 +3656,7 @@ static func fill_settings(g: CornerFishing, v: VBoxContainer) -> void:
 		ui_row.add_child(sb)
 	col.add_child(ui_row)
 	var ui_hint := Label.new()
-	ui_hint.text = "点档位，或直接拖窗口边角自由缩放（怎么拖都等比不变形）"
+	ui_hint.text = "点档位、弹窗标题栏 − / +，或关闭菜单后拖挂机界面边角；都会同步等比缩放"
 	ui_hint.add_theme_font_size_override("font_size", DT.FS_2XS)
 	ui_hint.add_theme_color_override("font_color", DT.TEXT_FAINT_GLASS)
 	col.add_child(ui_hint)

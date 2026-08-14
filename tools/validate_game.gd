@@ -189,6 +189,13 @@ func _check_window_region_geometry() -> void:
 	_assert(sizing._widget_size().is_equal_approx(
 		Vector2(sizing.ART) * sizing.FRAMED_UI_BASE_SCALE),
 		"100% 档应使用紧凑 UI 基准")
+	_assert(is_equal_approx(main_script._framed_panel_scale_for_stage(
+		0.7, Vector2(560, 520), Vector2(1040, 720)), 0.7),
+		"带框弹窗应继承与主界面相同的缩放倍率")
+	var panel_fit: float = main_script._framed_panel_scale_for_stage(
+		2.0, Vector2(560, 520), Vector2(1040, 720))
+	_assert(panel_fit < 2.0 and panel_fit >= 0.5,
+		"带框弹窗放大时应夹在舞台可用区内")
 	sizing.free()
 	# 复刻 Windows 2560×1392 + canvas_items/expand 的实机比例：逻辑 widget 必须落到原生客户区。
 	var logical := PackedVector2Array([

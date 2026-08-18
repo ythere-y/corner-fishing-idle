@@ -131,6 +131,7 @@ var max_fps := 120               # 帧率上限：默认 120 流畅优先（用�
 const UI_SCALE_OPTIONS := [1.0, 1.25, 1.5]   # 设置里「快捷跳档」按钮（自由拖拽不受这三个值限制）
 const UI_SCALE_MIN := 0.5                    # 相对紧凑基准的自由缩放下限；再小手柄/字就难用
 const UI_SCALE_MAX := 2.5                    # 自由缩放绝对上限（实际还会再夹到屏幕可用区）
+const FRAMED_PANEL_SCALE_MIN := 0.1          # 弹窗适配夹取下限：极小窗口下允许弹窗缩到更小以免溢出舞台
 var ui_scale := 1.0              # 当前界面缩放倍率（连续值）；带框模式整窗等比缩放
 var _win_resize_guard := false   # 程序内主动改窗口尺寸时置位（仅 _set_ui_scale 用，保留以防误触发监听）
 var _widget_pos = null           # Variant：Vector2 或 null；透明覆盖窗内挂机组件左上角
@@ -4122,8 +4123,8 @@ func _framed_panel_scale(panel_size: Vector2) -> float:
 static func _framed_panel_scale_for_stage(requested: float, panel_size: Vector2, stage_size: Vector2) -> float:
 	var safe_size := Vector2(maxf(panel_size.x, 1.0), maxf(panel_size.y, 1.0))
 	var fit := minf(stage_size.x / safe_size.x, stage_size.y / safe_size.y) * 0.96
-	var max_scale := clampf(fit, UI_SCALE_MIN, UI_SCALE_MAX)
-	return clampf(requested, UI_SCALE_MIN, max_scale)
+	var max_scale := clampf(fit, FRAMED_PANEL_SCALE_MIN, UI_SCALE_MAX)
+	return clampf(requested, FRAMED_PANEL_SCALE_MIN, max_scale)
 
 
 ## 界面缩放（设置页「快捷跳档」按钮 / 存档载入走这里）：设值 + 整窗等比改尺寸 +

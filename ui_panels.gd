@@ -3635,7 +3635,7 @@ static func fill_settings(g: CornerFishing, v: VBoxContainer) -> void:
 
 	# 界面缩放（带框模式整窗等比放大，小字一起变大；不改布局、不会错位）
 	var ui_lbl := Label.new()
-	ui_lbl.text = "界面缩放 · 当前 %d%%" % int(round(g.ui_scale * 100.0))
+	ui_lbl.text = "界面缩放 · 当前 %d%%" % int(round(g._ui_render_scale() * 100.0))
 	ui_lbl.add_theme_font_size_override("font_size", DT.FS_SM)
 	ui_lbl.add_theme_color_override("font_color", DT.TEXT_MUTED_GLASS)
 	col.add_child(ui_lbl)
@@ -3643,7 +3643,7 @@ static func fill_settings(g: CornerFishing, v: VBoxContainer) -> void:
 	ui_row.add_theme_constant_override("separation", DT.SP_2)
 	for s in g.UI_SCALE_OPTIONS:
 		var sb := Button.new()
-		sb.text = "%d%%" % int(round(s * 100.0))
+		sb.text = "%d%%" % int(round(s * g.FRAMED_UI_BASE_SCALE * 100.0))
 		sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		sb.custom_minimum_size = Vector2(0, 30)
 		var active: bool = is_equal_approx(g.ui_scale, s)
@@ -3656,7 +3656,7 @@ static func fill_settings(g: CornerFishing, v: VBoxContainer) -> void:
 		ui_row.add_child(sb)
 	col.add_child(ui_row)
 	var ui_hint := Label.new()
-	ui_hint.text = "点档位、弹窗标题栏 − / +，或关闭菜单后拖挂机界面边角；都会同步等比缩放"
+	ui_hint.text = "点档位、弹窗标题栏 − / +，或关闭菜单后拖挂机界面边角；都会同步等比缩放（100% = 紧凑基准）"
 	ui_hint.add_theme_font_size_override("font_size", DT.FS_2XS)
 	ui_hint.add_theme_color_override("font_color", DT.TEXT_FAINT_GLASS)
 	col.add_child(ui_hint)

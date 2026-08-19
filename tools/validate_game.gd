@@ -2853,6 +2853,12 @@ func _check_effects() -> void:
 	_assert(p._fisher != null, "渔夫精灵应加载")
 	_assert(p._fisher_pull.size() == 2, "渔夫收竿帧应 2 帧，实际 %d" % p._fisher_pull.size())
 	_assert(p._lantern_tex != null, "灯笼精灵应加载")
+	# baked_art 开关：默认烘焙完整画面；切回代码叠加层时角色/灯笼/灯火资源仍应就绪（防回归）
+	_assert(p.baked_art == true, "默认应使用烘焙完整画面（baked_art=true）")
+	p.baked_art = false
+	_assert(p._fisher != null and p._lantern_tex != null and not p._glow_tex.is_empty(),
+		"baked_art=false 需代码画角色/灯笼/灯火，相关资源应已加载")
+	p.baked_art = true
 	# 渔夫情绪 / 桌面宠物 API（Task 4）
 	p.fisher_cheer()
 	_assert(p.fisher_mood == "cheer", "高星上鱼应触发欢呼情绪")

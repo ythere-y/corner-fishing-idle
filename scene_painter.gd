@@ -486,7 +486,8 @@ func set_spot(bg_key: String) -> void:
 	_apply_background(_resolve_spot_tex(bg_key, _spot_phase), false)
 
 
-## 当前是否用干净 spot 底图（渔夫/按钮需由代码补上）；river 回退 _base 时为 false。
+## 是否已解析到 spot 底图（v9 起为烘焙完整画面；缺图回退 _base 时为 false）。
+## 名称沿用历史命名；main 用它判断「钓点底图就绪 → 显示钓点 UI 按钮」。
 func uses_clean_bg() -> bool:
 	return _spot_base != null
 
@@ -999,7 +1000,10 @@ func _draw_night_lights() -> void:
 			draw_circle(Vector2(fx, fy), 1.7, _a(fcol, tw * fa))
 
 
-# —— 干净底图 + 统一叠加层（所有钓场同一路径；底图均为纯风景，渔夫/灯笼/钓线/浮漂全代码叠加）——
+# —— 统一合成路径（所有钓场同一路径）——
+# baked_art=true（默认）：底图为烘焙完整画面，关闭渔夫/猫/灯笼/钓线及灯笼灯火/光晕（图内自带）；
+#   仍保留浮漂/金环/涟漪/小动物/雾/雪/水光等动态交互层。
+# baked_art=false：底图为纯风景，代码补齐全部角色层 + 灯笼灯火/光晕。
 func _draw_composite() -> void:
 	# 底图：昼夜切换时上一张底图淡出、当前底图按 _spot_fade 淡入（缺时段图已在解析层回退，不黑屏）。
 	var bg := _spot_base if _spot_base != null else _base
@@ -1019,7 +1023,8 @@ func _draw_composite() -> void:
 	_draw_snow_layer()
 	if use_grade:
 		_draw_daynight_grade()
-		_draw_night_lights()
+		if not baked_art:
+			_draw_night_lights()   # 夜间灯火锚在代码层灯笼；烘焙图内灯笼自带光，不重复叠加
 	else:
 		_draw_phase_tint()
 	_draw_wildlife()
@@ -1027,7 +1032,8 @@ func _draw_composite() -> void:
 	_draw_bobber_sprite()
 	_draw_bite_ring()       # 稀有咬钩驻留：浮漂脉动金环（P0 好玩补丁）
 	_draw_sparks()          # 稀有入手金光粒子
-	_draw_glow_layer()      # 灯光呼吸光晕（锚在灯笼火焰处）
+	if not baked_art:
+		_draw_glow_layer()  # 灯光呼吸光晕（锚在代码层灯笼火焰处）
 	_draw_catch_flash()     # 稀有上鱼柔和暖光脉冲（受羽化遮罩约束）
 	_draw_newsflash()       # 水面号外纸条（稀有捕获的挂件内播报）
 	_draw_paper_layer()     # 水彩纸纹（最上层介质，随羽化消散，统一全画面气质）

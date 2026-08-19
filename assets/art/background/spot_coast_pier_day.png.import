@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://csstkzwgkipfq"
-path="res://.godot/imported/spot_coast_pier_day.png-ec3a34059304d0036be5f20d6b54e8e8.ctex"
+uid="uid://csstk0wgkipfq"
+path="res://.godot/imported/spot_coast_pier_day.png-a2c2a26dcede5b425d7c0e7b36ff2c9f.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_coast_pier_day.png"
-dest_files=["res://.godot/imported/spot_coast_pier_day.png-ec3a34059304d0036be5f20d6b54e8e8.ctex"]
+dest_files=["res://.godot/imported/spot_coast_pier_day.png-a2c2a26dcede5b425d7c0e7b36ff2c9f.ctex"]
 
 [params]
 

@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://t54wyklcpsiuo"
-path="res://.godot/imported/spot_coast_pier_night.png-48c3fe58caf47aa1b0247814e2328deb.ctex"
+uid="uid://t3k1ay2vr42u"
+path="res://.godot/imported/spot_coast_pier_night.png-9dced7670b809122c217ca63a55937a3.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_coast_pier_night.png"
-dest_files=["res://.godot/imported/spot_coast_pier_night.png-48c3fe58caf47aa1b0247814e2328deb.ctex"]
+dest_files=["res://.godot/imported/spot_coast_pier_night.png-9dced7670b809122c217ca63a55937a3.ctex"]
 
 [params]
 

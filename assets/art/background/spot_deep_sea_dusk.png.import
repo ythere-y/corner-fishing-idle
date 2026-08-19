@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://wryhdnuhxndwm"
-path="res://.godot/imported/spot_deep_sea_dusk.png-250899ecec997d89b9a31cb485c5cffe.ctex"
+uid="uid://dgw4fd874my4s"
+path="res://.godot/imported/spot_deep_sea_dusk.png-fc3f99e9cc634e437d8d0f4fac8eab09.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_deep_sea_dusk.png"
-dest_files=["res://.godot/imported/spot_deep_sea_dusk.png-250899ecec997d89b9a31cb485c5cffe.ctex"]
+dest_files=["res://.godot/imported/spot_deep_sea_dusk.png-fc3f99e9cc634e437d8d0f4fac8eab09.ctex"]
 
 [params]
 

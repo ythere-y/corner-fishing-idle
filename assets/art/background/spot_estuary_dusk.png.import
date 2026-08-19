@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b5z4anv5iwbau"
-path="res://.godot/imported/spot_estuary_dusk.png-9bb94e35d22d34596ff4bdc4705de7e6.ctex"
+uid="uid://b504anv5iwbau"
+path="res://.godot/imported/spot_estuary_dusk.png-eb03c574c32926c8cb365a64198a07dd.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_estuary_dusk.png"
-dest_files=["res://.godot/imported/spot_estuary_dusk.png-9bb94e35d22d34596ff4bdc4705de7e6.ctex"]
+dest_files=["res://.godot/imported/spot_estuary_dusk.png-eb03c574c32926c8cb365a64198a07dd.ctex"]
 
 [params]
 

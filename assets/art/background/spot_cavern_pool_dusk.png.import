@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://sb3bcb5gved7k"
-path="res://.godot/imported/spot_cavern_pool_dusk.png-51ec8f2b40b949268b271b24b970af8e.ctex"
+uid="uid://cugsx3hgmku6i"
+path="res://.godot/imported/spot_cavern_pool_dusk.png-4dcc0f9384ba6ba074d80206f2572be2.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_cavern_pool_dusk.png"
-dest_files=["res://.godot/imported/spot_cavern_pool_dusk.png-51ec8f2b40b949268b271b24b970af8e.ctex"]
+dest_files=["res://.godot/imported/spot_cavern_pool_dusk.png-4dcc0f9384ba6ba074d80206f2572be2.ctex"]
 
 [params]
 

@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://g6wmfmdlr5bci"
-path="res://.godot/imported/spot_urban_pond.png-624e6c5080a1b7cc02a1adc07003efc9.ctex"
+uid="uid://dciqtkgc7xfkq"
+path="res://.godot/imported/spot_urban_pond.png-75266eeac4855e7a9dc5782b683b55ab.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_urban_pond.png"
-dest_files=["res://.godot/imported/spot_urban_pond.png-624e6c5080a1b7cc02a1adc07003efc9.ctex"]
+dest_files=["res://.godot/imported/spot_urban_pond.png-75266eeac4855e7a9dc5782b683b55ab.ctex"]
 
 [params]
 

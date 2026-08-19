@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://eepopeimxdjhc"
-path="res://.godot/imported/spot_mountain_stream_dusk.png-89d24bd71df30d502dc7d46194573bbb.ctex"
+uid="uid://jbs4cled5npk"
+path="res://.godot/imported/spot_mountain_stream_dusk.png-d11a86b5575eb8dd67d420625f6eaace.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_mountain_stream_dusk.png"
-dest_files=["res://.godot/imported/spot_mountain_stream_dusk.png-89d24bd71df30d502dc7d46194573bbb.ctex"]
+dest_files=["res://.godot/imported/spot_mountain_stream_dusk.png-d11a86b5575eb8dd67d420625f6eaace.ctex"]
 
 [params]
 

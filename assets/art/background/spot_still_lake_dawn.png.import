@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://y4azwd7lronmi"
-path="res://.godot/imported/spot_still_lake_dawn.png-58f8f970cd53721365f5883148d29ef0.ctex"
+uid="uid://bwtsd1o3ehe2w"
+path="res://.godot/imported/spot_still_lake_dawn.png-36440f80b5698b3c1eea960183434755.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_still_lake_dawn.png"
-dest_files=["res://.godot/imported/spot_still_lake_dawn.png-58f8f970cd53721365f5883148d29ef0.ctex"]
+dest_files=["res://.godot/imported/spot_still_lake_dawn.png-36440f80b5698b3c1eea960183434755.ctex"]
 
 [params]
 

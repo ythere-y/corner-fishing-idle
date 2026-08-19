@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://7zro4j56epqv4"
-path="res://.godot/imported/spot_polar_lake_night.png-2afe56776f0f49e6c64a167f9aebeeca.ctex"
+uid="uid://b3iqe3s5u3qt0"
+path="res://.godot/imported/spot_polar_lake_night.png-f91a3b40a413bdb3ea640acae79518ca.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_polar_lake_night.png"
-dest_files=["res://.godot/imported/spot_polar_lake_night.png-2afe56776f0f49e6c64a167f9aebeeca.ctex"]
+dest_files=["res://.godot/imported/spot_polar_lake_night.png-f91a3b40a413bdb3ea640acae79518ca.ctex"]
 
 [params]
 

@@ -3,7 +3,7 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://crwoclor4lwvi"
-path="res://.godot/imported/spot_mountain_stream_day.png-a4376cdfafca5516ebd65043a5fdec27.ctex"
+path="res://.godot/imported/spot_mountain_stream_day.png-b83cc654aaef4076d665b6353d14351e.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_mountain_stream_day.png"
-dest_files=["res://.godot/imported/spot_mountain_stream_day.png-a4376cdfafca5516ebd65043a5fdec27.ctex"]
+dest_files=["res://.godot/imported/spot_mountain_stream_day.png-b83cc654aaef4076d665b6353d14351e.ctex"]
 
 [params]
 

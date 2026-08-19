@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://alwgcxtucmp2u"
-path="res://.godot/imported/spot_coast_pier_dusk.png-312fb53919a15ef8797ed2640303b9e3.ctex"
+uid="uid://lwgcxtucmp2u"
+path="res://.godot/imported/spot_coast_pier_dusk.png-cc9308e3ea20f743e571abcec0605448.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_coast_pier_dusk.png"
-dest_files=["res://.godot/imported/spot_coast_pier_dusk.png-312fb53919a15ef8797ed2640303b9e3.ctex"]
+dest_files=["res://.godot/imported/spot_coast_pier_dusk.png-cc9308e3ea20f743e571abcec0605448.ctex"]
 
 [params]
 

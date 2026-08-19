@@ -2864,10 +2864,10 @@ func _check_effects() -> void:
 	_assert(p.pet_action == "", "宠物动作应在时长结束后清除")
 	_assert(p._lantern == p.lantern_anchor + Vector2(0, -16),
 		"灯笼光晕锚点应跟随固定灯笼锚点，实际 %s" % str(p._lantern))
-	# 所有钓场底图都应为干净底图（渔夫/灯笼/钓线/按钮全代码叠加，无烤死特例）
+	# 所有钓场底图都应存在（v9 起为烘焙完整画面；仅缺图时才回退 river_bend 主图）
 	for bg in ["river_bend", "still_lake", "coast_pier"]:
 		p.set_spot(bg)
-		_assert(p.uses_clean_bg(), "钓场底图 spot_%s.png 应存在且为干净底图" % bg)
+		_assert(p.uses_clean_bg(), "钓场底图 spot_%s.png 应存在" % bg)
 	# 昼夜底图：river_bend 四时段应各加载对应时段图（运行时四张图齐全）
 	p.set_spot("river_bend")
 	for ph in ["dawn", "day", "dusk", "night"]:
@@ -2875,11 +2875,11 @@ func _check_effects() -> void:
 		_assert(p._spot_base != null
 			and p._spot_base.resource_path.ends_with("spot_river_bend_%s.png" % ph),
 			"river_bend %s 应加载时段底图，实际 %s" % [ph, str(p._spot_base)])
-	# 时段图缺失时回退 spot_<key>.png（still_lake 无时段图），不崩不黑屏
+	# v9 起 10 站均配 4 时段图：still_lake 也应加载对应时段图（不再存在「无时段图回退」场景）
 	p.set_spot("still_lake")
 	p.set_phase_tint(Weather.tint("dawn"), "dawn")
-	_assert(p._spot_base != null and p._spot_base.resource_path.ends_with("spot_still_lake.png"),
-		"无时段图的钓点应回退 spot_<key>.png，实际 %s" % str(p._spot_base))
+	_assert(p._spot_base != null and p._spot_base.resource_path.ends_with("spot_still_lake_dawn.png"),
+		"有时段图的钓点应加载对应时段图，实际 %s" % str(p._spot_base))
 	# 未知时段同样回退现有底图（set_phase_tint 旧/新签名都不应报错）
 	p.set_spot("river_bend")
 	p.set_phase_tint(Weather.tint("day"))             # 旧签名（无 phase）：只改染色

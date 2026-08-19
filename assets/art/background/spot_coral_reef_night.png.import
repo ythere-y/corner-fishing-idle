@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://ll4bobjb7cldq"
-path="res://.godot/imported/spot_coral_reef_night.png-adc14a0854961db822680287e381d254.ctex"
+uid="uid://dvbkh6os2wtt7"
+path="res://.godot/imported/spot_coral_reef_night.png-63c5b07b6bcba4dfe2d34401aa2550d9.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_coral_reef_night.png"
-dest_files=["res://.godot/imported/spot_coral_reef_night.png-adc14a0854961db822680287e381d254.ctex"]
+dest_files=["res://.godot/imported/spot_coral_reef_night.png-63c5b07b6bcba4dfe2d34401aa2550d9.ctex"]
 
 [params]
 

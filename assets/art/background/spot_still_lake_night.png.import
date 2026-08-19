@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://q62e73hbs3gos"
-path="res://.godot/imported/spot_still_lake_night.png-21af38192cd56761a8bea752d5a36412.ctex"
+uid="uid://bqfwuusbkaxnq"
+path="res://.godot/imported/spot_still_lake_night.png-cc75841ec2eaf15dd607657f91a6f38f.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/art/background/spot_still_lake_night.png"
-dest_files=["res://.godot/imported/spot_still_lake_night.png-21af38192cd56761a8bea752d5a36412.ctex"]
+dest_files=["res://.godot/imported/spot_still_lake_night.png-cc75841ec2eaf15dd607657f91a6f38f.ctex"]
 
 [params]
 

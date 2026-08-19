@@ -2859,6 +2859,14 @@ func _check_effects() -> void:
 	_assert(p._fisher != null and p._lantern_tex != null and not p._glow_tex.is_empty(),
 		"baked_art=false 需代码画角色/灯笼/灯火，相关资源应已加载")
 	p.baked_art = true
+	# baked_art=true 下，_draw_composite 应跳过野生动物/金环代码层（图内已含野生动物装饰，bite_point 未按站校准）
+	# 通过 _simulate_composite 模拟一帧 + 像素检查不可行（draw_texture 需 Godot 主循环），
+	# 改为直接验证 _draw_composite 源码包含 baked_art 守卫（防回归）
+	var src := FileAccess.get_file_as_string("res://scene_painter.gd")
+	_assert(src.find("if not baked_art:\n\t\t_draw_wildlife()") >= 0,
+		"baked_art=true 应跳过野生动物代码层（图内已含装饰）")
+	_assert(src.find("if not baked_art:\n\t\t_draw_bite_ring()") >= 0,
+		"baked_art=true 应跳过金环（bite_point 与 v9 图内浮漂位置未同步校准）")
 	# 渔夫情绪 / 桌面宠物 API（Task 4）
 	p.fisher_cheer()
 	_assert(p.fisher_mood == "cheer", "高星上鱼应触发欢呼情绪")

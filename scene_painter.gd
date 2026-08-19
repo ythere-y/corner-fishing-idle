@@ -1001,9 +1001,12 @@ func _draw_night_lights() -> void:
 
 
 # —— 统一合成路径（所有钓场同一路径）——
-# baked_art=true（默认）：底图为烘焙完整画面，关闭渔夫/猫/灯笼/钓线及灯笼灯火/光晕（图内自带）；
-#   仍保留浮漂/金环/涟漪/小动物/雾/雪/水光等动态交互层。
-# baked_art=false：底图为纯风景，代码补齐全部角色层 + 灯笼灯火/光晕。
+# baked_art=true（默认，v9 图）：底图为烘焙完整画面，关闭渔夫/猫/灯笼/钓线/灯笼灯火/灯笼光晕/野生动物（图内自带）；
+#   仍保留浮漂/涟漪/雾/雪/水光/火花/上鱼闪光/号外/纸纹等动态交互层。
+#   已知偏差：金环随 _bite_point 锚定，而 _bite_point 全局从 ui_layout.json 读取（(384,344)），
+#   v9 各站图内浮漂位置各异，bite_point 未按站同步校准 → 金环位置与图内钓线末端存在偏移；
+#   v9 下金环已随 baked_art 关闭（错位金环比缺失更显眼）。浮漂/涟漪/庆祝等也锚定 bite_point，偏移但视觉影响较小（涟漪扩散掩盖）。
+# baked_art=false：底图为纯风景，代码补齐全部角色层 + 野生动物 + 灯笼灯火/光晕 + 金环。
 func _draw_composite() -> void:
 	# 底图：昼夜切换时上一张底图淡出、当前底图按 _spot_fade 淡入（缺时段图已在解析层回退，不黑屏）。
 	var bg := _spot_base if _spot_base != null else _base
@@ -1027,10 +1030,12 @@ func _draw_composite() -> void:
 			_draw_night_lights()   # 夜间灯火锚在代码层灯笼；烘焙图内灯笼自带光，不重复叠加
 	else:
 		_draw_phase_tint()
-	_draw_wildlife()
+	if not baked_art:
+		_draw_wildlife()    # 野生动物装饰已烤入底图（白鹤/翠鸟/鸟等），关闭代码层低频事件避免叠加
 	_draw_ripples()
 	_draw_bobber_sprite()
-	_draw_bite_ring()       # 稀有咬钩驻留：浮漂脉动金环（P0 好玩补丁）
+	if not baked_art:
+		_draw_bite_ring()   # 金环锚在 bite_point；v9 图内浮漂位置各异，bite_point 全局共享未同步，关闭避免错位金环
 	_draw_sparks()          # 稀有入手金光粒子
 	if not baked_art:
 		_draw_glow_layer()  # 灯光呼吸光晕（锚在代码层灯笼火焰处）

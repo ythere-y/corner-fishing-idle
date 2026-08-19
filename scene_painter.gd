@@ -136,6 +136,10 @@ const PAPER_ALPHA := 0.055   # 颗粒峰值透明度（极淡，只做质感不�
 var paper_grain := true
 var _paper_tex: Texture2D = null
 
+## 底图是否已烘焙角色与钓线（v9 完整画面资源已含渔夫/猫/灯笼/钓线）。
+## true 时关闭代码层角色叠加，避免与图内元素双重重叠；设 false 可回退到「纯风景底图 + 代码叠角色」。
+var baked_art := true
+
 # —— 渔夫情绪 / 桌面宠物（Task 4）：尽量零存档、瞬态，用变换驱动 ——
 var _fisher_pull: Array = []        # 收竿/上鱼姿势帧（咬钩时切换，给渔夫加动作）
 var _fisher_mood_tex: Dictionary = {}  # 可选情绪帧 idle_breath/shiver/doze/cheer（缺则回退 idle+变换）
@@ -1005,10 +1009,11 @@ func _draw_composite() -> void:
 			draw_texture(bg, Vector2.ZERO, Color(1, 1, 1, _spot_fade))
 	elif bg != null:
 		draw_texture(bg, Vector2.ZERO)
-	_draw_fisher()          # 渔夫（含鱼竿）坐右岸
-	_draw_pet()             # 渔夫旁的小馋猫
-	_draw_lantern()         # 渔夫旁的油灯
-	_draw_fishing_line()    # 竿尖 → 浮漂的钓线
+	if not baked_art:
+		_draw_fisher()          # 渔夫（含鱼竿）坐右岸
+		_draw_pet()             # 渔夫旁的小馋猫
+		_draw_lantern()         # 渔夫旁的油灯
+		_draw_fishing_line()    # 竿尖 → 浮漂的钓线
 	_draw_mist_layer()
 	_draw_shimmer_layer()
 	_draw_snow_layer()

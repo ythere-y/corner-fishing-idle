@@ -2853,6 +2853,20 @@ func _check_effects() -> void:
 	_assert(p._fisher != null, "渔夫精灵应加载")
 	_assert(p._fisher_pull.size() == 2, "渔夫收竿帧应 2 帧，实际 %d" % p._fisher_pull.size())
 	_assert(p._lantern_tex != null, "灯笼精灵应加载")
+	# baked_art 开关：默认烘焙完整画面；切回代码叠加层时角色/灯笼/灯火资源仍应就绪（防回归）
+	_assert(p.baked_art == true, "默认应使用烘焙完整画面（baked_art=true）")
+	p.baked_art = false
+	_assert(p._fisher != null and p._lantern_tex != null and not p._glow_tex.is_empty(),
+		"baked_art=false 需代码画角色/灯笼/灯火，相关资源应已加载")
+	p.baked_art = true
+	# baked_art=true 下，_draw_composite 应跳过野生动物/金环代码层（图内已含野生动物装饰，bite_point 未按站校准）
+	# 通过 _simulate_composite 模拟一帧 + 像素检查不可行（draw_texture 需 Godot 主循环），
+	# 改为直接验证 _draw_composite 源码包含 baked_art 守卫（防回归）
+	var src := FileAccess.get_file_as_string("res://scene_painter.gd")
+	_assert(src.find("if not baked_art:\n\t\t_draw_wildlife()") >= 0,
+		"baked_art=true 应跳过野生动物代码层（图内已含装饰）")
+	_assert(src.find("if not baked_art:\n\t\t_draw_bite_ring()") >= 0,
+		"baked_art=true 应跳过金环（bite_point 与 v9 图内浮漂位置未同步校准）")
 	# 渔夫情绪 / 桌面宠物 API（Task 4）
 	p.fisher_cheer()
 	_assert(p.fisher_mood == "cheer", "高星上鱼应触发欢呼情绪")
@@ -2864,10 +2878,10 @@ func _check_effects() -> void:
 	_assert(p.pet_action == "", "宠物动作应在时长结束后清除")
 	_assert(p._lantern == p.lantern_anchor + Vector2(0, -16),
 		"灯笼光晕锚点应跟随固定灯笼锚点，实际 %s" % str(p._lantern))
-	# 所有钓场底图都应为干净底图（渔夫/灯笼/钓线/按钮全代码叠加，无烤死特例）
+	# 所有钓场底图都应存在（v9 起为烘焙完整画面；仅缺图时才回退 river_bend 主图）
 	for bg in ["river_bend", "still_lake", "coast_pier"]:
 		p.set_spot(bg)
-		_assert(p.uses_clean_bg(), "钓场底图 spot_%s.png 应存在且为干净底图" % bg)
+		_assert(p.uses_clean_bg(), "钓场底图 spot_%s.png 应存在" % bg)
 	# 昼夜底图：river_bend 四时段应各加载对应时段图（运行时四张图齐全）
 	p.set_spot("river_bend")
 	for ph in ["dawn", "day", "dusk", "night"]:
@@ -2875,11 +2889,11 @@ func _check_effects() -> void:
 		_assert(p._spot_base != null
 			and p._spot_base.resource_path.ends_with("spot_river_bend_%s.png" % ph),
 			"river_bend %s 应加载时段底图，实际 %s" % [ph, str(p._spot_base)])
-	# 时段图缺失时回退 spot_<key>.png（still_lake 无时段图），不崩不黑屏
+	# v9 起 10 站均配 4 时段图：still_lake 也应加载对应时段图（不再存在「无时段图回退」场景）
 	p.set_spot("still_lake")
 	p.set_phase_tint(Weather.tint("dawn"), "dawn")
-	_assert(p._spot_base != null and p._spot_base.resource_path.ends_with("spot_still_lake.png"),
-		"无时段图的钓点应回退 spot_<key>.png，实际 %s" % str(p._spot_base))
+	_assert(p._spot_base != null and p._spot_base.resource_path.ends_with("spot_still_lake_dawn.png"),
+		"有时段图的钓点应加载对应时段图，实际 %s" % str(p._spot_base))
 	# 未知时段同样回退现有底图（set_phase_tint 旧/新签名都不应报错）
 	p.set_spot("river_bend")
 	p.set_phase_tint(Weather.tint("day"))             # 旧签名（无 phase）：只改染色

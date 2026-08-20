@@ -136,6 +136,10 @@ const PAPER_ALPHA := 0.055   # 颗粒峰值透明度（极淡，只做质感不�
 var paper_grain := true
 var _paper_tex: Texture2D = null
 
+## 底图是否已烘焙角色与钓线（v9 完整画面资源已含渔夫/猫/灯笼/钓线）。
+## true 时关闭代码层角色叠加，避免与图内元素双重重叠；设 false 可回退到「纯风景底图 + 代码叠角色」。
+var baked_art := true
+
 # —— 渔夫情绪 / 桌面宠物（Task 4）：尽量零存档、瞬态，用变换驱动 ——
 var _fisher_pull: Array = []        # 收竿/上鱼姿势帧（咬钩时切换，给渔夫加动作）
 var _fisher_mood_tex: Dictionary = {}  # 可选情绪帧 idle_breath/shiver/doze/cheer（缺则回退 idle+变换）
@@ -482,7 +486,8 @@ func set_spot(bg_key: String) -> void:
 	_apply_background(_resolve_spot_tex(bg_key, _spot_phase), false)
 
 
-## 当前是否用干净 spot 底图（渔夫/按钮需由代码补上）；river 回退 _base 时为 false。
+## 是否已解析到 spot 底图（v9 起为烘焙完整画面；缺图回退 _base 时为 false）。
+## 名称沿用历史命名；main 用它判断「钓点底图就绪 → 显示钓点 UI 按钮」。
 func uses_clean_bg() -> bool:
 	return _spot_base != null
 
@@ -995,7 +1000,13 @@ func _draw_night_lights() -> void:
 			draw_circle(Vector2(fx, fy), 1.7, _a(fcol, tw * fa))
 
 
-# —— 干净底图 + 统一叠加层（所有钓场同一路径；底图均为纯风景，渔夫/灯笼/钓线/浮漂全代码叠加）——
+# —— 统一合成路径（所有钓场同一路径）——
+# baked_art=true（默认，v9 图）：底图为烘焙完整画面，关闭渔夫/猫/灯笼/钓线/灯笼灯火/灯笼光晕/野生动物（图内自带）；
+#   仍保留浮漂/涟漪/雾/雪/水光/火花/上鱼闪光/号外/纸纹等动态交互层。
+#   已知偏差：金环随 _bite_point 锚定，而 _bite_point 全局从 ui_layout.json 读取（(384,344)），
+#   v9 各站图内浮漂位置各异，bite_point 未按站同步校准 → 金环位置与图内钓线末端存在偏移；
+#   v9 下金环已随 baked_art 关闭（错位金环比缺失更显眼）。浮漂/涟漪/庆祝等也锚定 bite_point，偏移但视觉影响较小（涟漪扩散掩盖）。
+# baked_art=false：底图为纯风景，代码补齐全部角色层 + 野生动物 + 灯笼灯火/光晕 + 金环。
 func _draw_composite() -> void:
 	# 底图：昼夜切换时上一张底图淡出、当前底图按 _spot_fade 淡入（缺时段图已在解析层回退，不黑屏）。
 	var bg := _spot_base if _spot_base != null else _base
@@ -1005,24 +1016,29 @@ func _draw_composite() -> void:
 			draw_texture(bg, Vector2.ZERO, Color(1, 1, 1, _spot_fade))
 	elif bg != null:
 		draw_texture(bg, Vector2.ZERO)
-	_draw_fisher()          # 渔夫（含鱼竿）坐右岸
-	_draw_pet()             # 渔夫旁的小馋猫
-	_draw_lantern()         # 渔夫旁的油灯
-	_draw_fishing_line()    # 竿尖 → 浮漂的钓线
+	if not baked_art:
+		_draw_fisher()          # 渔夫（含鱼竿）坐右岸
+		_draw_pet()             # 渔夫旁的小馋猫
+		_draw_lantern()         # 渔夫旁的油灯
+		_draw_fishing_line()    # 竿尖 → 浮漂的钓线
 	_draw_mist_layer()
 	_draw_shimmer_layer()
 	_draw_snow_layer()
 	if use_grade:
 		_draw_daynight_grade()
-		_draw_night_lights()
+		if not baked_art:
+			_draw_night_lights()   # 夜间灯火锚在代码层灯笼；烘焙图内灯笼自带光，不重复叠加
 	else:
 		_draw_phase_tint()
-	_draw_wildlife()
+	if not baked_art:
+		_draw_wildlife()    # 野生动物装饰已烤入底图（白鹤/翠鸟/鸟等），关闭代码层低频事件避免叠加
 	_draw_ripples()
 	_draw_bobber_sprite()
-	_draw_bite_ring()       # 稀有咬钩驻留：浮漂脉动金环（P0 好玩补丁）
+	if not baked_art:
+		_draw_bite_ring()   # 金环锚在 bite_point；v9 图内浮漂位置各异，bite_point 全局共享未同步，关闭避免错位金环
 	_draw_sparks()          # 稀有入手金光粒子
-	_draw_glow_layer()      # 灯光呼吸光晕（锚在灯笼火焰处）
+	if not baked_art:
+		_draw_glow_layer()  # 灯光呼吸光晕（锚在代码层灯笼火焰处）
 	_draw_catch_flash()     # 稀有上鱼柔和暖光脉冲（受羽化遮罩约束）
 	_draw_newsflash()       # 水面号外纸条（稀有捕获的挂件内播报）
 	_draw_paper_layer()     # 水彩纸纹（最上层介质，随羽化消散，统一全画面气质）

@@ -17,6 +17,9 @@ func _run() -> void:
 	print("=== 数据检查 ===")
 	_check_data()
 
+	print("=== Web 打包字体字形覆盖 ===")
+	await _check_web_font_coverage()
+
 	print("=== 窗口 Region 坐标 / 防误拖 ===")
 	_check_window_region_geometry()
 
@@ -180,6 +183,29 @@ func _check_data() -> void:
 		_assert(FishData.FISH.has(old_id), "旧鱼 id %s 应保留" % old_id)
 		_assert("river" in FishData.tags_of(old_id), "旧鱼 %s 应带 river 标签" % old_id)
 	print("  鱼种数 %d，按品阶分布 %s" % [FishData.FISH.size(), str(by_tier)])
+
+
+## Web 无系统字体回退，所有界面符号必须由随包字体链提供；否则会显示十六进制豆腐块。
+func _check_web_font_coverage() -> void:
+	var g: Node = load("res://main.tscn").instantiate()
+	g.save_enabled = false
+	root.add_child(g)
+	await process_frame
+	var required := "★🔒🐟🏆✓⚠◆📷🌊✨📸🎣🧪💡🎯🌫🌙❄✦●🗺📦🐱🎁✗⚙○"
+	for id in FishData.FISH:
+		required += FishData.display_name(str(id))
+	var missing := ""
+	var seen_missing := {}
+	for i in range(required.length()):
+		var codepoint := required.unicode_at(i)
+		if not g._serif.has_char(codepoint) and not seen_missing.has(codepoint):
+			missing += String.chr(codepoint)
+			seen_missing[codepoint] = true
+	_assert(missing.is_empty(), "Web 随包字体链缺少界面字形：%s" % missing)
+	if missing.is_empty():
+		print("  Web 随包字体覆盖全部界面字形 通过")
+	g.queue_free()
+	await process_frame
 
 
 func _check_window_region_geometry() -> void:

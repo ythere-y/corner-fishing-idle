@@ -2925,7 +2925,7 @@ func _toggle_autosell() -> void:
 
 func _setup_theme() -> void:
 	# 衬线展示字体（设计令牌 --font-display）：标题与英雄数字用，呼应水彩卷轴气质。
-	_serif = load("res://assets/fonts/NotoSerifSC-Bold.woff2")
+	_serif = UIFontBundle.load_font()
 	if _is_web():
 		# 浏览器 WASM 沙箱访问不到操作系统字体，SystemFont 查不到任何 CJK 字形 → 中文全变豆腐块/乱码。
 		# 复用已打包进 pck 的 Noto Serif SC 作默认字体（本作 UI 本就是衬线展示气质，全衬线不违和）。

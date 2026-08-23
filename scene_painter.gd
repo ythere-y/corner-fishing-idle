@@ -1088,7 +1088,7 @@ var _news_font_cache: Font = null
 func _news_font() -> Font:
 	if OS.has_feature("web"):
 		if _news_font_cache == null:
-			_news_font_cache = load("res://assets/fonts/NotoSerifSC-Bold.woff2")
+			_news_font_cache = UIFontBundle.load_font()
 		if _news_font_cache != null:
 			return _news_font_cache
 	return ThemeDB.fallback_font

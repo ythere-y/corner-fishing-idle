@@ -185,6 +185,13 @@ func _check_data() -> void:
 func _check_window_region_geometry() -> void:
 	# 运行期加载，避免 validate_game 作为自定义 MainLoop 编译时提前解析主场景与 Audio autoload。
 	var main_script: GDScript = load("res://main.gd")
+	if not main_script.has_method("_dynamic_bottom_nav_enabled"):
+		_assert(false, "Web 应关闭代码绘制的第二套底栏菜单")
+	else:
+		_assert(not bool(main_script.call("_dynamic_bottom_nav_enabled", true)),
+			"Web 应只显示 v9 背景自带菜单")
+		_assert(bool(main_script.call("_dynamic_bottom_nav_enabled", false)),
+			"桌面版应继续显示动态功能底栏")
 	if not main_script.has_method("_web_widget_rect_for_stage"):
 		_assert(false, "Web 主页应提供独立的居中等比布局算法")
 		return
@@ -1058,6 +1065,21 @@ func _check_bag_sort() -> void:
 		if str(c["id"]) == "koi":
 			has_koi = true
 	_assert(has_koi, "订单目标鱼应保留")
+	# Web 背景自带六个菜单视觉，代码层只能提供六个透明点击热区。
+	if is_instance_valid(g._nav_bar):
+		g._nav_bar.queue_free()
+	g._build_baked_web_nav()
+	var baked_hits: Array[Node] = g._nav_bar.find_children("BakedNavHit_*", "Button", true, false)
+	_assert(baked_hits.size() == 6, "Web 烤入菜单应有 6 个透明点击热区，实际 %d" % baked_hits.size())
+	for hit in baked_hits:
+		_assert((hit as Button).text.is_empty() and (hit as Button).flat,
+			"Web 菜单点击热区不应绘制第二套按钮视觉：%s" % hit.name)
+	var settings_hit := g._nav_bar.get_node_or_null("BakedNavHits/BakedNavHit_settings") as Button
+	var menu_hit := g._nav_bar.get_node_or_null("BakedNavHits/BakedNavHit_menu") as Button
+	_assert(settings_hit != null and settings_hit.position.x == 359.0 and int(settings_hit.get_meta("tab")) == 8,
+		"Web Settings 热区应对齐背景按钮并打开设置页")
+	_assert(menu_hit != null and menu_hit.position.x == 447.0 and int(menu_hit.get_meta("tab")) == -1,
+		"Web Menu 热区应独立于 Settings，不得覆盖整条底栏")
 	print("  排序/筛选/卖杂鱼 通过")
 	g.queue_free()
 	await process_frame

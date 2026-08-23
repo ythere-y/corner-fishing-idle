@@ -35,6 +35,14 @@ var display_mode := "framed"
 # 桌面路径零改动：这些守卫只是在 web 分支上短路，不改任何桌面行为。
 static func _is_web() -> bool:
 	return OS.has_feature("web")
+
+
+## v9 场景图已经烤入底栏视觉；Web 只保留透明点击热区，避免再叠一套图标菜单。
+## 参数化为纯函数，方便无头测试同时锁住 Web / 桌面两个分支。
+static func _dynamic_bottom_nav_enabled(web_platform: bool) -> bool:
+	return not web_platform
+
+
 const FRAMED_SCENE_SCALE := 2.0                 # 带框模式：场景放大填满窗口宽（参考值；实际 scale 见 _apply_display_mode 含 overscan）
 const FRAMED_OVERSCAN := 4.0                    # 带框场景向四周溢出像素：消除分数 DPI 下窗口边缘的浅"描边"接缝
 const FRAMED_CONSOLE_H := 80.0                  # 底部导航 console 高（完整容纳 44px 图标 + 文字，不被窗口底切）
@@ -283,6 +291,14 @@ const FEATURE_NAV := [
 	{"id": "tank", "label": "鱼缸", "tab": 6, "icon": "res://assets/art/ui/nav_fishtank.png"},
 	{"id": "relations", "label": "人情", "tab": 9, "icon": ""},
 	{"id": "settings", "label": "设置", "tab": 8, "icon": "res://assets/art/ui/nav_settings.png"},
+]
+const WEB_BAKED_NAV := [
+	{"id": "rod", "label": "鱼竿", "tab": 7, "rect": Rect2(8, 2, 76, 76)},
+	{"id": "bait", "label": "鱼饵", "tab": 7, "rect": Rect2(95, 2, 76, 76)},
+	{"id": "inventory", "label": "鱼篓", "tab": 0, "rect": Rect2(184, 2, 76, 76)},
+	{"id": "map", "label": "地图", "tab": 5, "rect": Rect2(271, 2, 76, 76)},
+	{"id": "settings", "label": "设置", "tab": 8, "rect": Rect2(359, 2, 76, 76)},
+	{"id": "menu", "label": "菜单", "tab": -1, "rect": Rect2(447, 2, 65, 76)},
 ]
 const FEATURE_TOASTS := {
 	"bag": "鱼篓开放：钓到的鱼可以集中查看了，攒够后去贩卖。",
@@ -869,7 +885,7 @@ func _build_framed_chrome() -> void:
 	_build_hud_chips()
 	_build_status_flags()
 	_build_relationship_visit_bar()
-	_build_bottom_nav()
+	_build_active_bottom_nav()
 	if test_mode:
 		_build_dev_tools_bar()
 	_build_action_button()
@@ -1813,6 +1829,58 @@ func _build_bottom_nav() -> void:
 	# 「自动垂钓」开关已移入设置页（见 ui_panels.fill_settings），底栏只留导航图标。
 
 
+func _build_active_bottom_nav() -> void:
+	if _dynamic_bottom_nav_enabled(_is_web()):
+		_build_bottom_nav()
+	else:
+		_build_baked_web_nav()
+
+
+## Web 背景已经包含 Rod/Bait/Inventory/Map/Settings/Menu 的完整视觉。
+## 这里只覆盖透明按钮，让背景里的按钮可点击，不再绘制任何第二套菜单。
+func _build_baked_web_nav() -> void:
+	var bar := PanelContainer.new()
+	bar.name = "BottomNav"
+	bar.custom_minimum_size = Vector2(ART.x, FRAMED_CONSOLE_H)
+	bar.size = Vector2(ART.x, FRAMED_CONSOLE_H)
+	bar.mouse_filter = Control.MOUSE_FILTER_PASS
+	bar.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	ui_root.add_child(bar)
+	_nav_bar = bar
+	# PanelContainer 会把直接子节点全部铺满；加一层普通 Control，才能保留每个热区的绝对坐标。
+	var hit_layer := Control.new()
+	hit_layer.name = "BakedNavHits"
+	hit_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hit_layer.mouse_filter = Control.MOUSE_FILTER_PASS
+	bar.add_child(hit_layer)
+	for n in WEB_BAKED_NAV:
+		var hit := Button.new()
+		hit.name = "BakedNavHit_%s" % str(n["id"])
+		hit.position = (n["rect"] as Rect2).position
+		hit.size = (n["rect"] as Rect2).size
+		hit.tooltip_text = str(n["label"])
+		hit.flat = true
+		hit.focus_mode = Control.FOCUS_NONE
+		hit.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		hit.set_meta("tab", int(n["tab"]))
+		for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+			hit.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+		hit.pressed.connect(_activate_baked_web_nav.bind(int(n["tab"])))
+		hit_layer.add_child(hit)
+
+
+func _activate_baked_web_nav(tab: int) -> void:
+	Audio.play_ui("ui_click")
+	var target := tab
+	if target < 0 or not _tab_unlocked(target):
+		target = _fallback_feature_tab()
+	if _panel_kind == "catch" and _catch_tab == target:
+		_close_panel()
+	else:
+		_catch_tab = target
+		_open_panel("catch")
+
+
 func _rebuild_bottom_nav() -> void:
 	if display_mode != "framed":
 		return
@@ -1821,7 +1889,7 @@ func _rebuild_bottom_nav() -> void:
 	if is_instance_valid(_nav_bar):
 		_nav_bar.queue_free()
 	_nav_badges.clear()
-	_build_bottom_nav()
+	_build_active_bottom_nav()
 	_layout_widget()
 	_set_nav_solid(_panel_kind != "")
 	_update_framed_hud()
@@ -1835,6 +1903,8 @@ func _set_nav_item_hover(item: Control, hovered: bool) -> void:
 ## 底栏背景上下文切换：开面板=暗(与 sheet 连成一片,无断裂)；关=透明(浮场景)。
 func _set_nav_solid(solid: bool) -> void:
 	if not is_instance_valid(_nav_bar):
+		return
+	if not _dynamic_bottom_nav_enabled(_is_web()):
 		return
 	if solid:
 		var sb := StyleBoxFlat.new()

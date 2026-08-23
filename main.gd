@@ -40,6 +40,7 @@ const FRAMED_OVERSCAN := 4.0                    # 带框场景向四周溢出像
 const FRAMED_CONSOLE_H := 80.0                  # 底部导航 console 高（完整容纳 44px 图标 + 文字，不被窗口底切）
 const FRAMED_BG := Color(0.105, 0.115, 0.105)   # 带框窗口实底背景（场景外的边）
 const FRAMED_UI_BASE_SCALE := 0.8               # 100% 档的紧凑基准；高 DPI 桌面不再默认占掉半屏
+const WEB_WIDGET_VIEWPORT_USAGE := 0.92         # Web 主页使用限制轴 92%，四周留 4% 安全边距
 
 # —— UI 布局契约 ——
 # 主图烤入按钮/落水点的坐标随 Codex 美术版本漂移。优先从 ui_layout.json 读取
@@ -751,11 +752,29 @@ func _ui_render_scale() -> float:
 	return ui_scale * FRAMED_UI_BASE_SCALE
 
 
+## 浏览器没有“桌面右下角挂件”的空间语义：把完整 520×400 水彩主页等比放大并居中。
+## 纯几何函数供无头回归覆盖；桌面布局不经过这里。
+static func _web_widget_rect_for_stage(stage_size: Vector2) -> Rect2:
+	var safe_stage := Vector2(maxf(stage_size.x, 1.0), maxf(stage_size.y, 1.0))
+	var render_scale := minf(safe_stage.x / ART.x, safe_stage.y / ART.y) \
+		* WEB_WIDGET_VIEWPORT_USAGE
+	var widget_size := ART * render_scale
+	return Rect2((safe_stage - widget_size) * 0.5, widget_size)
+
+
+func _active_widget_render_scale() -> float:
+	if _is_web():
+		return _web_widget_rect_for_stage(_stage_size()).size.x / ART.x
+	return _ui_render_scale()
+
+
 func _widget_size() -> Vector2:
-	return ART * _ui_render_scale()
+	return ART * _active_widget_render_scale()
 
 
 func _default_widget_pos() -> Vector2:
+	if _is_web():
+		return _web_widget_rect_for_stage(_stage_size()).position
 	var margin := Vector2(24, 24)
 	return _stage_size() - _widget_size() - margin
 
@@ -774,14 +793,17 @@ func _ensure_widget_pos() -> void:
 
 func _widget_point(p: Vector2) -> Vector2:
 	_ensure_widget_pos()
-	return (_widget_pos as Vector2) + p * _ui_render_scale()
+	return (_widget_pos as Vector2) + p * _active_widget_render_scale()
 
 
 func _layout_widget() -> void:
 	if display_mode == "immersive":
 		return
-	_ensure_widget_pos()
-	var render_scale := _ui_render_scale()
+	if _is_web():
+		_widget_pos = _web_widget_rect_for_stage(_stage_size()).position
+	else:
+		_ensure_widget_pos()
+	var render_scale := _active_widget_render_scale()
 	var s := Vector2(render_scale, render_scale)
 	painter.scale = s
 	painter.position = _widget_pos as Vector2

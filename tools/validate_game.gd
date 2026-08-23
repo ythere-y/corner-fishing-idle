@@ -185,6 +185,23 @@ func _check_data() -> void:
 func _check_window_region_geometry() -> void:
 	# 运行期加载，避免 validate_game 作为自定义 MainLoop 编译时提前解析主场景与 Audio autoload。
 	var main_script: GDScript = load("res://main.gd")
+	if not main_script.has_method("_web_widget_rect_for_stage"):
+		_assert(false, "Web 主页应提供独立的居中等比布局算法")
+		return
+	var web_1040: Rect2 = main_script.call("_web_widget_rect_for_stage", Vector2(1040, 720))
+	_assert(web_1040.position.is_equal_approx(Vector2(89.44, 28.8)),
+		"1040×720 Web 主页应居中并在四周保留安全边距")
+	_assert(web_1040.size.is_equal_approx(Vector2(861.12, 662.4)),
+		"1040×720 Web 主页应按 520:400 等比放大")
+	_assert(web_1040.get_center().is_equal_approx(Vector2(520, 360)),
+		"1040×720 Web 主页中心应与舞台中心重合")
+	var web_1440: Rect2 = main_script.call("_web_widget_rect_for_stage", Vector2(1440, 900))
+	_assert(web_1440.position.is_equal_approx(Vector2(181.8, 36.0)),
+		"1440×900 Web 主页应水平垂直居中")
+	_assert(web_1440.size.is_equal_approx(Vector2(1076.4, 828.0)),
+		"1440×900 Web 主页应使用限制轴的 92% 空间")
+	_assert(web_1440.get_center().is_equal_approx(Vector2(720, 450)),
+		"1440×900 Web 主页中心应与舞台中心重合")
 	var sizing: Node = load("res://main.tscn").instantiate()
 	_assert(sizing._widget_size().is_equal_approx(
 		Vector2(sizing.ART) * sizing.FRAMED_UI_BASE_SCALE),

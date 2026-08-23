@@ -140,6 +140,15 @@ var _paper_tex: Texture2D = null
 ## true 时关闭代码层角色叠加，避免与图内元素双重重叠；设 false 可回退到「纯风景底图 + 代码叠角色」。
 var baked_art := true
 
+# Web 展示使用不含静态 HUD / 菜单的水彩原图，避免与代码生成的新导航重叠。
+# 目前三张正式水彩图覆盖首批钓点；其余钓点暂回退干净河湾，绝不回退含旧 UI 的 v9 图。
+const CLEAN_WATERCOLOR_BACKGROUNDS := {
+	"river_bend": "res://assets/art/background/spot_watercolor_river_bend.png",
+	"still_lake": "res://assets/art/background/spot_watercolor_still_lake.png",
+	"coast_pier": "res://assets/art/background/spot_watercolor_coast_pier.png",
+}
+var clean_watercolor_mode := false
+
 # —— 渔夫情绪 / 桌面宠物（Task 4）：尽量零存档、瞬态，用变换驱动 ——
 var _fisher_pull: Array = []        # 收竿/上鱼姿势帧（咬钩时切换，给渔夫加动作）
 var _fisher_mood_tex: Dictionary = {}  # 可选情绪帧 idle_breath/shiver/doze/cheer（缺则回退 idle+变换）
@@ -453,6 +462,10 @@ func _smooth01(x: float) -> float:
 ## 解析钓点底图：优先时段图 spot_<key>_<phase>.png，回退 spot_<key>.png；
 ## 二者都缺（或 bg_key 为空）返回 null，由绘制层回退到 _base（spot_river_bend.png）。
 func _resolve_spot_tex(bg_key: String, phase: String) -> Texture2D:
+	if clean_watercolor_mode:
+		_spot_has_phase_art = false
+		var clean_key := bg_key if CLEAN_WATERCOLOR_BACKGROUNDS.has(bg_key) else "river_bend"
+		return _tex(str(CLEAN_WATERCOLOR_BACKGROUNDS[clean_key]))
 	if bg_key == "":
 		_spot_has_phase_art = false
 		return null
@@ -463,6 +476,17 @@ func _resolve_spot_tex(bg_key: String, phase: String) -> Texture2D:
 			return tx
 	_spot_has_phase_art = false
 	return _tex("res://assets/art/background/spot_%s.png" % bg_key)
+
+
+## Web 专用：切换到不含旧版静态 HUD / 六按钮菜单的干净水彩场景。
+func set_clean_watercolor_mode(enabled: bool) -> void:
+	clean_watercolor_mode = enabled
+	baked_art = not enabled
+	var base_path := str(CLEAN_WATERCOLOR_BACKGROUNDS["river_bend"]) \
+		if enabled else "res://assets/art/background/spot_river_bend.png"
+	_base = _tex(base_path)
+	use_composite = _base != null
+	_apply_background(_resolve_spot_tex(_spot_key, _spot_phase), false)
 
 
 ## 应用底图。animate=true 时与当前底图做慢 crossfade（昼夜切换）；false 直接换（切钓点地点跳转）。

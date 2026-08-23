@@ -1228,6 +1228,9 @@ func _check_feature_unlocks() -> void:
 	g.best_quality = 2
 	g._ensure_feature_unlocks(true)
 	_assert(g._feature_unlocked("tank"), "钓到极品鱼应开放鱼缸")
+	var nav_labels: Array[Node] = g._nav_bar.find_children("NavLabel_*", "Label", true, false)
+	_assert(nav_labels.size() == g._feature_nav_defs().size(),
+		"新水彩底栏的每个图标都应有自己的中文标签，不得借用旧底图英文文字")
 	TestMode.set_feature_unlock(g, "bag", false)
 	_assert(not g._feature_unlocked("bag"), "测试模式功能开放面板应能关闭指定系统")
 	TestMode.set_feature_unlock(g, "bag", true)
@@ -2872,6 +2875,20 @@ func _check_effects() -> void:
 	_assert(p._lantern_tex != null, "灯笼精灵应加载")
 	# baked_art 开关：默认烘焙完整画面；切回代码叠加层时角色/灯笼/灯火资源仍应就绪（防回归）
 	_assert(p.baked_art == true, "默认应使用烘焙完整画面（baked_art=true）")
+	var has_clean_web_art := p.has_method("set_clean_watercolor_mode")
+	_assert(has_clean_web_art,
+		"Web 应能切换到不含旧静态 HUD/菜单的干净水彩背景")
+	if has_clean_web_art:
+		p.set_clean_watercolor_mode(true)
+		p.set_spot("river_bend")
+		_assert(not p.baked_art and p._spot_base != null
+			and p._spot_base.resource_path.ends_with("spot_watercolor_river_bend.png"),
+			"Web 水彩模式应关闭烘焙 UI，并加载干净河湾背景")
+		p.set_spot("mountain_stream")
+		_assert(p._spot_base != null
+			and p._spot_base.resource_path.ends_with("spot_watercolor_river_bend.png"),
+			"尚无水彩图的钓点应回退到干净河湾，不得回退含旧 UI 的 v9 图")
+		p.set_clean_watercolor_mode(false)
 	p.baked_art = false
 	_assert(p._fisher != null and p._lantern_tex != null and not p._glow_tex.is_empty(),
 		"baked_art=false 需代码画角色/灯笼/灯火，相关资源应已加载")

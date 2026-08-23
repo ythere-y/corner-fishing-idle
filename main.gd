@@ -599,8 +599,6 @@ func _ready() -> void:
 	get_tree().set_auto_accept_quit(false)  # 退出前存档
 	_setup_theme()
 	_apply_display_mode()   # 按 framed / immersive 布置场景 + 羽化
-	if painter.has_method("set_clean_watercolor_mode"):
-		painter.set_clean_watercolor_mode(_is_web())
 	toast_label.size = Vector2(440, 28)
 	if display_mode == "immersive":
 		_setup_immersive_hud()
@@ -1764,7 +1762,6 @@ func _build_bottom_nav() -> void:
 	for n in navs:
 		var tab: int = int(n["tab"])
 		var item := VBoxContainer.new()
-		item.name = "NavItem_%s" % str(n["id"])
 		item.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		item.alignment = BoxContainer.ALIGNMENT_CENTER
 		item.add_theme_constant_override("separation", 2)
@@ -1800,16 +1797,6 @@ func _build_bottom_nav() -> void:
 			placeholder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			icon_box.add_child(placeholder)
 		item.add_child(icon_box)
-		var nav_label := Label.new()
-		nav_label.name = "NavLabel_%s" % str(n["id"])
-		nav_label.text = str(n["label"])
-		nav_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		nav_label.add_theme_font_size_override("font_size", 11)
-		nav_label.add_theme_color_override("font_color", Color(0.94, 0.91, 0.84, 0.96))
-		nav_label.add_theme_color_override("font_outline_color", Color(0.05, 0.06, 0.05, 0.92))
-		nav_label.add_theme_constant_override("outline_size", 3)
-		nav_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		item.add_child(nav_label)
 		item.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 				Audio.play_ui("ui_click")

@@ -37,7 +37,8 @@ static func _is_web() -> bool:
 	return OS.has_feature("web")
 const FRAMED_SCENE_SCALE := 2.0                 # 带框模式：场景放大填满窗口宽（参考值；实际 scale 见 _apply_display_mode 含 overscan）
 const FRAMED_OVERSCAN := 4.0                    # 带框场景向四周溢出像素：消除分数 DPI 下窗口边缘的浅"描边"接缝
-const FRAMED_CONSOLE_H := 80.0                  # 底部导航 console 高（完整容纳 44px 图标 + 文字，不被窗口底切）
+const FRAMED_CONSOLE_H := 64.0                  # 底部导航 console 高（收窄以露出更多场景；图标缩到 30px + 文字仍完整容纳）
+const FRAMED_TOP_HUD_H := 54.0                  # 顶部 HUD 通栏高（同步收窄，露出更多场景）
 const FRAMED_BG := Color(0.105, 0.115, 0.105)   # 带框窗口实底背景（场景外的边）
 const FRAMED_UI_BASE_SCALE := 0.8               # 100% 档的紧凑基准；高 DPI 桌面不再默认占掉半屏
 
@@ -713,6 +714,7 @@ func _setup_window() -> void:
 var auto_cast := true            # 自动垂钓开关（默认开=原自动行为；关=手动起竿/起钩）
 var _action_btn: Button = null   # 带框模式底部「起竿/起钩」按钮
 # 带框 HUD 引用（胶囊 + 状态标签）
+var _hud_top_backdrop: PanelContainer = null   # 顶部通栏不透明背板：完全遮住 v9 完整画面里烘焙的「金币徽章/站名牌」旧图，避免与新 HUD 叠字
 var _chip_coin: Label = null
 var _chip_bag: Label = null
 var _chip_dex: Label = null
@@ -787,11 +789,21 @@ func _layout_widget() -> void:
 	painter.position = _widget_pos as Vector2
 	toast_label.position = _widget_point(Vector2((ART.x - 440.0) * 0.5, ART.y - FRAMED_CONSOLE_H - 120.0))
 	toast_label.scale = s
+	if is_instance_valid(_hud_top_backdrop):
+		_hud_top_backdrop.position = _widget_point(Vector2.ZERO)
+		_hud_top_backdrop.size = Vector2(ART.x, FRAMED_TOP_HUD_H)
+		_hud_top_backdrop.scale = s
+	# 收窄顶栏后，胶囊行/状态标签整体在栏高内垂直居中：胶囊行只有一行，直接按自身高度居中；
+	# 状态标签是竖向堆叠（钓点名+时段常驻，事件/关系/鱼贩/目标视情况追加），常见的两行
+	# （钓点名+时段）按其组合高度居中，多出的可选行允许向下自然溢出到场景上（本身带描边/底色，
+	# 不影响可读性）。
 	if is_instance_valid(_hud_chips_box):
-		_hud_chips_box.position = _widget_point(Vector2(16, 12))
+		var chips_h := 30.0   # _make_hud_chip 实际高度：padding 6+6 + 内容(图标17/字13行高) ≈ 30（同 CD .chip height）
+		_hud_chips_box.position = _widget_point(Vector2(16, (FRAMED_TOP_HUD_H - chips_h) * 0.5))
 		_hud_chips_box.scale = s
 	if is_instance_valid(_flag_box):
-		_flag_box.position = _widget_point(Vector2(0, 12))
+		var flags_common_h := 50.0   # 钓点名 pill + 时段 pill + 间距的常见高度
+		_flag_box.position = _widget_point(Vector2(0, maxf(4.0, (FRAMED_TOP_HUD_H - flags_common_h) * 0.5)))
 		_flag_box.size = Vector2(ART.x - 16.0, 0)
 		_flag_box.scale = s
 	if is_instance_valid(_relationship_visit_bar):
@@ -844,6 +856,7 @@ func _setup_immersive_hud() -> void:
 # —— 带框 App 外壳：底部导航 console + 起竿按钮 + 顶部 HUD ——
 func _build_framed_chrome() -> void:
 	coins_label.visible = false   # 带框用图标胶囊替代纯文字 HUD
+	_build_hud_top_backdrop()
 	_build_hud_chips()
 	_build_status_flags()
 	_build_relationship_visit_bar()
@@ -1166,6 +1179,27 @@ func _make_hud_chip(icon_path: String) -> Array:
 	lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	hb.add_child(lbl)
 	return [pc, lbl]
+
+
+## 顶部通栏不透明背板：v9「完整画面」背景图左上角烘焙了静态「金币徽章」、右上角烘焙了
+## 静态「站名牌」（数字/站名永远不变、不随钓点切换）。旧半透明 HUD 会让这些旧字透出来
+## 与新胶囊/新站名标签叠字。这里先铺一条不透明通栏盖住整条烘焙区域，再在其上叠放真正
+## 会更新的胶囊/标签，从视觉上消除重叠。（方案 B：不改美术图，只改代码层遮盖）
+func _build_hud_top_backdrop() -> void:
+	var pc := PanelContainer.new()
+	pc.name = "HudTopBackdrop"
+	pc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pc.custom_minimum_size = Vector2(ART.x, FRAMED_TOP_HUD_H)
+	pc.size = Vector2(ART.x, FRAMED_TOP_HUD_H)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = DT.GLASS_SOLID   # 不透明暗底，彻底盖住图内旧徽章/旧站名牌
+	sb.corner_radius_top_left = 0
+	sb.corner_radius_top_right = 0
+	sb.corner_radius_bottom_left = 18
+	sb.corner_radius_bottom_right = 18   # 底部圆角，视觉上像一条渐入的顶栏
+	pc.add_theme_stylebox_override("panel", sb)
+	ui_root.add_child(pc)
+	_hud_top_backdrop = pc
 
 
 func _build_hud_chips() -> void:
@@ -1719,62 +1753,86 @@ func _update_framed_hud() -> void:
 
 
 func _build_bottom_nav() -> void:
+	# 底栏容器本身完全透明（不铺整条不透明通栏），让修补后的场景在图标卡片之间/上方
+	# 完整透出；每个图标改用自己的小型半透明卡片承载可读性，闲置/展开面板两态均由
+	# _set_nav_solid() 统一控制卡片透明度（而不是切换整条底色）。
 	var bar := PanelContainer.new()
 	bar.name = "BottomNav"
 	bar.custom_minimum_size = Vector2(ART.x, FRAMED_CONSOLE_H)
 	bar.size = Vector2(ART.x, FRAMED_CONSOLE_H)
-	bar.add_theme_stylebox_override("panel", _nav_idle_sb())  # 闲置半透明暗底，图标不再糊进浅色场景
+	bar.mouse_filter = Control.MOUSE_FILTER_PASS
+	var bar_sb := StyleBoxFlat.new()
+	bar_sb.bg_color = Color(0, 0, 0, 0)
+	bar.add_theme_stylebox_override("panel", bar_sb)
 	ui_root.add_child(bar)
 	_nav_bar = bar
-	var mg := MarginContainer.new()
-	mg.add_theme_constant_override("margin_left", 14)
-	mg.add_theme_constant_override("margin_right", 14)
-	mg.add_theme_constant_override("margin_top", 6)
-	mg.add_theme_constant_override("margin_bottom", 6)
-	bar.add_child(mg)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	mg.add_child(row)
-	# 图标在上、文字在下（CD 布局）；功能未开放前不占底栏。
+	row.add_theme_constant_override("separation", 4)
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bar.add_child(row)
+	# 图标+文字整体作为一块在底栏高度内垂直居中；功能未开放前不占底栏。
 	var navs := _feature_nav_defs()
 	for n in navs:
 		var tab: int = int(n["tab"])
-		var item := VBoxContainer.new()
-		item.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		item.alignment = BoxContainer.ALIGNMENT_CENTER
-		item.add_theme_constant_override("separation", 2)
+		var cell := CenterContainer.new()
+		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cell.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		cell.mouse_filter = Control.MOUSE_FILTER_PASS
+		row.add_child(cell)
+		var item := PanelContainer.new()
+		item.name = "NavItem_%s" % str(n["id"])
 		item.mouse_filter = Control.MOUSE_FILTER_STOP
 		item.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		item.tooltip_text = str(n["label"])
-		# 图标：用 CenterContainer 保证水平居中；TextureRect 固定尺寸 + 等比不变形（不再用绝对定位）
+		var is_active := _panel_kind == "catch" and _catch_tab == tab
+		item.add_theme_stylebox_override("panel", _nav_item_sb(is_active))
+		var vb := VBoxContainer.new()
+		vb.alignment = BoxContainer.ALIGNMENT_CENTER
+		vb.add_theme_constant_override("separation", 2)
+		vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		item.add_child(vb)
+		# 图标：CenterContainer 保证水平居中，TextureRect 固定尺寸 + 等比不变形
 		var icon_box := CenterContainer.new()
-		icon_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		icon_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_box.custom_minimum_size = Vector2(30, 30)
 		if ResourceLoader.exists(str(n["icon"])):
 			var ic := TextureRect.new()
 			ic.texture = load(str(n["icon"]))
-			ic.custom_minimum_size = Vector2(44, 44)   # 容器据此给尺寸，等比居中绘制（任务栏空间足，放大更醒目）
+			ic.custom_minimum_size = Vector2(30, 30)
 			ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 			ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			icon_box.add_child(ic)
 			if tab == 0 or tab == 2:   # 鱼篓满 / 任务可交付 → 红角标，叠图标右上
 				var badge := _make_nav_badge()
-				badge.position = Vector2(35, -3)
+				badge.position = Vector2(22, -3)
 				ic.add_child(badge)
 				_nav_badges[tab] = badge
 		else:
 			var placeholder := Label.new()
 			placeholder.name = "NavIconPlaceholder_%s" % str(n["id"])
 			placeholder.text = str(n["label"]).substr(0, 1)
-			placeholder.custom_minimum_size = Vector2(44, 44)
+			placeholder.custom_minimum_size = Vector2(30, 30)
 			placeholder.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			placeholder.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			placeholder.add_theme_font_size_override("font_size", 25)
+			placeholder.add_theme_font_size_override("font_size", 18)
 			placeholder.add_theme_color_override("font_color", Color(0.94, 0.84, 0.62, 0.96))
 			placeholder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			icon_box.add_child(placeholder)
-		item.add_child(icon_box)
+		vb.add_child(icon_box)
+		# 文字：常驻可见的短标签（原来只有 tooltip、没有可见文字）
+		var cap := Label.new()
+		cap.name = "NavCaption"
+		cap.text = str(n["label"])
+		cap.add_theme_font_override("font", _font_bold)
+		cap.add_theme_font_size_override("font_size", 10)
+		cap.add_theme_color_override("font_color", DT.GOLD_BRIGHT if is_active else DT.TEXT_ON_GLASS)
+		cap.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.65))
+		cap.add_theme_constant_override("outline_size", 3)
+		cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		vb.add_child(cap)
+		cell.add_child(item)
 		item.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 				Audio.play_ui("ui_click")
@@ -1787,7 +1845,6 @@ func _build_bottom_nav() -> void:
 		# mouse_exited 在节点释放后访问悬空 capture。
 		item.mouse_entered.connect(_set_nav_item_hover.bind(item, true))
 		item.mouse_exited.connect(_set_nav_item_hover.bind(item, false))
-		row.add_child(item)
 	# 「自动垂钓」开关已移入设置页（见 ui_panels.fill_settings），底栏只留导航图标。
 
 
@@ -1810,13 +1867,15 @@ func _set_nav_item_hover(item: Control, hovered: bool) -> void:
 		item.modulate = Color(1.18, 1.18, 1.18) if hovered else Color.WHITE
 
 
-## 底栏背景上下文切换：开面板=暗(与 sheet 连成一片,无断裂)；关=透明(浮场景)。
+## 底栏背景上下文切换：开面板=暗(与 sheet 连成一片,无断裂)；关=整条透明，只留每个图标
+## 自己的小卡片，让场景在卡片之间/上方完整透出（背景图底部已修补掉旧烘焙按钮行，
+## 不再需要整条不透明遮挡）。
 func _set_nav_solid(solid: bool) -> void:
 	if not is_instance_valid(_nav_bar):
 		return
 	if solid:
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = DT.GLASS                 # 与 sheet 同色，连续
+		sb.bg_color = DT.GLASS_SOLID           # 不透明，与 sheet 同色系，连续且不漏底图
 		sb.border_width_top = 1
 		sb.border_color = DT.GLASS_ROW_BORDER  # CD .console border-top
 		_nav_bar.add_theme_stylebox_override("panel", sb)
@@ -1824,12 +1883,29 @@ func _set_nav_solid(solid: bool) -> void:
 		_nav_bar.add_theme_stylebox_override("panel", _nav_idle_sb())
 
 
-## 闲置态底栏背景：半透明暗底 + 顶部细线，让图标在浅色水彩场景上有对比、不发灰。
+## 闲置态底栏背景：整条透明（不再铺不透明通栏）。背景图底部烘焙按钮行已用美术修补去除，
+## 每个导航图标自带小卡片承载可读性，故整条底栏本身不需要再挡任何东西。
 func _nav_idle_sb() -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.10, 0.11, 0.10, 0.60)
-	sb.border_width_top = 1
-	sb.border_color = DT.GLASS_ROW_BORDER
+	sb.bg_color = Color(0, 0, 0, 0)
+	return sb
+
+
+## 单个导航图标的小卡片：半透明暗底（约75%不透明），让卡片间隙/上方场景透出；
+## 当前选中的 tab 用金色描边高亮，其余用低调的暖白细描边。
+func _nav_item_sb(is_active: bool) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.0784, 0.0863, 0.0784, 0.75)
+	sb.set_corner_radius_all(9)
+	sb.content_margin_left = 8
+	sb.content_margin_right = 8
+	sb.content_margin_top = 5
+	sb.content_margin_bottom = 5
+	sb.set_border_width_all(2 if is_active else 1)
+	sb.border_color = DT.GOLD_BRIGHT if is_active else DT.GLASS_ROW_BORDER
+	sb.shadow_color = Color(0, 0, 0, 0.30)
+	sb.shadow_size = 6
+	sb.shadow_offset = Vector2(0, 2)
 	return sb
 
 

@@ -1,0 +1,75 @@
+name: Web Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  GODOT_RELEASE: 4.6-stable
+  GODOT_VERSION_DIR: 4.6.stable
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Godot 4.6 and official export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          xdg_data_home="$RUNNER_TEMP/godot-data"
+          engine_dir="$RUNNER_TEMP/godot-engine"
+          template_unpack="$RUNNER_TEMP/godot-templates"
+          template_dir="$xdg_data_home/godot/export_templates/$GODOT_VERSION_DIR"
+          mkdir -p "$engine_dir" "$template_unpack" "$template_dir"
+          curl -fsSL \
+            "https://github.com/godotengine/godot-builds/releases/download/$GODOT_RELEASE/Godot_v${GODOT_RELEASE}_linux.x86_64.zip" \
+            -o "$RUNNER_TEMP/godot.zip"
+          curl -fsSL \
+            "https://github.com/godotengine/godot-builds/releases/download/$GODOT_RELEASE/Godot_v${GODOT_RELEASE}_export_templates.tpz" \
+            -o "$RUNNER_TEMP/templates.tpz"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$engine_dir"
+          unzip -q "$RUNNER_TEMP/templates.tpz" -d "$template_unpack"
+          cp -R "$template_unpack/templates/." "$template_dir/"
+          chmod +x "$engine_dir/Godot_v${GODOT_RELEASE}_linux.x86_64"
+          printf 'GODOT_BIN=%s\n' "$engine_dir/Godot_v${GODOT_RELEASE}_linux.x86_64" >> "$GITHUB_ENV"
+          printf 'XDG_DATA_HOME=%s\n' "$xdg_data_home" >> "$GITHUB_ENV"
+
+      - name: Validate project
+        run: '"$GODOT_BIN" --headless --path . -s tools/validate_game.gd'
+
+      - name: Export Web build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/web
+          "$GODOT_BIN" --headless --path . --export-release "Web" dist/web/index.html
+          touch dist/web/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/web
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

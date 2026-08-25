@@ -59,6 +59,10 @@
 - UI 规范对齐内部设计系统（颜色/字体/间距/圆角/两表面/品阶色/慢而无弹跳的动效，详见设计稿，未随游戏仓库发布）。
 - **旅行手账风格方向**（新）：整体视觉走「手记装订」框架 + 每站独立地域色，详见 `docs/art_direction.md`。
 
+## 网页试玩版
+
+在线试玩地址：[https://ythere-y.github.io/corner-fishing-idle/](https://ythere-y.github.io/corner-fishing-idle/)。仓库的 GitHub Pages 来源设为 **GitHub Actions** 后，每次 `main` 更新都会自动验证项目、导出 Godot Web 版本并发布到这个固定地址；也可在 Actions 的 **Web Pages** 工作流中手动重新部署。
+
 ## Windows + macOS 试玩包
 
 试玩者可按所用系统取得对应的版本化 ZIP，完整解压后再启动，不需要安装 Godot：

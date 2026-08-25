@@ -74,7 +74,8 @@
 - [x] Godot 4.6 **单线程** Web 导出预设 + web 平台守卫(`_is_web()`:跳过透明/穿透/多屏定位,强制 framed;存档走 IndexedDB;捕获卡走浏览器下载)—— 分支 `feat/web-makers-demo`
 - [x] **CJK 字体乱码修复**:web 默认字体从 `SystemFont` 改为打包的 Noto Serif SC(浏览器沙箱无系统字体)
 - [x] 本地静态服务器导出产物可加载、中文正常(`.wasm` 正确 MIME);`validate_game.gd` 0 失败
-- [x] **托管平台定案:改用 itch.io**(Makers 静态托管 25MiB 单文件上限,引擎 wasm 36MB 结构性超限,详见 BACKLOG 决策日志);产物 `dist/backpack-and-bait-web.zip`
+- [x] **排除 Makers**：静态托管 25MiB 单文件上限无法容纳 36MB 引擎 WASM；itch.io 保留为备用分发渠道，产物 `dist/backpack-and-bait-web.zip`
+- [x] GitHub Pages 改为官方 Actions 自动发布：每次 `main` 更新先验证、再导出 Web 包并部署到固定试玩地址；支持手动重跑
 - [ ] 上传 itch.io(HTML 项目、勾浏览器运行、**不勾** SharedArrayBuffer、视口 1040×720),拿到可分享 URL 并实机跑通闭环
 - [ ] (可选)Makers 静态落地页:介绍 + 截图 + 桌面包/itch 下载链接
 
